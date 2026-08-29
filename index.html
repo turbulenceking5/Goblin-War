@@ -1,1 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2E2013">
+<title>Goblin War</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --parchment:#e9dcb8;
+    --parchment-shadow:#b9a06e;
+    --ink:#2a1d10;
+    --ink-soft:#4d3a24;
+    --good:#33502f;
+    --dwarf:#2f4d55;
+    --bad:#6e2626;
+    --gold:#a97a1f;
+    --gold-lt:#d1a445;
+    --water-dk:#1c2a2c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; height:100%; overflow:hidden;
+    background:var(--water-dk);
+    font-family:'EB Garamond', serif;
+    color:var(--ink);
+    touch-action:none;
+  }
+  #app{ position:fixed; inset:0; display:flex; flex-direction:column; }
 
+  header{
+    position:relative; z-index:20;
+    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    border-bottom:3px solid var(--gold);
+    padding:10px 14px 8px;
+    display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);
+  }
+  .title-wrap{display:flex; align-items:center; gap:10px;}
+  .crest{ width:34px; height:34px; flex:none; }
+  h1{
+    font-family:'Cinzel Decorative', serif; font-size:19px; letter-spacing:1.5px;
+    color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6);
+  }
+  .subtitle{
+    font-family:'Cinzel', serif; font-size:9px; letter-spacing:3px;
+    color:#a9926a; text-transform:uppercase; margin-top:1px;
+  }
+  #location-badge{
+    font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:.5px;
+    color:var(--parchment); background:rgba(255,255,255,.06);
+    border:1px solid rgba(209,164,69,.5); border-radius:3px;
+    padding:5px 9px; text-align:right; line-height:1.35;
+  }
+  #location-badge b{ color:var(--gold-lt); font-weight:700; }
+
+  #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); }
+  #map-scroll{
+    position:absolute; inset:0; overflow:auto;
+    -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y;
+  }
+  #map-stage{ position:relative; width:998px; height:1331px; }
+  #map-img{ position:absolute; inset:0; width:998px; height:1331px; display:block; user-select:none; -webkit-user-drag:none; }
+  #overlay-svg{ position:absolute; inset:0; width:998px; height:1331px; }
+
+  #vignette{
+    position:absolute; inset:0; pointer-events:none; z-index:15;
+    box-shadow: inset 0 0 100px 34px rgba(0,0,0,.6);
+  }
+
+  .marker{ cursor:pointer; }
+  .marker .halo{ opacity:0; transition:opacity .15s; }
+  .marker.reachable .halo{ opacity:.95; }
+  .marker:active .halo{ opacity:1; }
+  .marker-label{
+    font-family:'Cinzel', serif; font-size:13px; fill:#241708;
+    paint-order:stroke; stroke:#f1e6c4; stroke-width:3.2px; stroke-linejoin:round;
+    pointer-events:none; font-weight:700;
+  }
+  .marker-label.town{ font-size:10.5px; font-weight:500; }
+
+  .player-token{ pointer-events:none; transition:transform 1.1s cubic-bezier(.45,.05,.55,.95); }
+
+  .route{ fill:none; stroke:var(--gold-lt); stroke-width:3.2; stroke-dasharray:2 6; stroke-linecap:round; opacity:0; }
+  .route.active{ opacity:1; }
+  .route.sea{ stroke:#dfe9ea; }
+
+  #info-card{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
+    border-top:3px solid var(--gold); border-radius:14px 14px 0 0;
+    box-shadow:0 -8px 24px rgba(0,0,0,.45);
+    padding:16px 18px calc(18px + env(safe-area-inset-bottom));
+    transform:translateY(115%); transition:transform .32s cubic-bezier(.3,.9,.4,1);
+    max-height:46vh; overflow-y:auto;
+  }
+  #info-card.open{ transform:translateY(0); }
+  #info-card .handle{ width:38px; height:4px; border-radius:3px; background:var(--parchment-shadow); margin:0 auto 10px; }
+  #info-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--ink); margin:0 0 2px; }
+  #info-meta{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; margin:0 0 10px; }
+  .tag{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:9.5px; letter-spacing:1px; margin-right:6px; color:#fff; font-family:'Cinzel',serif; }
+  .tag.human{ background:var(--good); }
+  .tag.dwarf{ background:var(--dwarf); }
+  .tag.ork,.tag.goblin{ background:var(--bad); }
+  .tag.neutral{ background:#6a5a3a; }
+  #info-desc{ font-size:15.5px; line-height:1.5; color:var(--ink-soft); margin:0 0 14px; }
+  #info-actions{ display:flex; gap:10px; }
+  .btn{
+    font-family:'Cinzel', serif; font-size:13px; letter-spacing:1px;
+    border:none; border-radius:8px; padding:11px 16px; cursor:pointer; flex:1;
+    transition:transform .08s, filter .15s;
+  }
+  .btn:active{ transform:scale(.97); }
+  .btn-primary{
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700;
+    box-shadow:0 3px 0 #7a5715;
+  }
+  .btn-primary:disabled{ background:#b7ab8a; color:#7c7256; box-shadow:0 3px 0 #8f8567; cursor:default; }
+  .btn-secondary{ background:transparent; color:var(--ink-soft); border:1.5px solid var(--parchment-shadow); }
+  #info-note{ font-size:12.5px; font-style:italic; color:#8a7a54; margin-top:8px; }
+
+  #toast{
+    position:fixed; top:70px; left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.92); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  #legend-btn{
+    position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:25;
+    width:42px; height:42px; border-radius:50%;
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold));
+    border:2px solid #7a5715; color:#241705; font-family:'Cinzel', serif; font-weight:700; font-size:16px;
+    box-shadow:0 3px 10px rgba(0,0,0,.4);
+  }
+  #legend{
+    position:fixed; right:12px; bottom:calc(64px + env(safe-area-inset-bottom)); z-index:25;
+    background:rgba(24,17,8,.94); border:1px solid var(--gold); border-radius:10px;
+    padding:12px 14px; color:var(--parchment); font-family:'EB Garamond', serif; font-size:12.5px;
+    display:none; min-width:172px;
+  }
+  #legend.open{ display:block; }
+  #legend h3{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:2px; margin:0 0 8px; color:var(--gold-lt); text-transform:uppercase; }
+  .legend-row{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .swatch{ width:11px; height:11px; border-radius:3px; flex:none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="title-wrap">
+      <svg class="crest" viewBox="0 0 40 40">
+        <circle cx="20" cy="20" r="18" fill="none" stroke="#d1a445" stroke-width="1.4"/>
+        <path d="M20 6 L24 16 L34 18 L26 25 L28 35 L20 29 L12 35 L14 25 L6 18 L16 16 Z" fill="#7b2e2e" stroke="#d1a445" stroke-width="1"/>
+      </svg>
+      <div>
+        <h1>GOBLIN WAR</h1>
+        <div class="subtitle">A Realm Divided</div>
+      </div>
+    </div>
+    <div id="location-badge">You are at<br><b id="badge-loc">—</b></div>
+  </header>
+
+  <div id="map-viewport">
+    <div id="map-scroll">
+      <div id="map-stage">
+        <img id="map-img" src="assets/map.jpg" alt="Map of the realm" draggable="false">
+        <svg id="overlay-svg" viewBox="0 0 768 1024" xmlns="http://www.w3.org/2000/svg">
+          <g id="routes"></g>
+          <g id="markers"></g>
+          <g id="player-layer"></g>
+        </svg>
+      </div>
+    </div>
+    <div id="vignette"></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <button id="legend-btn" aria-label="Legend">?</button>
+  <div id="legend">
+    <h3>Legend</h3>
+    <div class="legend-row"><span class="swatch" style="background:var(--good)"></span>Human</div>
+    <div class="legend-row"><span class="swatch" style="background:var(--dwarf)"></span>Dwarf</div>
+    <div class="legend-row"><span class="swatch" style="background:var(--bad)"></span>Ork / Goblin</div>
+    <div class="legend-row"><span class="swatch" style="background:#6a5a3a"></span>Neutral</div>
+    <div style="margin-top:8px; font-size:11px; color:#c9b98d;">Drag to pan the map.</div>
+  </div>
+
+  <div id="info-card">
+    <div class="handle"></div>
+    <h2 id="info-name">—</h2>
+    <div id="info-meta"></div>
+    <p id="info-desc"></p>
+    <div id="info-actions">
+      <button class="btn btn-secondary" id="btn-close">Close</button>
+      <button class="btn btn-primary" id="btn-travel">Travel Here</button>
+    </div>
+    <div id="info-note"></div>
+  </div>
+
+</div>
+
+<script>
+/* =====================================================
+   GOBLIN WAR — Map & Movement (v1 slice)
+   Coordinates are in the original map image's pixel space (768 x 1024)
+   ===================================================== */
+
+const LOCATIONS = [
+  { id:"northbrook", name:"Northbrook",   type:"town", race:"human",  x:277, y:143, desc:"A modest northern settlement in the foothills. The first stop for travellers heading south toward Aethelburg." },
+  { id:"aethelburg", name:"Aethelburg",   type:"city", race:"human",  x:407, y:184, desc:"The Human capital, built where two roads and a river bridge meet. Its keep watches over the whole northern coast." },
+  { id:"highwyck",   name:"Highwyck",     type:"city", race:"human",  x:660, y:113, desc:"A mountain-flanked Human city guarding the eastern high road. Cold, well-defended, and rarely short of soldiers." },
+  { id:"underspyre", name:"The Underspyre Dungeon", type:"dungeon", race:"neutral", x:476, y:328, desc:"A yawning cave mouth sunk into the hillside. Nobody who lives nearby claims to know how deep it goes." },
+  { id:"khazgardn",  name:"Khazgard North", type:"city", race:"dwarf", x:630, y:338, desc:"The northern half of the great Dwarven stronghold, its halls cut straight into the mountain beside a hidden lake." },
+  { id:"kadath",     name:"Kadath",       type:"port", race:"neutral",x:522, y:471, desc:"A small dock town on the inland sea, used by anyone willing to pay for a quieter crossing than Aethelburg's harbour." },
+  { id:"khazgards",  name:"Khazgard South", type:"city", race:"dwarf", x:630, y:502, desc:"The southern half of the Dwarven stronghold, closest to the frontier and the first line of defence if the Goblins push north." },
+  { id:"westhaven",  name:"Westhaven",    type:"city", race:"human",  x:277, y:379, desc:"A grand walled city on the western shore, spires rising above the bay. The old heart of Human power on this continent." },
+  { id:"muckharbor", name:"Muck Harbor Goblin City", type:"city", race:"goblin", x:184, y:543, desc:"A sprawling shantytown built out over the mudflats. Goblin numbers here seem to double every season." },
+  { id:"skullcrag",  name:"Skullcrag Vigil", type:"town", race:"ork", x:77,  y:635, desc:"An Ork watchpost on a bare crag, keeping an eye on anything that moves along the western coast." },
+  { id:"goblinspass",name:"Goblin's Pass", type:"town", race:"goblin",x:146, y:717, desc:"A narrow mountain pass and the fastest way between the goblin warrens — heavily raided, rarely safe." },
+  { id:"blackfen",   name:"Black-Fen Nest", type:"town", race:"goblin", x:77, y:747, desc:"A goblin nest sunk into the marsh. The ground here doesn't hold weight the way it should." },
+  { id:"banditsroost",name:"Bandit's Roost", type:"town", race:"neutral", x:307, y:697, desc:"An old watchtower turned bandit hideout, sitting right on the central trade road. A frequent source of trouble for caravans." },
+  { id:"guttersrun", name:"Gutter's-Run Goblin Village", type:"town", race:"goblin", x:230, y:840, desc:"A rough goblin settlement that grew up around a trade route it now mostly preys on." },
+  { id:"redstone",   name:"Red Stone Village", type:"town", race:"human", x:445, y:809, desc:"A Human farming village on the southern frontier — closest to Kragmaw's Hold, and it shows in how well they're armed." },
+  { id:"kragmaw",    name:"Kragmaw's Hold", type:"city", race:"goblin", x:576, y:737, desc:"A dark fortress crowned with a skull banner, the Goblins' southern seat of power. Smoke rarely stops rising behind its walls." },
+  { id:"grogmar",    name:"Grogmar's Crag-City", type:"city", race:"ork", x:131, y:922, desc:"The one great Ork city, hewn from black crag-stone in the deep south. What they lack in numbers, they make up in brutality." },
+  { id:"oldvaloria", name:"Old Valoria's Fall", type:"town", race:"neutral", x:338, y:922, desc:"The ruin of a kingdom nobody quite remembers. Treasure hunters go in more often than they come out." },
+];
+
+// [fromId, toId, kind]  kind: 'road' | 'sea'
+const ROUTES = [
+  ["northbrook","aethelburg","road"],
+  ["aethelburg","highwyck","road"],
+  ["aethelburg","westhaven","road"],
+  ["westhaven","underspyre","road"],
+  ["underspyre","khazgardn","road"],
+  ["khazgardn","kadath","road"],
+  ["kadath","khazgards","road"],
+  ["khazgards","kragmaw","road"],
+  ["westhaven","banditsroost","road"],
+  ["banditsroost","kadath","road"],
+  ["banditsroost","redstone","road"],
+  ["banditsroost","guttersrun","road"],
+  ["muckharbor","skullcrag","road"],
+  ["skullcrag","blackfen","road"],
+  ["skullcrag","goblinspass","road"],
+  ["goblinspass","guttersrun","road"],
+  ["guttersrun","grogmar","road"],
+  ["guttersrun","oldvaloria","road"],
+  ["oldvaloria","redstone","road"],
+  ["redstone","kragmaw","road"],
+  ["westhaven","muckharbor","sea"],
+  ["kadath","westhaven","sea"],
+];
+
+const RACE_COLOR = { human:"#33502f", dwarf:"#2f4d55", ork:"#6e2626", goblin:"#8a3a1f", neutral:"#7a6a3a" };
+const TYPE_R = { city:14, town:9, port:10, dungeon:10 };
+
+const byId = Object.fromEntries(LOCATIONS.map(l=>[l.id,l]));
+const adjacency = {};
+LOCATIONS.forEach(l=>adjacency[l.id]=[]);
+ROUTES.forEach(([a,b,kind])=>{ adjacency[a].push({to:b,kind}); adjacency[b].push({to:a,kind}); });
+
+const STORAGE_KEY = "goblinwar_playerLocation";
+let currentLocation = localStorage.getItem(STORAGE_KEY) || "aethelburg";
+if(!byId[currentLocation]) currentLocation = "aethelburg";
+let selectedLocation = null;
+let traveling = false;
+
+const routesG = document.getElementById("routes");
+const markersG = document.getElementById("markers");
+const playerLayer = document.getElementById("player-layer");
+
+function drawRoutes(){
+  routesG.innerHTML = "";
+  ROUTES.forEach(([a,b,kind])=>{
+    const A = byId[a], B = byId[b];
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    const mx=(A.x+B.x)/2, my=(A.y+B.y)/2 - 14;
+    path.setAttribute("d",`M${A.x},${A.y} Q${mx},${my} ${B.x},${B.y}`);
+    path.setAttribute("class","route"+(kind==="sea"?" sea":""));
+    path.dataset.a=a; path.dataset.b=b;
+    routesG.appendChild(path);
+  });
+}
+
+function iconFor(type){
+  if(type==="city") return `<path d="M-7,5 L-7,-3 L-3,-8 L0,-3 L3,-8 L7,-3 L7,5 Z" fill="#f1e6c4"/>`;
+  if(type==="port") return `<circle r="3" fill="#f1e6c4"/><path d="M0,-3 L0,6 M-4,6 L4,6" stroke="#f1e6c4" stroke-width="1.4"/>`;
+  if(type==="dungeon") return `<path d="M-6,6 L-6,-1 Q0,-9 6,-1 L6,6 Z" fill="#f1e6c4"/>`;
+  return `<circle r="2.6" fill="#f1e6c4"/>`;
+}
+
+function drawMarkers(){
+  markersG.innerHTML = "";
+  LOCATIONS.forEach(loc=>{
+    const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+    g.setAttribute("class","marker");
+    g.setAttribute("transform",`translate(${loc.x},${loc.y})`);
+    g.dataset.id = loc.id;
+    const r = TYPE_R[loc.type];
+    g.innerHTML = `
+      <circle class="halo" r="${r+6}" fill="none" stroke="#d1a445" stroke-width="2.2"></circle>
+      <circle r="${r}" fill="${RACE_COLOR[loc.race]}" stroke="#f1e6c4" stroke-width="2"></circle>
+      <g>${iconFor(loc.type)}</g>
+      <text class="marker-label${loc.type==='town'?' town':''}" x="0" y="${-(r+8)}" text-anchor="middle">${loc.name}</text>
+    `;
+    g.addEventListener("click",(e)=>{ e.stopPropagation(); onMarkerTap(loc.id); });
+    markersG.appendChild(g);
+  });
+}
+
+function drawPlayer(){
+  playerLayer.innerHTML = `
+    <g id="player-token" class="player-token">
+      <circle r="12" fill="none" stroke="#d1a445" stroke-width="2">
+        <animate attributeName="r" values="12;16;12" dur="2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values=".9;.2;.9" dur="2s" repeatCount="indefinite"/>
+      </circle>
+      <path d="M0,-11 L8,9 L0,4 L-8,9 Z" fill="#7b2e2e" stroke="#f1e6c4" stroke-width="1.6"/>
+    </g>`;
+  positionPlayer(currentLocation, false);
+}
+
+function positionPlayer(id, animate){
+  const loc = byId[id];
+  const token = document.getElementById("player-token");
+  token.style.transition = animate ? "" : "none";
+  token.setAttribute("transform", `translate(${loc.x},${loc.y})`);
+  if(!animate){ void token.getBBox(); }
+}
+
+function refreshReachable(){
+  const reachIds = new Set([currentLocation, ...adjacency[currentLocation].map(r=>r.to)]);
+  document.querySelectorAll(".marker").forEach(m=>{
+    m.classList.toggle("reachable", reachIds.has(m.dataset.id) && m.dataset.id!==currentLocation);
+  });
+  document.getElementById("badge-loc").textContent = byId[currentLocation].name;
+}
+
+function raceLabel(r){ return {human:"Human",dwarf:"Dwarf",ork:"Ork",goblin:"Goblin",neutral:"Neutral"}[r]; }
+function typeLabel(t){ return {city:"City",town:"Town",port:"Port",dungeon:"Dungeon"}[t]; }
+
+function onMarkerTap(id){
+  selectedLocation = id;
+  const loc = byId[id];
+  document.getElementById("info-name").textContent = loc.name;
+  document.getElementById("info-meta").innerHTML =
+    `<span class="tag ${loc.race}">${raceLabel(loc.race)}</span><span class="tag" style="background:#4a3a20">${typeLabel(loc.type)}</span>`;
+  document.getElementById("info-desc").textContent = loc.desc;
+
+  const isHere = id===currentLocation;
+  const connection = adjacency[currentLocation].find(r=>r.to===id);
+  const travelBtn = document.getElementById("btn-travel");
+  const note = document.getElementById("info-note");
+
+  if(isHere){
+    travelBtn.style.display="none";
+    note.textContent = "You are here.";
+  } else if(connection){
+    travelBtn.style.display="block";
+    travelBtn.disabled = false;
+    travelBtn.textContent = connection.kind==="sea" ? "Travel Here (by boat)" : "Travel Here";
+    note.textContent = connection.kind==="sea" ? "Sea travel costs coin, and doesn't always arrive safely." : "";
+  } else {
+    travelBtn.style.display="block";
+    travelBtn.disabled = true;
+    travelBtn.textContent = "Too Far to Travel Directly";
+    note.textContent = "Move through connected locations to get there.";
+  }
+
+  highlightRoute(currentLocation, isHere? null : (connection? id : null));
+  openCard();
+}
+
+function highlightRoute(from,to){
+  document.querySelectorAll(".route").forEach(r=>{
+    const match = to && ((r.dataset.a===from&&r.dataset.b===to)||(r.dataset.a===to&&r.dataset.b===from));
+    r.classList.toggle("active", !!match);
+  });
+}
+
+function openCard(){ document.getElementById("info-card").classList.add("open"); }
+function closeCard(){
+  document.getElementById("info-card").classList.remove("open");
+  document.querySelectorAll(".route.active").forEach(r=>r.classList.remove("active"));
+}
+
+function travel(){
+  if(traveling || !selectedLocation) return;
+  const connection = adjacency[currentLocation].find(r=>r.to===selectedLocation);
+  if(!connection) return;
+  traveling = true;
+  const destName = byId[selectedLocation].name;
+  showToast(`Traveling to ${destName}…`);
+  positionPlayer(selectedLocation, true);
+  closeCard();
+  setTimeout(()=>{
+    currentLocation = selectedLocation;
+    localStorage.setItem(STORAGE_KEY, currentLocation);
+    refreshReachable();
+    showToast(`Arrived at ${destName}.`);
+    traveling = false;
+  }, 1150);
+}
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove("show"), 2200);
+}
+
+document.getElementById("btn-close").addEventListener("click", closeCard);
+document.getElementById("btn-travel").addEventListener("click", travel);
+document.getElementById("map-scroll").addEventListener("click", closeCard);
+
+document.getElementById("legend-btn").addEventListener("click", (e)=>{
+  e.stopPropagation();
+  document.getElementById("legend").classList.toggle("open");
+});
+document.addEventListener("click", ()=> document.getElementById("legend").classList.remove("open"));
+
+drawRoutes();
+drawMarkers();
+drawPlayer();
+refreshReachable();
+
+window.addEventListener("load", ()=>{
+  const wrap = document.getElementById("map-scroll");
+  const loc = byId[currentLocation];
+  const scaleX = 998/768, scaleY = 1331/1024;
+  wrap.scrollTo({
+    left: Math.max(0, loc.x*scaleX - wrap.clientWidth/2),
+    top: Math.max(0, loc.y*scaleY - wrap.clientHeight/2)
+  });
+});
+</script>
+</body>
+</html>

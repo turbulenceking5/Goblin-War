@@ -76,12 +76,6 @@
   .marker .halo{ opacity:0; transition:opacity .15s; }
   .marker.reachable .halo{ opacity:.95; }
   .marker:active .halo{ opacity:1; }
-  .marker-label{
-    font-family:'Cinzel', serif; font-size:13px; fill:#241708;
-    paint-order:stroke; stroke:#f1e6c4; stroke-width:3.2px; stroke-linejoin:round;
-    pointer-events:none; font-weight:700;
-  }
-  .marker-label.town{ font-size:10.5px; font-weight:500; }
 
   .player-token{ pointer-events:none; transition:transform 1.1s cubic-bezier(.45,.05,.55,.95); }
 
@@ -219,9 +213,9 @@ const LOCATIONS = [
   { id:"aethelburg", name:"Aethelburg",   type:"city", race:"human",  x:407, y:184, desc:"The Human capital, built where two roads and a river bridge meet. Its keep watches over the whole northern coast." },
   { id:"highwyck",   name:"Highwyck",     type:"city", race:"human",  x:660, y:113, desc:"A mountain-flanked Human city guarding the eastern high road. Cold, well-defended, and rarely short of soldiers." },
   { id:"underspyre", name:"The Underspyre Dungeon", type:"dungeon", race:"neutral", x:476, y:328, desc:"A yawning cave mouth sunk into the hillside. Nobody who lives nearby claims to know how deep it goes." },
-  { id:"khazgardn",  name:"Khazgard North", type:"city", race:"dwarf", x:630, y:338, desc:"The northern half of the great Dwarven stronghold, its halls cut straight into the mountain beside a hidden lake." },
+  { id:"khazgardn",  name:"Khazgard North", type:"city", race:"dwarf", x:635, y:345, desc:"The northern half of the great Dwarven stronghold, its halls cut straight into the mountain beside a hidden lake." },
   { id:"kadath",     name:"Kadath",       type:"port", race:"neutral",x:522, y:471, desc:"A small dock town on the inland sea, used by anyone willing to pay for a quieter crossing than Aethelburg's harbour." },
-  { id:"khazgards",  name:"Khazgard South", type:"city", race:"dwarf", x:630, y:502, desc:"The southern half of the Dwarven stronghold, closest to the frontier and the first line of defence if the Goblins push north." },
+  { id:"khazgards",  name:"Khazgard South", type:"city", race:"dwarf", x:680, y:497, desc:"The southern half of the Dwarven stronghold, closest to the frontier and the first line of defence if the Goblins push north." },
   { id:"westhaven",  name:"Westhaven",    type:"city", race:"human",  x:277, y:379, desc:"A grand walled city on the western shore, spires rising above the bay. The old heart of Human power on this continent." },
   { id:"muckharbor", name:"Muck Harbor Goblin City", type:"city", race:"goblin", x:184, y:543, desc:"A sprawling shantytown built out over the mudflats. Goblin numbers here seem to double every season." },
   { id:"skullcrag",  name:"Skullcrag Vigil", type:"town", race:"ork", x:77,  y:635, desc:"An Ork watchpost on a bare crag, keeping an eye on anything that moves along the western coast." },
@@ -229,10 +223,10 @@ const LOCATIONS = [
   { id:"blackfen",   name:"Black-Fen Nest", type:"town", race:"goblin", x:77, y:747, desc:"A goblin nest sunk into the marsh. The ground here doesn't hold weight the way it should." },
   { id:"banditsroost",name:"Bandit's Roost", type:"town", race:"neutral", x:307, y:697, desc:"An old watchtower turned bandit hideout, sitting right on the central trade road. A frequent source of trouble for caravans." },
   { id:"guttersrun", name:"Gutter's-Run Goblin Village", type:"town", race:"goblin", x:230, y:840, desc:"A rough goblin settlement that grew up around a trade route it now mostly preys on." },
-  { id:"redstone",   name:"Red Stone Village", type:"town", race:"human", x:445, y:809, desc:"A Human farming village on the southern frontier — closest to Kragmaw's Hold, and it shows in how well they're armed." },
-  { id:"kragmaw",    name:"Kragmaw's Hold", type:"city", race:"goblin", x:576, y:737, desc:"A dark fortress crowned with a skull banner, the Goblins' southern seat of power. Smoke rarely stops rising behind its walls." },
+  { id:"redstone",   name:"Red Stone Village", type:"town", race:"human", x:445, y:809, desc:"A Human farming village on the southern frontier — closest to Grimjaw's Hold, and it shows in how well they're armed." },
+  { id:"grimjaw",    name:"Grimjaw's Hold", type:"city", race:"goblin", x:650, y:815, desc:"A dark fortress crowned with a skull banner, the Goblins' southern seat of power. Smoke rarely stops rising behind its walls." },
   { id:"grogmar",    name:"Grogmar's Crag-City", type:"city", race:"ork", x:131, y:922, desc:"The one great Ork city, hewn from black crag-stone in the deep south. What they lack in numbers, they make up in brutality." },
-  { id:"oldvaloria", name:"Old Valoria's Fall", type:"town", race:"neutral", x:338, y:922, desc:"The ruin of a kingdom nobody quite remembers. Treasure hunters go in more often than they come out." },
+  { id:"oldkorvane", name:"Old Korvane's Fall", type:"town", race:"neutral", x:365, y:940, desc:"The ruin of a kingdom nobody quite remembers. Treasure hunters go in more often than they come out." },
 ];
 
 // [fromId, toId, kind]  kind: 'road' | 'sea'
@@ -244,7 +238,7 @@ const ROUTES = [
   ["underspyre","khazgardn","road"],
   ["khazgardn","kadath","road"],
   ["kadath","khazgards","road"],
-  ["khazgards","kragmaw","road"],
+  ["khazgards","grimjaw","road"],
   ["westhaven","banditsroost","road"],
   ["banditsroost","kadath","road"],
   ["banditsroost","redstone","road"],
@@ -254,9 +248,9 @@ const ROUTES = [
   ["skullcrag","goblinspass","road"],
   ["goblinspass","guttersrun","road"],
   ["guttersrun","grogmar","road"],
-  ["guttersrun","oldvaloria","road"],
-  ["oldvaloria","redstone","road"],
-  ["redstone","kragmaw","road"],
+  ["guttersrun","oldkorvane","road"],
+  ["oldkorvane","redstone","road"],
+  ["redstone","grimjaw","road"],
   ["westhaven","muckharbor","sea"],
   ["kadath","westhaven","sea"],
 ];
@@ -311,7 +305,6 @@ function drawMarkers(){
       <circle class="halo" r="${r+6}" fill="none" stroke="#d1a445" stroke-width="2.2"></circle>
       <circle r="${r}" fill="${RACE_COLOR[loc.race]}" stroke="#f1e6c4" stroke-width="2"></circle>
       <g>${iconFor(loc.type)}</g>
-      <text class="marker-label${loc.type==='town'?' town':''}" x="0" y="${-(r+8)}" text-anchor="middle">${loc.name}</text>
     `;
     g.addEventListener("click",(e)=>{ e.stopPropagation(); onMarkerTap(loc.id); });
     markersG.appendChild(g);

@@ -60,12 +60,12 @@
   #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); touch-action:none; }
   #map-stage{
     position:absolute; left:0; top:0;
-    width:5120px; height:2554px;
+    width:8192px; height:4086px;
     transform-origin:0 0;
     will-change:transform;
   }
-  #map-img{ position:absolute; inset:0; width:5120px; height:2554px; display:block; user-select:none; -webkit-user-drag:none; }
-  #overlay{ position:absolute; inset:0; width:5120px; height:2554px; }
+  #map-img{ position:absolute; inset:0; width:8192px; height:4086px; display:block; user-select:none; -webkit-user-drag:none; }
+  #overlay{ position:absolute; inset:0; width:8192px; height:4086px; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
   #highlight-ring{
@@ -259,7 +259,7 @@ const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capit
 const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
 
 // ===================== MAP CANVAS / VIEW (raster + CSS transform pan/zoom) =====================
-const STAGE_W = 5120, STAGE_H = 2554;      // native raster pixel size
+const STAGE_W = 8192, STAGE_H = 4086;      // native raster pixel size
 const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1 unit = 2 raster px)
 const START_X = 705, START_Y = 448;         // Bary — human starting kingdom
 const REGION_W = 700;                        // default zoom shows this many logical units wide

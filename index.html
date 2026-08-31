@@ -401,17 +401,19 @@ function advanceDays(n){
 }
 
 // ===================== TRAVEL GRAPH =====================
+// Graph nodes are map CELLS (not just burgs) — every point along every real
+// road/trail/sea route is a node, so junctions are handled naturally instead
+// of only counting direct burg-to-burg route matches.
 const LOC_KEY = "goblinwar_currentBurg";
 const ROAD_PACE = 20;    // miles per day, travelling via drawn roads
 const OFFROAD_PACE = 12; // miles per day, cross-country with no road
 
-let graph = null;      // { burgs: {id:{name,tier,x,y}}, edges:[{a,b,mi}] }
-let adjacency = {};     // id -> [{to, mi}]
+let graph = null;      // { burgs, states, burgByCell, edges:[{a,b,mi,kind,pts}] }
+let adjacency = {};     // cellId -> [{to, mi, edge, forward}]
 let currentBurg = localStorage.getItem(LOC_KEY) || "5"; // Bary
 let selectedBurg = null;
 let playerMarkerEl = null;
-let reachableSet = new Set(); // burg ids reachable via roads from currentBurg
-const nameIndex = {};          // "tier|name" -> burg id
+let reachableSet = new Set(); // cell ids reachable from currentBurg's cell
 const labelElByBurg = {};      // burg id -> <text> element (built after SVG loads)
 
 function buildAdjacency(){
@@ -419,36 +421,61 @@ function buildAdjacency(){
     (adjacency[e.a] = adjacency[e.a]||[]).push({to:e.b, mi:e.mi, edge:e, forward:true});
     (adjacency[e.b] = adjacency[e.b]||[]).push({to:e.a, mi:e.mi, edge:e, forward:false});
   });
-  for(const id in graph.burgs){
-    const b = graph.burgs[id];
-  // (name-based index removed — burg identity is read directly from each
-  //  label's data-id attribute instead, since settlement names can repeat)
-  }
 }
 
-// Dijkstra shortest road path from currentBurg to targetId.
-// Returns { miles, path:[burgId,...], edges:[{edge,forward},...] } or null if unreachable.
-function roadRoute(fromId, toId){
-  if(fromId === toId) return { miles:0, path:[fromId], edges:[] };
-  const dist = {}; dist[fromId] = 0;
+// Minimal binary min-heap — the cell graph has thousands of nodes, so a
+// plain array-sort priority queue (fine for ~800 burgs) is too slow here.
+class MinHeap{
+  constructor(){ this.a = []; }
+  push(item){
+    const a = this.a; a.push(item);
+    let i = a.length-1;
+    while(i>0){
+      const p = (i-1)>>1;
+      if(a[p][0] <= a[i][0]) break;
+      [a[p],a[i]] = [a[i],a[p]]; i = p;
+    }
+  }
+  pop(){
+    const a = this.a;
+    const top = a[0];
+    const last = a.pop();
+    if(a.length){
+      a[0] = last;
+      let i = 0;
+      while(true){
+        const l = 2*i+1, r = 2*i+2; let smallest = i;
+        if(l<a.length && a[l][0]<a[smallest][0]) smallest = l;
+        if(r<a.length && a[r][0]<a[smallest][0]) smallest = r;
+        if(smallest===i) break;
+        [a[smallest],a[i]] = [a[i],a[smallest]]; i = smallest;
+      }
+    }
+    return top;
+  }
+  get size(){ return this.a.length; }
+}
+
+// Dijkstra shortest road path between two CELL ids.
+// Returns { miles, edges:[{edge,forward},...] } or null if unreachable.
+function cellRoute(fromCell, toCell){
+  if(fromCell === toCell) return { miles:0, edges:[] };
+  const dist = {}; dist[fromCell] = 0;
   const prev = {};
   const visited = new Set();
-  const pq = [[0, fromId]];
-  while(pq.length){
-    pq.sort((a,b)=>a[0]-b[0]);
-    const [d, node] = pq.shift();
+  const pq = new MinHeap();
+  pq.push([0, fromCell]);
+  while(pq.size){
+    const [d, node] = pq.pop();
     if(visited.has(node)) continue;
     visited.add(node);
-    if(node === toId){
-      const path=[toId]; let cur=toId; const edgeList=[];
-      while(prev[cur]){
-        edgeList.unshift(prev[cur].step);
-        cur = prev[cur].from;
-        path.unshift(cur);
-      }
-      return { miles: d, path, edges: edgeList };
+    if(node === toCell){
+      const edgeList=[]; let cur=toCell;
+      while(prev[cur]){ edgeList.unshift(prev[cur].step); cur = prev[cur].from; }
+      return { miles: d, edges: edgeList };
     }
     (adjacency[node]||[]).forEach(step=>{
+      if(visited.has(step.to)) return;
       const nd = d + step.mi;
       if(dist[step.to] === undefined || nd < dist[step.to]){
         dist[step.to] = nd;
@@ -460,11 +487,11 @@ function roadRoute(fromId, toId){
   return null;
 }
 
-// Full BFS reachability (ignores distance) — kept only for the dead-end
-// recovery check at load time (see below), not for gating travel anymore.
-function computeReachable(fromId){
-  const seen = new Set([fromId]);
-  const stack = [fromId];
+// Full reachability (ignores distance) — used only for the dead-end
+// recovery check at load time, not for gating travel.
+function computeReachable(fromCell){
+  const seen = new Set([fromCell]);
+  const stack = [fromCell];
   while(stack.length){
     const node = stack.pop();
     (adjacency[node]||[]).forEach(step=>{
@@ -475,21 +502,23 @@ function computeReachable(fromId){
 }
 
 function computeTravel(toId){
-  const route = roadRoute(currentBurg, toId);
+  const fromBurg = graph.burgs[currentBurg], toBurg = graph.burgs[toId];
+  if(!fromBurg || !toBurg) return null;
+  const route = cellRoute(fromBurg.cell, toBurg.cell);
   if(route){
     const miles = Math.round(route.miles);
-    return { miles, days: Math.max(1, Math.ceil(miles/ROAD_PACE)), path: route.path, edges: route.edges, viaRoad:true };
+    const bySea = route.edges.some(s=>s.edge.kind==='sea');
+    return { miles, days: Math.max(1, Math.ceil(miles/ROAD_PACE)), edges: route.edges, viaRoad:true, bySea };
   }
-  // No road connects them yet — still travelable, just slower and cross-country.
-  const a = graph.burgs[currentBurg], b = graph.burgs[toId];
-  if(!a || !b) return null;
-  const straight = Math.hypot(a.x-b.x, a.y-b.y) * 3; // 3 miles per map unit
+  // No route connects them at all (very rare now) — still travelable, just slower.
+  const straight = Math.hypot(fromBurg.x-toBurg.x, fromBurg.y-toBurg.y) * 3;
   const miles = Math.round(straight);
-  return { miles, days: Math.max(1, Math.ceil(miles/OFFROAD_PACE)), path:[currentBurg,toId], edges:null, viaRoad:false };
+  return { miles, days: Math.max(1, Math.ceil(miles/OFFROAD_PACE)), edges:null, viaRoad:false, bySea:false };
 }
 
 function refreshReachability(){
-  reachableSet = computeReachable(currentBurg);
+  const b = graph.burgs[currentBurg];
+  reachableSet = b ? computeReachable(b.cell) : new Set();
 }
 
 // ===================== PLAYER MARKER =====================
@@ -547,9 +576,9 @@ function centerOn(burgId){
 // Build a flat list of {x,y} points tracing the actual road route (concatenating each
 // edge's real polyline, in the right direction), for path-following travel animation.
 let routePreviewEl = null;
-function drawRoutePreview(path, edgeSteps){
+function drawRoutePreview(fromId, toId, edgeSteps){
   if(!routePreviewEl) return;
-  const points = buildRoutePolyline(path, edgeSteps);
+  const points = buildRoutePolyline(fromId, toId, edgeSteps);
   const d = points.map((p,i)=> (i===0?'M':'L') + p.x + ',' + p.y).join(' ');
   routePreviewEl.setAttribute('d', d);
   routePreviewEl.style.opacity = '.9';
@@ -558,11 +587,11 @@ function clearRoutePreview(){
   if(routePreviewEl) routePreviewEl.style.opacity = '0';
 }
 
-function buildRoutePolyline(path, edgeSteps){
-  const startBurg = graph.burgs[path[0]];
+function buildRoutePolyline(fromId, toId, edgeSteps){
+  const startBurg = graph.burgs[fromId];
   if(!edgeSteps){
     // off-road (no drawn path) — animate a straight line to the destination
-    const endBurg = graph.burgs[path[path.length-1]];
+    const endBurg = graph.burgs[toId];
     return [{x:startBurg.x, y:startBurg.y}, {x:endBurg.x, y:endBurg.y}];
   }
   const points = [];
@@ -578,8 +607,8 @@ function buildRoutePolyline(path, edgeSteps){
 // Animate the marker (and camera) moving along the real road route from currentBurg.
 // Heading follows the local direction of travel at each point along the road, and
 // holds the final segment's heading after arrival until the next journey changes it.
-function animateTravel(path, edgeSteps, durationMs, onDone){
-  const points = buildRoutePolyline(path, edgeSteps);
+function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
+  const points = buildRoutePolyline(fromId, toId, edgeSteps);
   if(points.length < 2){ onDone(); return; }
 
   const segLens = [];
@@ -689,7 +718,8 @@ function onMapTap(el){
   const burg = burgId ? graph.burgs[burgId] : null;
   const raceTag = burg && burg.race && burg.race !== 'neutral'
     ? `<span class="tag ${burg.race}">${RACE_LABEL[burg.race]}</span>` : '';
-  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[tier]||tier}</span>`;
+  const stateTag = burg && burg.state ? `<span style="color:#8a7440;">${burg.state}</span>` : '';
+  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[tier]||tier}</span>${stateTag ? ' — '+stateTag : ''}`;
 
   if(!burgId){
     travelDiv.textContent = "Unable to locate this settlement in the travel data.";
@@ -708,7 +738,7 @@ function onMapTap(el){
         ? `<b>${t.miles} miles</b> by road — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`
         : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
       travelBtn.style.display = 'block';
-      if(t.viaRoad) drawRoutePreview(t.path, t.edges);
+      if(t.viaRoad) drawRoutePreview(currentBurg, burgId, t.edges);
 
       travelBtn.textContent = `Travel Here (${t.days}d)`;
     }
@@ -733,7 +763,7 @@ document.getElementById('btn-travel').addEventListener('click', ()=>{
   showToast(`Traveling to ${destName}…`);
 
   const duration = Math.min(2600, 800 + t.days*180);
-  animateTravel(t.path, t.edges, duration, ()=>{
+  animateTravel(currentBurg, destId, t.edges, duration, ()=>{
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
     advanceDays(t.days);
@@ -888,10 +918,10 @@ Promise.all([
   if(!graph.burgs[currentBurg]){
     currentBurg = "5"; // Bary — fallback if a stale/invalid location was saved
     localStorage.setItem(LOC_KEY, currentBurg);
-  } else if(!(adjacency[currentBurg] && adjacency[currentBurg].length)){
-    // Saved location exists but has no road connections at all (a dead end
-    // in this still-sparse network) — fall back to Bary rather than
-    // stranding the player somewhere with nowhere to go.
+  } else if(!(adjacency[graph.burgs[currentBurg].cell] && adjacency[graph.burgs[currentBurg].cell].length)){
+    // Saved location exists but has no road connections at all (extremely
+    // rare now — only 1 of 796 settlements is fully isolated) — fall back
+    // to Bary rather than stranding the player somewhere with no way out.
     currentBurg = "5";
     localStorage.setItem(LOC_KEY, currentBurg);
   }

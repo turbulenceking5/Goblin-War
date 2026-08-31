@@ -22,17 +22,18 @@
     position:relative; z-index:20;
     background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
     border-bottom:3px solid var(--gold);
-    padding:10px 14px; display:flex; align-items:center; justify-content:space-between;
+    padding:9px 14px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5);
   }
-  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  h1{ font-family:'Cinzel Decorative', serif; font-size:17px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
   .subtitle{ font-family:'Cinzel', serif; font-size:8.5px; letter-spacing:2.5px; color:#a9926a; text-transform:uppercase; }
-  #zoom-controls{ display:flex; gap:6px; }
-  .zbtn{
-    width:34px; height:34px; border-radius:8px; border:1.5px solid var(--gold);
-    background:transparent; color:var(--gold-lt); font-family:'Cinzel',serif; font-size:16px; font-weight:700;
+  #date-badge{
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    color:var(--parchment); background:rgba(255,255,255,.06);
+    border:1px solid rgba(209,164,69,.5); border-radius:3px;
+    padding:5px 9px; text-align:right; line-height:1.4;
   }
-  .zbtn:active{ transform:scale(.94); }
+  #date-badge b{ color:var(--gold-lt); }
 
   #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); touch-action:none; }
   #svg-holder{ position:absolute; inset:0; width:100%; height:100%; }
@@ -42,9 +43,7 @@
   #svg-holder #labels-town text,
   #svg-holder #labels-city text,
   #svg-holder #labels-capital text,
-  #svg-holder #labels-state text{
-    cursor:pointer;
-  }
+  #svg-holder #labels-state text{ cursor:pointer; }
   #svg-holder text.label-selected{ fill:#7b2e2e !important; }
 
   #full-map-view{ position:absolute; inset:0; display:none; background:var(--water-dk); }
@@ -73,14 +72,31 @@
   }
   #info-card.open{ transform:translateY(0); }
   #info-card .handle{ width:38px; height:4px; border-radius:3px; background:var(--parchment-shadow); margin:0 auto 10px; }
-  #info-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--ink); margin:0 0 4px; }
-  #info-meta{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:0 0 12px; }
-  #btn-close{
+  #info-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--ink); margin:0 0 2px; }
+  #info-meta{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:0 0 10px; }
+  #info-travel{ font-size:15px; color:#4d3a24; margin:0 0 14px; line-height:1.5; }
+  #info-travel b{ color:var(--ink); }
+  #info-actions{ display:flex; gap:10px; }
+  .btn{
     font-family:'Cinzel', serif; font-size:13px; letter-spacing:1px;
-    background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow);
-    border-radius:8px; padding:10px 16px; width:100%; cursor:pointer;
+    border:none; border-radius:8px; padding:11px 16px; cursor:pointer; flex:1;
   }
-  #btn-close:active{ transform:scale(.98); }
+  .btn:active{ transform:scale(.97); }
+  .btn-primary{
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700;
+    box-shadow:0 3px 0 #7a5715;
+  }
+  .btn-secondary{ background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow); }
+
+  #toast{
+    position:fixed; top:66px; left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+    max-width:80vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   #loading{
     position:fixed; inset:0; z-index:50; background:var(--water-dk);
@@ -98,10 +114,7 @@
       <h1 id="header-title">THE REALM</h1>
       <div class="subtitle" id="header-sub">Tap or hover a name</div>
     </div>
-    <div id="zoom-controls">
-      <button class="zbtn" id="zoom-out">–</button>
-      <button class="zbtn" id="zoom-in">+</button>
-    </div>
+    <div id="date-badge">Day <b id="date-day">1</b>, Month <b id="date-month">1</b>, Year <b id="date-year">1</b></div>
   </header>
 
   <div id="map-viewport">
@@ -114,11 +127,17 @@
 
   <button id="view-toggle">FULL<br>MAP</button>
 
+  <div id="toast"></div>
+
   <div id="info-card">
     <div class="handle"></div>
     <h2 id="info-name">—</h2>
     <div id="info-meta"></div>
-    <button id="btn-close">Close</button>
+    <div id="info-travel"></div>
+    <div id="info-actions">
+      <button class="btn btn-secondary" id="btn-close">Close</button>
+      <button class="btn btn-primary" id="btn-travel">Travel Here</button>
+    </div>
   </div>
 
   <div id="loading">LOADING THE MAP…</div>
@@ -126,126 +145,251 @@
 
 <script>
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital", state:"Region / State" };
+const TIER_BY_GROUP = { 'labels-village':'village','labels-town':'town','labels-city':'city','labels-capital':'capital','labels-state':'state' };
 
-// Full map canvas is 2560 x 1277. Default region view centers on the
-// Kingdom of Bary capital burg (the human starting kingdom).
+// ===================== MAP CANVAS / VIEW (pan-only, fixed zoom) =====================
 const FULL_W = 2560, FULL_H = 1277;
-const START_X = 705, START_Y = 448;
-const START_W = 700, START_H = 349;
-const MIN_W = 180;     // deepest zoom-in
-const MAX_W = 1300;    // furthest zoom-out on the interactive region map
+const START_X = 705, START_Y = 448;   // Bary — human starting kingdom
+const REGION_W = 700;                  // fixed zoom level — no zooming in/out
 
-let vb = { x: START_X - START_W/2, y: START_Y - START_H/2, w: START_W, h: START_H };
+let vb = { x: START_X - REGION_W/2, y: 0, w: REGION_W, h: REGION_W };
 let svgEl = null;
 
-function clampViewBox(){
-  vb.w = Math.max(MIN_W, Math.min(MAX_W, vb.w));
-  vb.h = vb.w * (FULL_H/FULL_W) * (svgAspectCorrection());
-  vb.x = Math.max(0, Math.min(FULL_W - vb.w, vb.x));
-  vb.y = Math.max(0, Math.min(FULL_H - vb.h, vb.y));
-}
-function svgAspectCorrection(){
-  // keep viewBox aspect matched to the on-screen viewport aspect
+function svgAspect(){
   const holder = document.getElementById('map-viewport');
-  const ratio = holder.clientHeight / holder.clientWidth;
-  return ratio / (FULL_H/FULL_W);
+  return holder.clientHeight / holder.clientWidth;
 }
 function applyViewBox(){
-  clampViewBox();
+  vb.h = vb.w * svgAspect();
+  vb.x = Math.max(0, Math.min(FULL_W - vb.w, vb.x));
+  vb.y = Math.max(0, Math.min(FULL_H - vb.h, vb.y));
   if(svgEl) svgEl.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
 }
+vb.y = START_Y - (REGION_W*svgAspect())/2;
 
-function zoomBy(factor, centerXpx, centerYpx){
-  const holder = document.getElementById('map-viewport');
-  const rect = holder.getBoundingClientRect();
-  const cx = centerXpx!=null ? vb.x + (centerXpx-rect.left)/rect.width * vb.w : vb.x + vb.w/2;
-  const cy = centerYpx!=null ? vb.y + (centerYpx-rect.top)/rect.height * vb.h : vb.y + vb.h/2;
-  vb.x = cx - (cx - vb.x) * factor;
-  vb.y = cy - (cy - vb.y) * factor;
-  vb.w = vb.w * factor;
+// ---- pan only (drag), no pinch/wheel zoom ----
+const viewport = document.getElementById('map-viewport');
+let dragLast = null;
+viewport.addEventListener('pointerdown', (e)=>{
+  viewport.setPointerCapture(e.pointerId);
+  dragLast = {x:e.clientX, y:e.clientY};
+});
+viewport.addEventListener('pointermove', (e)=>{
+  if(!dragLast) return;
+  const rect = viewport.getBoundingClientRect();
+  const dxPx = e.clientX - dragLast.x, dyPx = e.clientY - dragLast.y;
+  vb.x -= dxPx/rect.width * vb.w;
+  vb.y -= dyPx/rect.height * vb.h;
+  dragLast = {x:e.clientX, y:e.clientY};
+  applyViewBox();
+});
+function endDrag(){ dragLast = null; }
+viewport.addEventListener('pointerup', endDrag);
+viewport.addEventListener('pointercancel', endDrag);
+
+// ===================== GAME CALENDAR =====================
+const CAL_KEY = "goblinwar_gameDay";
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+let gameDay = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
+
+function refreshCalendarUI(){
+  const day = (gameDay % DAYS_PER_MONTH) + 1;
+  const month = (Math.floor(gameDay / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const year = Math.floor(gameDay / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  document.getElementById('date-day').textContent = day;
+  document.getElementById('date-month').textContent = month;
+  document.getElementById('date-year').textContent = year;
+}
+function advanceDays(n){
+  gameDay += n;
+  localStorage.setItem(CAL_KEY, String(gameDay));
+  refreshCalendarUI();
+}
+
+// ===================== TRAVEL GRAPH =====================
+const LOC_KEY = "goblinwar_currentBurg";
+const ROAD_PACE = 20;    // miles per day, travelling via drawn roads
+const OFFROAD_PACE = 12; // miles per day, cross-country with no road
+
+let graph = null;      // { burgs: {id:{name,tier,x,y}}, edges:[{a,b,mi}] }
+let adjacency = {};     // id -> [{to, mi}]
+let currentBurg = localStorage.getItem(LOC_KEY) || "5"; // Bary
+let selectedBurg = null;
+let playerMarkerEl = null;
+
+function buildAdjacency(){
+  graph.edges.forEach(e=>{
+    (adjacency[e.a] = adjacency[e.a]||[]).push({to:e.b, mi:e.mi});
+    (adjacency[e.b] = adjacency[e.b]||[]).push({to:e.a, mi:e.mi});
+  });
+}
+
+// Dijkstra shortest road distance from currentBurg to targetId. Returns miles or null.
+function roadDistance(fromId, toId){
+  if(fromId === toId) return 0;
+  const dist = {}; dist[fromId] = 0;
+  const visited = new Set();
+  const pq = [[0, fromId]];
+  while(pq.length){
+    pq.sort((a,b)=>a[0]-b[0]);
+    const [d, node] = pq.shift();
+    if(visited.has(node)) continue;
+    visited.add(node);
+    if(node === toId) return d;
+    (adjacency[node]||[]).forEach(edge=>{
+      const nd = d + edge.mi;
+      if(dist[edge.to] === undefined || nd < dist[edge.to]){
+        dist[edge.to] = nd;
+        pq.push([nd, edge.to]);
+      }
+    });
+  }
+  return null;
+}
+
+function straightLineMiles(fromId, toId){
+  const a = graph.burgs[fromId], b = graph.burgs[toId];
+  if(!a || !b) return null;
+  const dx = a.x-b.x, dy = a.y-b.y;
+  return Math.hypot(dx,dy) * 3; // 3 miles per map unit, per the map's scale bar
+}
+
+function computeTravel(toId){
+  const road = roadDistance(currentBurg, toId);
+  if(road !== null){
+    return { miles: Math.round(road), days: Math.max(1, Math.ceil(road/ROAD_PACE)), viaRoad:true };
+  }
+  const straight = straightLineMiles(currentBurg, toId);
+  if(straight === null) return null;
+  const miles = Math.round(straight * 1.4); // rough terrain penalty for unmapped routes
+  return { miles, days: Math.max(1, Math.ceil(miles/OFFROAD_PACE)), viaRoad:false };
+}
+
+// ===================== PLAYER MARKER =====================
+function drawPlayerMarker(){
+  if(!svgEl) return;
+  const b = graph.burgs[currentBurg];
+  if(!b) return;
+  if(playerMarkerEl) playerMarkerEl.remove();
+  const ns = "http://www.w3.org/2000/svg";
+  const g = document.createElementNS(ns, "g");
+  g.setAttribute("transform", `translate(${b.x},${b.y})`);
+  g.style.pointerEvents = "none";
+  g.innerHTML = `
+    <circle r="5" fill="none" stroke="#d1a445" stroke-width="1.4">
+      <animate attributeName="r" values="5;8;5" dur="1.8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values=".9;.25;.9" dur="1.8s" repeatCount="indefinite"/>
+    </circle>
+    <path d="M0,-6 L4.5,5 L0,2 L-4.5,5 Z" fill="#7b2e2e" stroke="#f1e6c4" stroke-width="0.9"/>
+  `;
+  svgEl.appendChild(g);
+  playerMarkerEl = g;
+}
+
+function centerOn(burgId){
+  const b = graph.burgs[burgId];
+  if(!b) return;
+  vb.x = b.x - vb.w/2;
+  vb.y = b.y - vb.h/2;
   applyViewBox();
 }
 
-document.getElementById('zoom-in').addEventListener('click', ()=> zoomBy(0.75));
-document.getElementById('zoom-out').addEventListener('click', ()=> zoomBy(1.33));
-
-// ---- pan (drag) + pinch zoom ----
-const viewport = document.getElementById('map-viewport');
-let pointers = new Map();
-let dragLast = null;
-let pinchStartDist = null;
-let pinchStartW = null;
-
-function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
-
-viewport.addEventListener('pointerdown', (e)=>{
-  viewport.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if(pointers.size===1){ dragLast = {x:e.clientX, y:e.clientY}; }
-  if(pointers.size===2){
-    const pts = [...pointers.values()];
-    pinchStartDist = dist(pts[0], pts[1]);
-    pinchStartW = vb.w;
-  }
-});
-viewport.addEventListener('pointermove', (e)=>{
-  if(!pointers.has(e.pointerId)) return;
-  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if(pointers.size===1 && dragLast){
-    const rect = viewport.getBoundingClientRect();
-    const dxPx = e.clientX - dragLast.x, dyPx = e.clientY - dragLast.y;
-    vb.x -= dxPx/rect.width * vb.w;
-    vb.y -= dyPx/rect.height * vb.h;
-    dragLast = {x:e.clientX, y:e.clientY};
-    applyViewBox();
-  } else if(pointers.size===2 && pinchStartDist){
-    const pts = [...pointers.values()];
-    const d = dist(pts[0], pts[1]);
-    const factor = pinchStartDist/d;
-    const midX = (pts[0].x+pts[1].x)/2, midY=(pts[0].y+pts[1].y)/2;
-    const targetW = pinchStartW * factor;
-    zoomBy(targetW/vb.w, midX, midY);
-  }
-});
-function endPointer(e){
-  pointers.delete(e.pointerId);
-  if(pointers.size<2){ pinchStartDist=null; }
-  if(pointers.size<1){ dragLast=null; }
+// ===================== UI: label selection / info card =====================
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
 }
-viewport.addEventListener('pointerup', endPointer);
-viewport.addEventListener('pointercancel', endPointer);
-viewport.addEventListener('wheel', (e)=>{
-  e.preventDefault();
-  zoomBy(e.deltaY>0?1.12:0.89, e.clientX, e.clientY);
-}, {passive:false});
 
-// ---- label selection (event delegation — one listener, not 795) ----
-let selectedEl = null;
-function selectLabel(el, tier){
-  if(selectedEl) selectedEl.classList.remove('label-selected');
-  el.classList.add('label-selected');
-  selectedEl = el;
+function findBurgIdFromLabel(el){
+  // match the label's text content + tier to our graph (labels come from the same SVG/data source)
+  const group = el.closest('[id^="labels-"]');
+  if(!group) return null;
+  const tier = TIER_BY_GROUP[group.id];
+  if(!tier || tier === 'state') return null;
   const name = el.textContent.trim();
-  document.getElementById('info-name').textContent = name;
-  document.getElementById('info-meta').textContent = TIER_LABEL[tier] || tier;
-  document.getElementById('info-card').classList.add('open');
+  for(const id in graph.burgs){
+    const b = graph.burgs[id];
+    if(b.tier === tier && b.name === name) return id;
+  }
+  return null;
 }
+
+let selectedEl = null;
 function closeCard(){
   document.getElementById('info-card').classList.remove('open');
   if(selectedEl){ selectedEl.classList.remove('label-selected'); selectedEl = null; }
+  selectedBurg = null;
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
-
-const TIER_BY_GROUP = { 'labels-village':'village','labels-town':'town','labels-city':'city','labels-capital':'capital','labels-state':'state' };
 
 document.getElementById('svg-holder').addEventListener('click', (e)=>{
   if(e.target.tagName.toLowerCase() !== 'text'){ closeCard(); return; }
   const group = e.target.closest('[id^="labels-"]');
   if(!group || !(group.id in TIER_BY_GROUP)){ closeCard(); return; }
-  selectLabel(e.target, TIER_BY_GROUP[group.id]);
+  const tier = TIER_BY_GROUP[group.id];
+  const name = e.target.textContent.trim();
+
+  if(selectedEl) selectedEl.classList.remove('label-selected');
+  e.target.classList.add('label-selected');
+  selectedEl = e.target;
+
+  document.getElementById('info-name').textContent = name;
+  document.getElementById('info-meta').innerHTML =
+    `<span>${TIER_LABEL[tier]||tier}</span>`;
+
+  const travelDiv = document.getElementById('info-travel');
+  const travelBtn = document.getElementById('btn-travel');
+
+  if(tier === 'state'){
+    travelDiv.textContent = "A region, not a single place — tap a settlement within it to travel.";
+    travelBtn.style.display = 'none';
+    selectedBurg = null;
+    document.getElementById('info-card').classList.add('open');
+    return;
+  }
+
+  const burgId = findBurgIdFromLabel(e.target);
+  selectedBurg = burgId;
+
+  if(!burgId){
+    travelDiv.textContent = "Unable to locate this settlement in the travel data.";
+    travelBtn.style.display = 'none';
+  } else if(burgId === currentBurg){
+    travelDiv.textContent = "You are here.";
+    travelBtn.style.display = 'none';
+  } else {
+    const t = computeTravel(burgId);
+    if(!t){
+      travelDiv.textContent = "Distance unknown.";
+      travelBtn.style.display = 'none';
+    } else {
+      travelDiv.innerHTML = `<b>${t.miles} miles</b> ${t.viaRoad ? 'by road' : 'cross-country (no road)'} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
+      travelBtn.style.display = 'block';
+      travelBtn.textContent = `Travel Here (${t.days}d)`;
+    }
+  }
+  document.getElementById('info-card').classList.add('open');
 });
 
-// ---- full map toggle ----
+document.getElementById('btn-travel').addEventListener('click', ()=>{
+  if(!selectedBurg) return;
+  const t = computeTravel(selectedBurg);
+  if(!t) return;
+  const destName = graph.burgs[selectedBurg].name;
+  currentBurg = selectedBurg;
+  localStorage.setItem(LOC_KEY, currentBurg);
+  advanceDays(t.days);
+  drawPlayerMarker();
+  centerOn(currentBurg);
+  closeCard();
+  showToast(`Arrived at ${destName} — ${t.days} day${t.days===1?'':'s'} passed.`);
+});
+
+// ===================== FULL MAP TOGGLE =====================
 const toggleBtn = document.getElementById('view-toggle');
 const fullView = document.getElementById('full-map-view');
 let showingFull = false;
@@ -256,26 +400,31 @@ toggleBtn.addEventListener('click', ()=>{
   toggleBtn.innerHTML = showingFull ? 'BACK TO<br>MAP' : 'FULL<br>MAP';
   document.getElementById('header-title').textContent = showingFull ? 'FULL WORLD MAP' : 'THE REALM';
   document.getElementById('header-sub').textContent = showingFull ? 'Overview only — travel on the region map' : 'Tap or hover a name';
-  document.getElementById('zoom-controls').style.visibility = showingFull ? 'hidden' : 'visible';
   if(showingFull) closeCard();
 });
 
-// ---- load the interactive region SVG ----
-fetch('assets/game-map.svg')
-  .then(r=>r.text())
-  .then(svgText=>{
-    const holder = document.getElementById('svg-holder');
-    holder.innerHTML = svgText;
-    svgEl = holder.querySelector('svg');
-    svgEl.removeAttribute('width');
-    svgEl.removeAttribute('height');
-    applyViewBox();
-    document.getElementById('loading').classList.add('hide');
-  })
-  .catch(err=>{
-    document.getElementById('loading').textContent = 'Could not load the map.';
-    console.error(err);
-  });
+// ===================== LOAD =====================
+Promise.all([
+  fetch('assets/game-map.svg').then(r=>r.text()),
+  fetch('assets/travel-graph.json').then(r=>r.json())
+]).then(([svgText, graphData])=>{
+  graph = graphData;
+  buildAdjacency();
+
+  const holder = document.getElementById('svg-holder');
+  holder.innerHTML = svgText;
+  svgEl = holder.querySelector('svg');
+  svgEl.removeAttribute('width');
+  svgEl.removeAttribute('height');
+  applyViewBox();
+
+  drawPlayerMarker();
+  refreshCalendarUI();
+  document.getElementById('loading').classList.add('hide');
+}).catch(err=>{
+  document.getElementById('loading').textContent = 'Could not load the map.';
+  console.error(err);
+});
 
 window.addEventListener('resize', applyViewBox);
 </script>

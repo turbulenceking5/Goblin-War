@@ -51,6 +51,15 @@
   .nav-btn:active{ background:rgba(255,255,255,.08); }
   .nav-btn svg{ width:18px; height:18px; }
   #zoom-controls{ display:flex; gap:6px; }
+  #player-stats{ display:flex; gap:6px; }
+  .stat-pill{
+    display:flex; align-items:center; gap:4px;
+    background:rgba(255,255,255,.06); border:1px solid rgba(209,164,69,.4);
+    border-radius:20px; padding:4px 9px;
+    font-family:'Cinzel', serif; font-size:11px; color:var(--parchment);
+  }
+  .stat-pill svg{ width:12px; height:12px; color:var(--gold-lt); flex:none; }
+  .stat-pill:first-child svg{ color:#c0524f; }
   .zbtn{
     width:30px; height:30px; border-radius:7px; border:1.5px solid var(--gold);
     background:transparent; color:var(--gold-lt); font-family:'Cinzel',serif; font-size:15px; font-weight:700;
@@ -222,6 +231,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.7a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.7a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.4-2-1.5z"/></svg>
         Settings
       </button>
+    </div>
+    <div id="player-stats">
+      <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
+      <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
     <div id="zoom-controls">
       <button class="zbtn" id="zoom-out">–</button>
@@ -416,6 +429,46 @@ function advanceDays(n){
   gameDay += n;
   localStorage.setItem(CAL_KEY, String(gameDay));
   refreshCalendarUI();
+}
+
+// ===================== PLAYER STATE (health / gold / inventory) =====================
+const HEALTH_KEY = "goblinwar_health";
+const MAXHEALTH_KEY = "goblinwar_maxHealth";
+const GOLD_KEY = "goblinwar_gold";
+const INV_KEY = "goblinwar_inventory";
+const DEFAULT_INVENTORY = [
+  { name:"Traveler's Rations", qty:3 },
+  { name:"Waterskin", qty:1 },
+  { name:"Bedroll", qty:1 },
+];
+
+function initPlayerStateIfMissing(){
+  if(localStorage.getItem(MAXHEALTH_KEY) === null) localStorage.setItem(MAXHEALTH_KEY, "100");
+  if(localStorage.getItem(HEALTH_KEY) === null) localStorage.setItem(HEALTH_KEY, localStorage.getItem(MAXHEALTH_KEY));
+  if(localStorage.getItem(GOLD_KEY) === null) localStorage.setItem(GOLD_KEY, "50");
+  if(localStorage.getItem(INV_KEY) === null) localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
+}
+initPlayerStateIfMissing();
+
+let playerHealth = parseInt(localStorage.getItem(HEALTH_KEY), 10);
+let playerMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY), 10);
+let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
+
+function setHealth(v){
+  playerHealth = Math.max(0, Math.min(playerMaxHealth, v));
+  localStorage.setItem(HEALTH_KEY, String(playerHealth));
+  refreshPlayerStatUI();
+}
+function setGold(v){
+  playerGold = Math.max(0, v);
+  localStorage.setItem(GOLD_KEY, String(playerGold));
+  refreshPlayerStatUI();
+}
+function refreshPlayerStatUI(){
+  const hp = document.getElementById('stat-hp');
+  const gp = document.getElementById('stat-gold');
+  if(hp) hp.textContent = `${playerHealth}/${playerMaxHealth}`;
+  if(gp) gp.textContent = playerGold;
 }
 
 // ===================== TRAVEL GRAPH =====================
@@ -933,13 +986,15 @@ function showInnPanel(burgId){
     </div>
     <button class="loc-action" id="inn-rest-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
-      <span class="li-text"><b>Rest for the Night</b><span>Passes 1 day</span></span>
+      <span class="li-text"><b>Rest for the Night</b><span>Restores health &middot; Passes 1 day</span></span>
     </button>
   `;
   document.getElementById('inn-back-btn').addEventListener('click', ()=> showLocationView(burgId));
   document.getElementById('inn-rest-btn').addEventListener('click', ()=>{
     advanceDays(1);
-    showToast("You rest for the night. (Health recovery will apply once your character sheet exists.)");
+    const healed = playerMaxHealth - playerHealth;
+    setHealth(playerMaxHealth);
+    showToast(healed > 0 ? `You rest for the night and recover ${healed} health.` : "You rest for the night. Already at full health.");
     document.getElementById('inn-rumour').textContent = `"${RUMOURS[Math.floor(Math.random()*RUMOURS.length)]}"`;
   });
 }
@@ -965,6 +1020,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   buildHitzones();
   drawPlayerMarker();
   refreshCalendarUI();
+  refreshPlayerStatUI();
   refreshReachability();
 
   const img = document.getElementById('map-img');

@@ -67,15 +67,17 @@
   #svg-holder #labels-capital text,
   #svg-holder #labels-state text{ cursor:pointer; }
   #svg-holder text.label-selected{ fill:#7b2e2e !important; }
-  #svg-holder text.label-unknown{ fill:#6b6b6b !important; opacity:.4; }
-
-  /* Hide heavy decorative layers not used by gameplay — these accounted for
-     ~400KB of the 1.9MB SVG (rivers alone are 211KB) and were the main
-     cause of pan/render lag. Our own travel routes are drawn separately. */
+  /* Hide heavy purely-decorative layers not used by gameplay — rivers (211KB)
+     and province borders (77KB) were the biggest single contributors.
+     Roads/trails are back (you asked for them) since they're comparatively
+     cheap and give the map a lived-in feel. Villages are hidden instead to
+     cut density/lag — see the note further down. */
   #svg-holder #rivers,
   #svg-holder #provinceBorders,
-  #svg-holder #oceanLayers,
-  #svg-holder #trails{ display:none; }
+  #svg-holder #oceanLayers{ display:none; }
+
+  #svg-holder #labels-village,
+  #svg-holder #burgIcons #village{ display:none; }
 
   .tag{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:9.5px; letter-spacing:1px; margin-right:6px; color:#fff; font-family:'Cinzel',serif; }
   .tag.human{ background:#33502f; }
@@ -457,7 +459,8 @@ function roadRoute(fromId, toId){
   return null;
 }
 
-// Full BFS reachability (ignores distance) — used to know which settlements are "known" (road-connected).
+// Full BFS reachability (ignores distance) — kept only for the dead-end
+// recovery check at load time (see below), not for gating travel anymore.
 function computeReachable(fromId){
   const seen = new Set([fromId]);
   const stack = [fromId];
@@ -472,17 +475,20 @@ function computeReachable(fromId){
 
 function computeTravel(toId){
   const route = roadRoute(currentBurg, toId);
-  if(!route) return null;
-  const miles = Math.round(route.miles);
-  return { miles, days: Math.max(1, Math.ceil(miles/ROAD_PACE)), path: route.path, edges: route.edges };
+  if(route){
+    const miles = Math.round(route.miles);
+    return { miles, days: Math.max(1, Math.ceil(miles/ROAD_PACE)), path: route.path, edges: route.edges, viaRoad:true };
+  }
+  // No road connects them yet — still travelable, just slower and cross-country.
+  const a = graph.burgs[currentBurg], b = graph.burgs[toId];
+  if(!a || !b) return null;
+  const straight = Math.hypot(a.x-b.x, a.y-b.y) * 3; // 3 miles per map unit
+  const miles = Math.round(straight);
+  return { miles, days: Math.max(1, Math.ceil(miles/OFFROAD_PACE)), path:[currentBurg,toId], edges:null, viaRoad:false };
 }
 
 function refreshReachability(){
   reachableSet = computeReachable(currentBurg);
-  for(const id in labelElByBurg){
-    const el = labelElByBurg[id];
-    el.classList.toggle('label-unknown', !reachableSet.has(id));
-  }
 }
 
 // ===================== PLAYER MARKER =====================
@@ -552,8 +558,13 @@ function clearRoutePreview(){
 }
 
 function buildRoutePolyline(path, edgeSteps){
-  const points = [];
   const startBurg = graph.burgs[path[0]];
+  if(!edgeSteps){
+    // off-road (no drawn path) — animate a straight line to the destination
+    const endBurg = graph.burgs[path[path.length-1]];
+    return [{x:startBurg.x, y:startBurg.y}, {x:endBurg.x, y:endBurg.y}];
+  }
+  const points = [];
   points.push({x:startBurg.x, y:startBurg.y});
   edgeSteps.forEach(step=>{
     const pts = step.forward ? step.edge.pts : [...step.edge.pts].reverse();
@@ -686,18 +697,17 @@ function onMapTap(el){
     travelDiv.textContent = "You are here.";
     travelBtn.style.display = 'block';
     travelBtn.textContent = 'Enter Settlement';
-  } else if(!reachableSet.has(burgId)){
-    travelDiv.textContent = "Unknown — no road leads there from here yet. Regenerating the map with more roads, or exploring further, may connect it later.";
-    travelBtn.style.display = 'none';
   } else {
     const t = computeTravel(burgId);
     if(!t){
       travelDiv.textContent = "Distance unknown.";
       travelBtn.style.display = 'none';
     } else {
-      travelDiv.innerHTML = `<b>${t.miles} miles</b> by road — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
+      travelDiv.innerHTML = t.viaRoad
+        ? `<b>${t.miles} miles</b> by road — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
       travelBtn.style.display = 'block';
-      drawRoutePreview(t.path, t.edges);
+      if(t.viaRoad) drawRoutePreview(t.path, t.edges);
 
       travelBtn.textContent = `Travel Here (${t.days}d)`;
     }

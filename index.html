@@ -25,7 +25,6 @@
     padding:10px 14px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5);
   }
-  .title-wrap{display:flex; align-items:center; gap:10px;}
   h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
   .subtitle{ font-family:'Cinzel', serif; font-size:8.5px; letter-spacing:2.5px; color:#a9926a; text-transform:uppercase; }
   #zoom-controls{ display:flex; gap:6px; }
@@ -35,35 +34,34 @@
   }
   .zbtn:active{ transform:scale(.94); }
 
-  #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); }
-  #map-scroll{ position:absolute; inset:0; overflow:auto; -webkit-overflow-scrolling:touch; touch-action:pan-x pan-y; }
-  #map-stage{ position:relative; width:2560px; height:1277px; transform-origin:0 0; }
-  #svg-holder{ width:2560px; height:1277px; }
+  #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); touch-action:none; }
+  #svg-holder{ position:absolute; inset:0; width:100%; height:100%; }
   #svg-holder svg{ width:100%; height:100%; display:block; }
 
-  /* --- native label highlighting: applied directly to the map's own text --- */
   #svg-holder #labels-village text,
   #svg-holder #labels-town text,
   #svg-holder #labels-city text,
   #svg-holder #labels-capital text,
   #svg-holder #labels-state text{
     cursor:pointer;
-    transition: fill .12s, filter .12s;
   }
-  #svg-holder #labels-village text:hover,
-  #svg-holder #labels-town text:hover,
-  #svg-holder #labels-city text:hover,
-  #svg-holder #labels-capital text:hover,
-  #svg-holder #labels-state text:hover{
-    fill:#a97a1f !important;
-    filter: drop-shadow(0 0 3px rgba(209,164,69,.9));
-  }
-  #svg-holder text.label-selected{
-    fill:#7b2e2e !important;
-    filter: drop-shadow(0 0 5px rgba(123,46,46,.95)) !important;
-  }
+  #svg-holder text.label-selected{ fill:#7b2e2e !important; }
+
+  #full-map-view{ position:absolute; inset:0; display:none; background:var(--water-dk); }
+  #full-map-view.show{ display:block; }
+  #full-map-img{ width:100%; height:100%; object-fit:contain; display:block; }
 
   #ui-vignette{ position:absolute; inset:0; pointer-events:none; z-index:15; box-shadow: inset 0 0 100px 34px rgba(0,0,0,.5); }
+
+  #view-toggle{
+    position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
+    width:52px; height:52px; border-radius:50%;
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold));
+    border:2px solid #7a5715; color:#241705; font-family:'Cinzel', serif; font-weight:700; font-size:9px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+  }
+  #view-toggle:active{ transform:scale(.94); }
 
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
@@ -96,27 +94,25 @@
 <div id="app">
 
   <header>
-    <div class="title-wrap">
-      <div>
-        <h1>THE REALM</h1>
-        <div class="subtitle">Tap or hover a name</div>
-      </div>
+    <div>
+      <h1 id="header-title">THE REALM</h1>
+      <div class="subtitle" id="header-sub">Tap or hover a name</div>
     </div>
     <div id="zoom-controls">
       <button class="zbtn" id="zoom-out">–</button>
       <button class="zbtn" id="zoom-in">+</button>
-      <button class="zbtn" id="world-btn" style="width:auto; font-size:10px; padding:0 10px;" onclick="location.href='world.html'">World</button>
     </div>
   </header>
 
   <div id="map-viewport">
-    <div id="map-scroll">
-      <div id="map-stage">
-        <div id="svg-holder"></div>
-      </div>
+    <div id="svg-holder"></div>
+    <div id="full-map-view">
+      <img id="full-map-img" src="assets/full-map.jpg" alt="Full world map overview">
     </div>
     <div id="ui-vignette"></div>
   </div>
+
+  <button id="view-toggle">FULL<br>MAP</button>
 
   <div id="info-card">
     <div class="handle"></div>
@@ -131,18 +127,99 @@
 <script>
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital", state:"Region / State" };
 
-let scale = 1;
-const stage = document.getElementById('map-stage');
-const scrollEl = document.getElementById('map-scroll');
+// Full map canvas is 2560 x 1277. Default region view centers on the
+// Kingdom of Bary capital burg (the human starting kingdom).
+const FULL_W = 2560, FULL_H = 1277;
+const START_X = 705, START_Y = 448;
+const START_W = 700, START_H = 349;
+const MIN_W = 180;     // deepest zoom-in
+const MAX_W = 1300;    // furthest zoom-out on the interactive region map
 
-function applyZoom(){
-  stage.style.transform = `scale(${scale})`;
-  stage.style.width = '2560px';
-  stage.style.height = '1277px';
+let vb = { x: START_X - START_W/2, y: START_Y - START_H/2, w: START_W, h: START_H };
+let svgEl = null;
+
+function clampViewBox(){
+  vb.w = Math.max(MIN_W, Math.min(MAX_W, vb.w));
+  vb.h = vb.w * (FULL_H/FULL_W) * (svgAspectCorrection());
+  vb.x = Math.max(0, Math.min(FULL_W - vb.w, vb.x));
+  vb.y = Math.max(0, Math.min(FULL_H - vb.h, vb.y));
 }
-document.getElementById('zoom-in').addEventListener('click', ()=>{ scale = Math.min(3, scale+0.25); applyZoom(); });
-document.getElementById('zoom-out').addEventListener('click', ()=>{ scale = Math.max(0.4, scale-0.25); applyZoom(); });
+function svgAspectCorrection(){
+  // keep viewBox aspect matched to the on-screen viewport aspect
+  const holder = document.getElementById('map-viewport');
+  const ratio = holder.clientHeight / holder.clientWidth;
+  return ratio / (FULL_H/FULL_W);
+}
+function applyViewBox(){
+  clampViewBox();
+  if(svgEl) svgEl.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+}
 
+function zoomBy(factor, centerXpx, centerYpx){
+  const holder = document.getElementById('map-viewport');
+  const rect = holder.getBoundingClientRect();
+  const cx = centerXpx!=null ? vb.x + (centerXpx-rect.left)/rect.width * vb.w : vb.x + vb.w/2;
+  const cy = centerYpx!=null ? vb.y + (centerYpx-rect.top)/rect.height * vb.h : vb.y + vb.h/2;
+  vb.x = cx - (cx - vb.x) * factor;
+  vb.y = cy - (cy - vb.y) * factor;
+  vb.w = vb.w * factor;
+  applyViewBox();
+}
+
+document.getElementById('zoom-in').addEventListener('click', ()=> zoomBy(0.75));
+document.getElementById('zoom-out').addEventListener('click', ()=> zoomBy(1.33));
+
+// ---- pan (drag) + pinch zoom ----
+const viewport = document.getElementById('map-viewport');
+let pointers = new Map();
+let dragLast = null;
+let pinchStartDist = null;
+let pinchStartW = null;
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+viewport.addEventListener('pointerdown', (e)=>{
+  viewport.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(pointers.size===1){ dragLast = {x:e.clientX, y:e.clientY}; }
+  if(pointers.size===2){
+    const pts = [...pointers.values()];
+    pinchStartDist = dist(pts[0], pts[1]);
+    pinchStartW = vb.w;
+  }
+});
+viewport.addEventListener('pointermove', (e)=>{
+  if(!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(pointers.size===1 && dragLast){
+    const rect = viewport.getBoundingClientRect();
+    const dxPx = e.clientX - dragLast.x, dyPx = e.clientY - dragLast.y;
+    vb.x -= dxPx/rect.width * vb.w;
+    vb.y -= dyPx/rect.height * vb.h;
+    dragLast = {x:e.clientX, y:e.clientY};
+    applyViewBox();
+  } else if(pointers.size===2 && pinchStartDist){
+    const pts = [...pointers.values()];
+    const d = dist(pts[0], pts[1]);
+    const factor = pinchStartDist/d;
+    const midX = (pts[0].x+pts[1].x)/2, midY=(pts[0].y+pts[1].y)/2;
+    const targetW = pinchStartW * factor;
+    zoomBy(targetW/vb.w, midX, midY);
+  }
+});
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if(pointers.size<2){ pinchStartDist=null; }
+  if(pointers.size<1){ dragLast=null; }
+}
+viewport.addEventListener('pointerup', endPointer);
+viewport.addEventListener('pointercancel', endPointer);
+viewport.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  zoomBy(e.deltaY>0?1.12:0.89, e.clientX, e.clientY);
+}, {passive:false});
+
+// ---- label selection (event delegation — one listener, not 795) ----
 let selectedEl = null;
 function selectLabel(el, tier){
   if(selectedEl) selectedEl.classList.remove('label-selected');
@@ -153,57 +230,54 @@ function selectLabel(el, tier){
   document.getElementById('info-meta').textContent = TIER_LABEL[tier] || tier;
   document.getElementById('info-card').classList.add('open');
 }
-
 function closeCard(){
   document.getElementById('info-card').classList.remove('open');
   if(selectedEl){ selectedEl.classList.remove('label-selected'); selectedEl = null; }
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
-document.getElementById('map-scroll').addEventListener('click', (e)=>{
-  if(e.target.tagName.toLowerCase() !== 'text') closeCard();
+
+const TIER_BY_GROUP = { 'labels-village':'village','labels-town':'town','labels-city':'city','labels-capital':'capital','labels-state':'state' };
+
+document.getElementById('svg-holder').addEventListener('click', (e)=>{
+  if(e.target.tagName.toLowerCase() !== 'text'){ closeCard(); return; }
+  const group = e.target.closest('[id^="labels-"]');
+  if(!group || !(group.id in TIER_BY_GROUP)){ closeCard(); return; }
+  selectLabel(e.target, TIER_BY_GROUP[group.id]);
 });
 
-function wireLabels(svgRoot){
-  const groups = [
-    ['labels-village','village'],
-    ['labels-town','town'],
-    ['labels-city','city'],
-    ['labels-capital','capital'],
-    ['labels-state','state'],
-  ];
-  groups.forEach(([gid, tier])=>{
-    const g = svgRoot.querySelector('#'+gid);
-    if(!g) return;
-    g.querySelectorAll('text').forEach(t=>{
-      t.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        selectLabel(t, tier);
-      });
-    });
-  });
-}
+// ---- full map toggle ----
+const toggleBtn = document.getElementById('view-toggle');
+const fullView = document.getElementById('full-map-view');
+let showingFull = false;
+toggleBtn.addEventListener('click', ()=>{
+  showingFull = !showingFull;
+  fullView.classList.toggle('show', showingFull);
+  document.getElementById('svg-holder').style.display = showingFull ? 'none' : 'block';
+  toggleBtn.innerHTML = showingFull ? 'BACK TO<br>MAP' : 'FULL<br>MAP';
+  document.getElementById('header-title').textContent = showingFull ? 'FULL WORLD MAP' : 'THE REALM';
+  document.getElementById('header-sub').textContent = showingFull ? 'Overview only — travel on the region map' : 'Tap or hover a name';
+  document.getElementById('zoom-controls').style.visibility = showingFull ? 'hidden' : 'visible';
+  if(showingFull) closeCard();
+});
 
+// ---- load the interactive region SVG ----
 fetch('assets/game-map.svg')
   .then(r=>r.text())
   .then(svgText=>{
     const holder = document.getElementById('svg-holder');
     holder.innerHTML = svgText;
-    const svgEl = holder.querySelector('svg');
-    svgEl.setAttribute('viewBox','0 0 2560 1277');
+    svgEl = holder.querySelector('svg');
     svgEl.removeAttribute('width');
     svgEl.removeAttribute('height');
-    wireLabels(svgEl);
+    applyViewBox();
     document.getElementById('loading').classList.add('hide');
-    // center roughly on the middle of the map at load
-    scrollEl.scrollTo({
-      left: (2560/2) - scrollEl.clientWidth/2,
-      top: (1277/2) - scrollEl.clientHeight/2
-    });
   })
   .catch(err=>{
     document.getElementById('loading').textContent = 'Could not load the map.';
     console.error(err);
   });
+
+window.addEventListener('resize', applyViewBox);
 </script>
 </body>
 </html>

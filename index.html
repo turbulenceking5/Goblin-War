@@ -434,6 +434,20 @@ function computeTravel(toId){
 }
 
 // ===================== PLAYER MARKER =====================
+const HEADING_KEY = "goblinwar_heading";
+let heading = parseFloat(localStorage.getItem(HEADING_KEY) || "0"); // degrees, 0 = facing north
+let markerIconEl = null; // the inner rotatable group
+
+function setHeading(deg){
+  heading = deg;
+  localStorage.setItem(HEADING_KEY, String(heading));
+  if(markerIconEl) markerIconEl.setAttribute("transform", `rotate(${heading})`);
+}
+
+function headingFromDelta(dx, dy){
+  return Math.atan2(dx, -dy) * 180 / Math.PI; // 0=north, 90=east, 180=south, -90=west
+}
+
 function positionPlayerMarker(x, y){
   if(playerMarkerEl){
     playerMarkerEl.setAttribute("transform", `translate(${x},${y})`);
@@ -444,14 +458,17 @@ function positionPlayerMarker(x, y){
   g.setAttribute("transform", `translate(${x},${y})`);
   g.style.pointerEvents = "none";
   g.innerHTML = `
-    <circle r="5" fill="none" stroke="#d1a445" stroke-width="1.4">
-      <animate attributeName="r" values="5;8;5" dur="1.8s" repeatCount="indefinite"/>
+    <circle r="5.5" fill="none" stroke="#d1a445" stroke-width="1.4">
+      <animate attributeName="r" values="5.5;8.5;5.5" dur="1.8s" repeatCount="indefinite"/>
       <animate attributeName="opacity" values=".9;.25;.9" dur="1.8s" repeatCount="indefinite"/>
     </circle>
-    <path d="M0,-6 L4.5,5 L0,2 L-4.5,5 Z" fill="#7b2e2e" stroke="#f1e6c4" stroke-width="0.9"/>
+    <g id="marker-icon" transform="rotate(${heading})">
+      <path d="M0,-7 L5,6 L0,2.5 L-5,6 Z" fill="#7b2e2e" stroke="#f1e6c4" stroke-width="0.9"/>
+    </g>
   `;
   svgEl.appendChild(g);
   playerMarkerEl = g;
+  markerIconEl = g.querySelector('#marker-icon');
 }
 function drawPlayerMarker(){
   if(!svgEl) return;
@@ -469,9 +486,12 @@ function centerOn(burgId){
 }
 
 // Animate the marker (and camera) moving from the current burg to a destination burg.
+// The marker rotates to face the direction of travel immediately, and holds that
+// heading after arrival until the next journey changes it.
 function animateTravel(fromId, toId, durationMs, onDone){
   const a = graph.burgs[fromId], b = graph.burgs[toId];
   if(!a || !b){ onDone(); return; }
+  setHeading(headingFromDelta(b.x - a.x, b.y - a.y));
   const offsetX = vb.x - a.x, offsetY = vb.y - a.y; // camera position relative to character, held fixed
   const t0 = performance.now();
   function frame(now){

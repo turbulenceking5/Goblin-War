@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --hp:#7b2e2e; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{ margin:0; padding:0; min-height:100%; background:var(--parchment); font-family:'EB Garamond', serif; color:var(--ink); }
   header{
@@ -25,14 +25,39 @@
     border-radius:6px; padding:7px 12px; cursor:pointer;
   }
   #back-btn:active{ transform:scale(.96); }
-  main{ padding:24px 20px 60px; max-width:520px; margin:0 auto; }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#8a7440; text-transform:uppercase; margin-bottom:18px; text-align:center; }
-  .coming-soon{
-    text-align:center; padding:40px 20px; background:rgba(255,255,255,.35);
-    border:1.5px dashed var(--parchment-shadow); border-radius:12px; margin-top:20px;
+
+  .card{
+    background:rgba(255,255,255,.4); border:1.5px solid var(--parchment-shadow); border-radius:12px;
+    padding:18px; margin-bottom:16px;
   }
-  .coming-soon .icon{ font-size:38px; margin-bottom:10px; opacity:.6; }
-  .coming-soon p{ font-size:16px; color:#5a4830; line-height:1.6; margin:0; }
+  .hero-row{ display:flex; align-items:center; gap:14px; margin-bottom:4px; }
+  .hero-icon{ width:56px; height:56px; flex:none; }
+  .hero-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--ink); }
+  .hero-tag{
+    display:inline-block; margin-top:4px; padding:2px 9px; border-radius:20px;
+    font-size:10px; letter-spacing:1px; color:#fff; background:#33502f; font-family:'Cinzel',serif;
+  }
+
+  .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:16px 0 6px; }
+  .bar-track{ background:rgba(0,0,0,.15); border-radius:8px; height:16px; overflow:hidden; border:1px solid var(--parchment-shadow); }
+  .bar-fill{ height:100%; background:linear-gradient(90deg,#8c3a3a,var(--hp)); border-radius:8px 0 0 8px; transition:width .3s; }
+  .bar-value{ font-size:13px; color:#4d3a24; margin-top:4px; text-align:right; }
+
+  .gold-row{ display:flex; align-items:center; gap:8px; font-size:20px; font-family:'Cinzel Decorative',serif; color:#8a6a1f; }
+  .gold-row svg{ width:22px; height:22px; }
+
+  .info-line{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(0,0,0,.08); font-size:14.5px; }
+  .info-line span:first-child{ color:#6a5a3a; }
+  .info-line span:last-child{ color:var(--ink); font-weight:600; }
+
+  .coming-soon{
+    text-align:center; padding:26px 20px; background:rgba(255,255,255,.3);
+    border:1.5px dashed var(--parchment-shadow); border-radius:12px;
+  }
+  .coming-soon .icon{ font-size:30px; margin-bottom:8px; opacity:.6; }
+  .coming-soon p{ font-size:14.5px; color:#5a4830; line-height:1.6; margin:0; }
 </style>
 </head>
 <body>
@@ -42,10 +67,74 @@
   </header>
   <main>
     <div class="subtitle">Hero Sheet</div>
+
+    <div class="card">
+      <div class="hero-row">
+        <svg class="hero-icon" viewBox="0 0 24 24" fill="none" stroke="#7b2e2e" stroke-width="1.3">
+          <circle cx="12" cy="7" r="4" fill="#e9dcb8"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="#e9dcb8"/>
+        </svg>
+        <div>
+          <div class="hero-name">The Traveler</div>
+          <span class="hero-tag">Human</span>
+        </div>
+      </div>
+
+      <div class="stat-label">Health</div>
+      <div class="bar-track"><div class="bar-fill" id="hp-bar" style="width:100%"></div></div>
+      <div class="bar-value" id="hp-value">100 / 100</div>
+
+      <div class="stat-label">Purse</div>
+      <div class="gold-row">
+        <svg viewBox="0 0 24 24" fill="#c9a227"><circle cx="12" cy="12" r="9"/></svg>
+        <span id="gold-value">50</span> gold
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="info-line"><span>Origin</span><span>Kingdom of Bary</span></div>
+      <div class="info-line"><span>Current location</span><span id="current-loc">—</span></div>
+      <div class="info-line"><span>Day</span><span id="current-date">—</span></div>
+    </div>
+
+    <div class="stat-label">Skills &amp; Progression</div>
     <div class="coming-soon">
-      <div class="icon">🛡️</div>
-      <p>Your character sheet isn't built yet.<br>Health, skills, and progression will live here once the player-state system is in place — that's the next big feature on the roadmap.</p>
+      <div class="icon">📜</div>
+      <p>Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state.</p>
     </div>
   </main>
+
+<script>
+const HEALTH_KEY = "goblinwar_health";
+const MAXHEALTH_KEY = "goblinwar_maxHealth";
+const GOLD_KEY = "goblinwar_gold";
+const LOC_KEY = "goblinwar_currentBurg";
+const CAL_KEY = "goblinwar_gameDay";
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+
+function dateStr(dayCount){
+  const day = (dayCount % DAYS_PER_MONTH) + 1;
+  const month = (Math.floor(dayCount / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const year = Math.floor(dayCount / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  return `Day ${day}, Month ${month}, Year ${year}`;
+}
+
+const hp = parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10);
+const maxHp = parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10);
+const gold = parseInt(localStorage.getItem(GOLD_KEY) || "50", 10);
+const burgId = localStorage.getItem(LOC_KEY) || "5";
+const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
+
+document.getElementById('hp-bar').style.width = Math.round((hp/maxHp)*100) + '%';
+document.getElementById('hp-value').textContent = `${hp} / ${maxHp}`;
+document.getElementById('gold-value').textContent = gold;
+document.getElementById('current-date').textContent = dateStr(day);
+
+fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
+  const b = data.burgs[burgId];
+  document.getElementById('current-loc').textContent = b ? b.name : `Location #${burgId}`;
+}).catch(()=>{
+  document.getElementById('current-loc').textContent = `Location #${burgId}`;
+});
+</script>
 </body>
 </html>

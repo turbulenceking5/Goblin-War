@@ -262,7 +262,7 @@ const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
 const STAGE_W = 8192, STAGE_H = 4086;      // native raster pixel size
 const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1 unit = 2 raster px)
 const START_X = 705, START_Y = 448;         // Bary — human starting kingdom
-const REGION_W = 700;                        // default zoom shows this many logical units wide
+const REGION_W = 260;                        // default zoom shows this many logical units wide
 
 let view = { scale: 1, tx: 0, ty: 0 };
 let svgEl = document.getElementById('overlay'); // the interaction overlay (tap zones, marker, etc.)
@@ -736,6 +736,12 @@ document.getElementById('btn-travel').addEventListener('click', ()=>{
   const destName = graph.burgs[destId].name;
   closeCard();
   showToast(`Traveling to ${destName}…`);
+
+  // Snap the camera onto the character's current position first — if you
+  // tapped a destination while the camera was elsewhere, this guarantees
+  // the follow-cam has a known-good starting point.
+  const startBurg = graph.burgs[currentBurg];
+  centerOnLogical(startBurg.x, startBurg.y, view.scale);
 
   const duration = Math.min(2600, 800 + t.days*180);
   animateTravel(currentBurg, destId, t.edges, duration, ()=>{

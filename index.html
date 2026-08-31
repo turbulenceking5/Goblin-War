@@ -69,6 +69,13 @@
   #svg-holder text.label-selected{ fill:#7b2e2e !important; }
   #svg-holder text.label-unknown{ fill:#6b6b6b !important; opacity:.4; }
 
+  .tag{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:9.5px; letter-spacing:1px; margin-right:6px; color:#fff; font-family:'Cinzel',serif; }
+  .tag.human{ background:#33502f; }
+  .tag.dwarf{ background:#2f4d55; }
+  .tag.ork,.tag.goblin{ background:#6e2626; }
+
+  #route-preview{ fill:none; stroke:#d1a445; stroke-width:2.6; stroke-dasharray:1 5; stroke-linecap:round; opacity:.9; pointer-events:none; }
+
   #full-map-view{ position:absolute; inset:0; display:none; background:var(--water-dk); }
   #full-map-view.show{ display:block; }
   #full-map-img{ width:100%; height:100%; object-fit:contain; display:block; }
@@ -252,6 +259,7 @@
 
 <script>
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital", state:"Region / State" };
+const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
 const TIER_BY_GROUP = { 'labels-village':'village','labels-town':'town','labels-city':'city','labels-capital':'capital','labels-state':'state' };
 
 // ===================== MAP CANVAS / VIEW =====================
@@ -517,6 +525,18 @@ function centerOn(burgId){
 
 // Build a flat list of {x,y} points tracing the actual road route (concatenating each
 // edge's real polyline, in the right direction), for path-following travel animation.
+let routePreviewEl = null;
+function drawRoutePreview(path, edgeSteps){
+  if(!routePreviewEl) return;
+  const points = buildRoutePolyline(path, edgeSteps);
+  const d = points.map((p,i)=> (i===0?'M':'L') + p.x + ',' + p.y).join(' ');
+  routePreviewEl.setAttribute('d', d);
+  routePreviewEl.style.opacity = '.9';
+}
+function clearRoutePreview(){
+  if(routePreviewEl) routePreviewEl.style.opacity = '0';
+}
+
 function buildRoutePolyline(path, edgeSteps){
   const points = [];
   const startBurg = graph.burgs[path[0]];
@@ -606,6 +626,7 @@ function closeCard(){
   document.getElementById('info-card').classList.remove('open');
   if(selectedEl){ selectedEl.classList.remove('label-selected'); selectedEl = null; }
   selectedBurg = null;
+  clearRoutePreview();
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
 
@@ -623,13 +644,13 @@ function onMapTap(el){
   selectedEl = el;
 
   document.getElementById('info-name').textContent = name;
-  document.getElementById('info-meta').innerHTML =
-    `<span>${TIER_LABEL[tier]||tier}</span>`;
 
   const travelDiv = document.getElementById('info-travel');
   const travelBtn = document.getElementById('btn-travel');
+  clearRoutePreview();
 
   if(tier === 'state'){
+    document.getElementById('info-meta').innerHTML = `<span>${TIER_LABEL[tier]}</span>`;
     travelDiv.textContent = "A region, not a single place — tap a settlement within it to travel.";
     travelBtn.style.display = 'none';
     selectedBurg = null;
@@ -639,6 +660,10 @@ function onMapTap(el){
 
   const burgId = findBurgIdFromLabel(el);
   selectedBurg = burgId;
+  const burg = burgId ? graph.burgs[burgId] : null;
+  const raceTag = burg && burg.race && burg.race !== 'neutral'
+    ? `<span class="tag ${burg.race}">${RACE_LABEL[burg.race]}</span>` : '';
+  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[tier]||tier}</span>`;
 
   if(!burgId){
     travelDiv.textContent = "Unable to locate this settlement in the travel data.";
@@ -658,6 +683,8 @@ function onMapTap(el){
     } else {
       travelDiv.innerHTML = `<b>${t.miles} miles</b> by road — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
       travelBtn.style.display = 'block';
+      drawRoutePreview(t.path, t.edges);
+
       travelBtn.textContent = `Travel Here (${t.days}d)`;
     }
   }
@@ -833,6 +860,10 @@ Promise.all([
 ]).then(([svgText, graphData])=>{
   graph = graphData;
   buildAdjacency();
+  if(!graph.burgs[currentBurg]){
+    currentBurg = "5"; // Bary — fallback if a stale/invalid location was saved
+    localStorage.setItem(LOC_KEY, currentBurg);
+  }
 
   const holder = document.getElementById('svg-holder');
   holder.innerHTML = svgText;
@@ -840,6 +871,11 @@ Promise.all([
   svgEl.removeAttribute('width');
   svgEl.removeAttribute('height');
   applyViewBox();
+
+  routePreviewEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  routePreviewEl.setAttribute("id", "route-preview");
+  routePreviewEl.style.opacity = '0';
+  svgEl.appendChild(routePreviewEl);
 
   // build burg id -> label element index (for reachability greying)
   Object.entries(TIER_BY_GROUP).forEach(([gid, tier])=>{

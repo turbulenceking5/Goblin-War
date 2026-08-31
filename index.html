@@ -69,6 +69,14 @@
   #svg-holder text.label-selected{ fill:#7b2e2e !important; }
   #svg-holder text.label-unknown{ fill:#6b6b6b !important; opacity:.4; }
 
+  /* Hide heavy decorative layers not used by gameplay — these accounted for
+     ~400KB of the 1.9MB SVG (rivers alone are 211KB) and were the main
+     cause of pan/render lag. Our own travel routes are drawn separately. */
+  #svg-holder #rivers,
+  #svg-holder #provinceBorders,
+  #svg-holder #oceanLayers,
+  #svg-holder #trails{ display:none; }
+
   .tag{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:9.5px; letter-spacing:1px; margin-right:6px; color:#fff; font-family:'Cinzel',serif; }
   .tag.human{ background:#33502f; }
   .tag.dwarf{ background:#2f4d55; }
@@ -304,6 +312,12 @@ let pointers = new Map();
 let dragStart = null;      // {x,y} screen px at gesture start
 let dragMoved = false;
 let pinchStartDist = null, pinchStartW = null;
+let viewBoxUpdateQueued = false;
+function scheduleViewBoxUpdate(){
+  if(viewBoxUpdateQueued) return;
+  viewBoxUpdateQueued = true;
+  requestAnimationFrame(()=>{ applyViewBox(); viewBoxUpdateQueued = false; });
+}
 
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 
@@ -331,7 +345,7 @@ viewport.addEventListener('pointermove', (e)=>{
     if(Math.abs(e.clientX-dragStart.x) > 6 || Math.abs(e.clientY-dragStart.y) > 6) dragMoved = true;
     vb.x -= dxPx/rect.width * vb.w;
     vb.y -= dyPx/rect.height * vb.h;
-    applyViewBox();
+    scheduleViewBoxUpdate();
   } else if(pointers.size===2 && pinchStartDist){
     const pts=[...pointers.values()];
     const d = dist(pts[0],pts[1]);
@@ -862,6 +876,12 @@ Promise.all([
   buildAdjacency();
   if(!graph.burgs[currentBurg]){
     currentBurg = "5"; // Bary — fallback if a stale/invalid location was saved
+    localStorage.setItem(LOC_KEY, currentBurg);
+  } else if(!(adjacency[currentBurg] && adjacency[currentBurg].length)){
+    // Saved location exists but has no road connections at all (a dead end
+    // in this still-sparse network) — fall back to Bary rather than
+    // stranding the player somewhere with nowhere to go.
+    currentBurg = "5";
     localStorage.setItem(LOC_KEY, currentBurg);
   }
 

@@ -126,6 +126,51 @@
     color:var(--gold-lt); font-family:'Cinzel', serif; font-size:12px; letter-spacing:2px;
   }
   #loading.hide{ display:none; }
+
+  /* ---- Settlement (location) view — split screen ---- */
+  #location-view{
+    position:fixed; inset:0; z-index:60; display:none;
+    background:var(--water-dk);
+  }
+  #location-view.show{ display:flex; }
+  #loc-actions{
+    width:52%; height:100%; overflow-y:auto;
+    background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
+    padding:16px 14px calc(16px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column;
+  }
+  #loc-visual{
+    width:48%; height:100%;
+    background:linear-gradient(180deg,#2c3f45,#1c2a2c);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:14px; text-align:center;
+  }
+  #loc-visual svg{ width:78%; max-width:220px; }
+  #loc-visual-name{ font-family:'Cinzel Decorative', serif; color:var(--gold-lt); font-size:16px; margin-top:10px; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  #loc-visual-tier{ font-family:'Cinzel', serif; color:#a9926a; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-top:3px; }
+
+  #loc-back{
+    align-self:flex-start;
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow);
+    border-radius:6px; padding:7px 12px; margin-bottom:14px; cursor:pointer;
+  }
+  #loc-back:active{ transform:scale(.96); }
+  #loc-heading{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--ink); margin:0 0 2px; }
+  #loc-sub{ font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:0 0 16px; }
+  .loc-action{
+    display:flex; align-items:center; gap:12px;
+    background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow);
+    border-radius:10px; padding:12px 14px; margin-bottom:10px; cursor:pointer;
+    text-align:left; width:100%; font-family:'EB Garamond', serif;
+  }
+  .loc-action:active{ transform:scale(.98); background:rgba(255,255,255,.55); }
+  .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
+  .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--ink); }
+  .loc-action .li-text span{ font-size:12.5px; color:#6a5a3a; }
+
+  /* ---- traveling marker ---- */
+  .player-token{ pointer-events:none; }
 </style>
 </head>
 <body>
@@ -188,6 +233,20 @@
   </div>
 
   <div id="loading">LOADING THE MAP…</div>
+
+  <div id="location-view">
+    <div id="loc-actions">
+      <button id="loc-back">&larr; Back to Map</button>
+      <h2 id="loc-heading">—</h2>
+      <div id="loc-sub"></div>
+      <div id="loc-action-list"></div>
+    </div>
+    <div id="loc-visual">
+      <div id="loc-visual-art"></div>
+      <div id="loc-visual-name">—</div>
+      <div id="loc-visual-tier"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -375,14 +434,14 @@ function computeTravel(toId){
 }
 
 // ===================== PLAYER MARKER =====================
-function drawPlayerMarker(){
-  if(!svgEl) return;
-  const b = graph.burgs[currentBurg];
-  if(!b) return;
-  if(playerMarkerEl) playerMarkerEl.remove();
+function positionPlayerMarker(x, y){
+  if(playerMarkerEl){
+    playerMarkerEl.setAttribute("transform", `translate(${x},${y})`);
+    return;
+  }
   const ns = "http://www.w3.org/2000/svg";
   const g = document.createElementNS(ns, "g");
-  g.setAttribute("transform", `translate(${b.x},${b.y})`);
+  g.setAttribute("transform", `translate(${x},${y})`);
   g.style.pointerEvents = "none";
   g.innerHTML = `
     <circle r="5" fill="none" stroke="#d1a445" stroke-width="1.4">
@@ -394,6 +453,12 @@ function drawPlayerMarker(){
   svgEl.appendChild(g);
   playerMarkerEl = g;
 }
+function drawPlayerMarker(){
+  if(!svgEl) return;
+  const b = graph.burgs[currentBurg];
+  if(!b) return;
+  positionPlayerMarker(b.x, b.y);
+}
 
 function centerOn(burgId){
   const b = graph.burgs[burgId];
@@ -402,6 +467,28 @@ function centerOn(burgId){
   vb.y = b.y - vb.h/2;
   applyViewBox();
 }
+
+// Animate the marker (and camera) moving from the current burg to a destination burg.
+function animateTravel(fromId, toId, durationMs, onDone){
+  const a = graph.burgs[fromId], b = graph.burgs[toId];
+  if(!a || !b){ onDone(); return; }
+  const offsetX = vb.x - a.x, offsetY = vb.y - a.y; // camera position relative to character, held fixed
+  const t0 = performance.now();
+  function frame(now){
+    let p = Math.min(1, (now - t0) / durationMs);
+    p = p < 0.5 ? 2*p*p : 1 - Math.pow(-2*p+2, 2)/2; // ease-in-out
+    const x = a.x + (b.x - a.x) * p;
+    const y = a.y + (b.y - a.y) * p;
+    positionPlayerMarker(x, y);
+    vb.x = x + offsetX;
+    vb.y = y + offsetY;
+    applyViewBox();
+    if(p < 1){ requestAnimationFrame(frame); }
+    else { onDone(); }
+  }
+  requestAnimationFrame(frame);
+}
+
 
 // ===================== UI: label selection / info card =====================
 let toastTimer;
@@ -471,7 +558,8 @@ function onMapTap(el){
     travelBtn.style.display = 'none';
   } else if(burgId === currentBurg){
     travelDiv.textContent = "You are here.";
-    travelBtn.style.display = 'none';
+    travelBtn.style.display = 'block';
+    travelBtn.textContent = 'Enter Settlement';
   } else {
     const t = computeTravel(burgId);
     if(!t){
@@ -488,16 +576,106 @@ function onMapTap(el){
 
 document.getElementById('btn-travel').addEventListener('click', ()=>{
   if(!selectedBurg) return;
+
+  if(selectedBurg === currentBurg){
+    closeCard();
+    showLocationView(currentBurg);
+    return;
+  }
+
   const t = computeTravel(selectedBurg);
   if(!t) return;
-  const destName = graph.burgs[selectedBurg].name;
-  currentBurg = selectedBurg;
-  localStorage.setItem(LOC_KEY, currentBurg);
-  advanceDays(t.days);
-  drawPlayerMarker();
-  centerOn(currentBurg);
+  const destId = selectedBurg;
+  const destName = graph.burgs[destId].name;
+  const fromId = currentBurg;
   closeCard();
-  showToast(`Arrived at ${destName} — ${t.days} day${t.days===1?'':'s'} passed.`);
+  showToast(`Traveling to ${destName}…`);
+
+  const duration = Math.min(2600, 800 + t.days*180);
+  animateTravel(fromId, destId, duration, ()=>{
+    currentBurg = destId;
+    localStorage.setItem(LOC_KEY, currentBurg);
+    advanceDays(t.days);
+    showLocationView(currentBurg);
+  });
+});
+
+// ===================== LOCATION VIEW (split screen) =====================
+const TIER_ART = {
+  village: `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M30 150h140v20H30z" fill="#5c4a30"/>
+    <path d="M45 150v-40l25-18 25 18v40z" fill="#8a6b42" stroke="#3a2c18" stroke-width="1.5"/>
+    <path d="M40 112l30-22 30 22z" fill="#7b2e2e" stroke="#3a2c18" stroke-width="1.5"/>
+    <path d="M100 150v-32l22-16 22 16v32z" fill="#8a6b42" stroke="#3a2c18" stroke-width="1.5"/>
+    <path d="M96 118l26-19 26 19z" fill="#5c7a52" stroke="#3a2c18" stroke-width="1.5"/>
+    <circle cx="150" cy="55" r="14" fill="#d1a445" opacity=".8"/>
+    <path d="M20 150c10-6 20-2 30 0" stroke="#5c7a52" stroke-width="3" fill="none"/>
+  </svg>`,
+  town: `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M20 155h160v15H20z" fill="#4a3a24"/>
+    <path d="M35 155v-45l20-14 20 14v45z" fill="#8a6b42" stroke="#3a2c18" stroke-width="1.4"/>
+    <path d="M32 116l23-17 23 17z" fill="#7b2e2e" stroke="#3a2c18" stroke-width="1.4"/>
+    <path d="M85 155v-55l22-16 22 16v55z" fill="#9c8055" stroke="#3a2c18" stroke-width="1.4"/>
+    <path d="M81 108l26-19 26 19z" fill="#5c7a52" stroke="#3a2c18" stroke-width="1.4"/>
+    <path d="M140 155v-38l17-13 17 13v38z" fill="#8a6b42" stroke="#3a2c18" stroke-width="1.4"/>
+    <path d="M137 122l20-15 20 15z" fill="#7b2e2e" stroke="#3a2c18" stroke-width="1.4"/>
+    <rect x="95" y="88" width="8" height="20" fill="#3a2c18"/>
+    <circle cx="99" cy="82" r="5" fill="#d1a445"/>
+  </svg>`,
+  city: `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 160h170v14H15z" fill="#4a3a24"/>
+    <path d="M25 160V95h18v-14h10v14h18v65z" fill="#6b6b70" stroke="#2a2a2e" stroke-width="1.4"/>
+    <path d="M25 95l-6-10h48l-6 10z" fill="#3a2c18"/>
+    <path d="M85 160V80h16v-12h10v12h16v80z" fill="#7d7d82" stroke="#2a2a2e" stroke-width="1.4"/>
+    <path d="M85 80l-6-10h44l-6 10z" fill="#3a2c18"/>
+    <path d="M143 160v-55h16v-12h10v12h16v55z" fill="#6b6b70" stroke="#2a2a2e" stroke-width="1.4"/>
+    <path d="M143 105l-6-10h44l-6 10z" fill="#3a2c18"/>
+    <rect x="93" y="55" width="8" height="16" fill="#7b2e2e"/>
+  </svg>`,
+  capital: `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10 165h180v12H10z" fill="#3a2c18"/>
+    <rect x="30" y="95" width="26" height="70" fill="#7d7d82" stroke="#2a2a2e" stroke-width="1.4"/>
+    <path d="M30 95l0-14h6v8h6v-8h6v8h6v-8h2v14z" fill="#5c5c60"/>
+    <rect x="144" y="95" width="26" height="70" fill="#7d7d82" stroke="#2a2a2e" stroke-width="1.4"/>
+    <path d="M144 95l0-14h6v8h6v-8h6v8h6v-8h2v14z" fill="#5c5c60"/>
+    <rect x="70" y="70" width="60" height="95" fill="#8a8a8f" stroke="#2a2a2e" stroke-width="1.6"/>
+    <path d="M70 70l0-16h8v9h8v-9h8v9h8v-9h8v9h8v-9h8v9h4v16z" fill="#6b6b70"/>
+    <rect x="93" y="120" width="14" height="45" fill="#3a2c18"/>
+    <path d="M93 120c0-10 14-10 14 0z" fill="#3a2c18"/>
+    <rect x="97" y="40" width="6" height="20" fill="#7b2e2e"/>
+    <path d="M100 40l-8 8h16z" fill="#d1a445"/>
+  </svg>`
+};
+
+function showLocationView(burgId){
+  const b = graph.burgs[burgId];
+  if(!b) return;
+  document.getElementById('loc-heading').textContent = b.name;
+  document.getElementById('loc-sub').textContent = `${TIER_LABEL[b.tier]||b.tier}`;
+  document.getElementById('loc-visual-art').innerHTML = TIER_ART[b.tier] || TIER_ART.village;
+  document.getElementById('loc-visual-name').textContent = b.name;
+  document.getElementById('loc-visual-tier').textContent = TIER_LABEL[b.tier]||b.tier;
+
+  const actions = [
+    { icon:`<circle cx="12" cy="12" r="9"/><path d="M9 10h6M9 14h4"/>`, title:"The Inn", desc:"Rest up and hear local rumours", stub:true },
+    { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy and sell gear", stub:true },
+    { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", stub:true },
+  ];
+  const list = document.getElementById('loc-action-list');
+  list.innerHTML = actions.map(a => `
+    <button class="loc-action" data-stub="${a.stub}">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${a.icon}</svg>
+      <span class="li-text"><b>${a.title}</b><span>${a.desc}</span></span>
+    </button>
+  `).join('');
+  list.querySelectorAll('.loc-action').forEach(btn=>{
+    btn.addEventListener('click', ()=> showToast("Not built yet — coming in a future update."));
+  });
+
+  document.getElementById('location-view').classList.add('show');
+}
+document.getElementById('loc-back').addEventListener('click', ()=>{
+  document.getElementById('location-view').classList.remove('show');
 });
 
 // ===================== FULL MAP TOGGLE =====================

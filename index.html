@@ -35,6 +35,28 @@
   }
   #date-badge b{ color:var(--gold-lt); }
 
+  #toolbar{
+    position:relative; z-index:19;
+    background:#1b1208;
+    border-bottom:2px solid rgba(169,122,31,.5);
+    padding:6px 10px; display:flex; align-items:center; justify-content:space-between;
+  }
+  #nav-icons{ display:flex; gap:6px; }
+  .nav-btn{
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    background:transparent; border:none; color:var(--gold-lt);
+    font-family:'Cinzel', serif; font-size:8px; letter-spacing:.5px; text-transform:uppercase;
+    padding:4px 7px; border-radius:6px;
+  }
+  .nav-btn:active{ background:rgba(255,255,255,.08); }
+  .nav-btn svg{ width:18px; height:18px; }
+  #zoom-controls{ display:flex; gap:6px; }
+  .zbtn{
+    width:30px; height:30px; border-radius:7px; border:1.5px solid var(--gold);
+    background:transparent; color:var(--gold-lt); font-family:'Cinzel',serif; font-size:15px; font-weight:700;
+  }
+  .zbtn:active{ transform:scale(.94); }
+
   #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); touch-action:none; }
   #svg-holder{ position:absolute; inset:0; width:100%; height:100%; }
   #svg-holder svg{ width:100%; height:100%; display:block; }
@@ -117,6 +139,31 @@
     <div id="date-badge">Day <b id="date-day">1</b>, Month <b id="date-month">1</b>, Year <b id="date-year">1</b></div>
   </header>
 
+  <div id="toolbar">
+    <div id="nav-icons">
+      <button class="nav-btn" onclick="location.href='inventory.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+        Bag
+      </button>
+      <button class="nav-btn" onclick="location.href='party.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.6"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M13.5 14.2c2.6.3 4.5 2.4 4.5 5.8"/></svg>
+        Party
+      </button>
+      <button class="nav-btn" onclick="location.href='character.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+        Hero
+      </button>
+      <button class="nav-btn" onclick="location.href='settings.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.7a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.7a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.4-2-1.5z"/></svg>
+        Settings
+      </button>
+    </div>
+    <div id="zoom-controls">
+      <button class="zbtn" id="zoom-out">–</button>
+      <button class="zbtn" id="zoom-in">+</button>
+    </div>
+  </div>
+
   <div id="map-viewport">
     <div id="svg-holder"></div>
     <div id="full-map-view">
@@ -147,10 +194,12 @@
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital", state:"Region / State" };
 const TIER_BY_GROUP = { 'labels-village':'village','labels-town':'town','labels-city':'city','labels-capital':'capital','labels-state':'state' };
 
-// ===================== MAP CANVAS / VIEW (pan-only, fixed zoom) =====================
+// ===================== MAP CANVAS / VIEW =====================
 const FULL_W = 2560, FULL_H = 1277;
 const START_X = 705, START_Y = 448;   // Bary — human starting kingdom
-const REGION_W = 700;                  // fixed zoom level — no zooming in/out
+const REGION_W = 700;                  // default zoom level
+const MIN_W = 120;                     // deepest zoom-in allowed
+const MAX_W = REGION_W;                // can't zoom out past the default region view
 
 let vb = { x: START_X - REGION_W/2, y: 0, w: REGION_W, h: REGION_W };
 let svgEl = null;
@@ -160,6 +209,7 @@ function svgAspect(){
   return holder.clientHeight / holder.clientWidth;
 }
 function applyViewBox(){
+  vb.w = Math.max(MIN_W, Math.min(MAX_W, vb.w));
   vb.h = vb.w * svgAspect();
   vb.x = Math.max(0, Math.min(FULL_W - vb.w, vb.x));
   vb.y = Math.max(0, Math.min(FULL_H - vb.h, vb.y));
@@ -167,25 +217,84 @@ function applyViewBox(){
 }
 vb.y = START_Y - (REGION_W*svgAspect())/2;
 
-// ---- pan only (drag), no pinch/wheel zoom ----
+function zoomBy(factor, centerXpx, centerYpx){
+  const holder = document.getElementById('map-viewport');
+  const rect = holder.getBoundingClientRect();
+  const cx = centerXpx!=null ? vb.x + (centerXpx-rect.left)/rect.width * vb.w : vb.x + vb.w/2;
+  const cy = centerYpx!=null ? vb.y + (centerYpx-rect.top)/rect.height * vb.h : vb.y + vb.h/2;
+  vb.x = cx - (cx - vb.x) * factor;
+  vb.y = cy - (cy - vb.y) * factor;
+  vb.w = vb.w * factor;
+  applyViewBox();
+}
+document.getElementById('zoom-in').addEventListener('click', ()=> zoomBy(0.75));
+document.getElementById('zoom-out').addEventListener('click', ()=> zoomBy(1.33));
+
+// ---- pan, pinch-zoom, and tap-to-select (unified so tap hit-testing survives pointer capture) ----
 const viewport = document.getElementById('map-viewport');
-let dragLast = null;
+let pointers = new Map();
+let dragStart = null;      // {x,y} screen px at gesture start
+let dragMoved = false;
+let pinchStartDist = null, pinchStartW = null;
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
 viewport.addEventListener('pointerdown', (e)=>{
   viewport.setPointerCapture(e.pointerId);
-  dragLast = {x:e.clientX, y:e.clientY};
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(pointers.size===1){
+    dragStart = {x:e.clientX, y:e.clientY};
+    dragMoved = false;
+  }
+  if(pointers.size===2){
+    const pts=[...pointers.values()];
+    pinchStartDist = dist(pts[0],pts[1]);
+    pinchStartW = vb.w;
+    dragMoved = true; // a pinch is never a tap
+  }
 });
 viewport.addEventListener('pointermove', (e)=>{
-  if(!dragLast) return;
-  const rect = viewport.getBoundingClientRect();
-  const dxPx = e.clientX - dragLast.x, dyPx = e.clientY - dragLast.y;
-  vb.x -= dxPx/rect.width * vb.w;
-  vb.y -= dyPx/rect.height * vb.h;
-  dragLast = {x:e.clientX, y:e.clientY};
-  applyViewBox();
+  if(!pointers.has(e.pointerId)) return;
+  const prev = pointers.get(e.pointerId);
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(pointers.size===1){
+    const rect = viewport.getBoundingClientRect();
+    const dxPx = e.clientX - prev.x, dyPx = e.clientY - prev.y;
+    if(Math.abs(e.clientX-dragStart.x) > 6 || Math.abs(e.clientY-dragStart.y) > 6) dragMoved = true;
+    vb.x -= dxPx/rect.width * vb.w;
+    vb.y -= dyPx/rect.height * vb.h;
+    applyViewBox();
+  } else if(pointers.size===2 && pinchStartDist){
+    const pts=[...pointers.values()];
+    const d = dist(pts[0],pts[1]);
+    const factor = pinchStartDist/d;
+    const midX=(pts[0].x+pts[1].x)/2, midY=(pts[0].y+pts[1].y)/2;
+    zoomBy((pinchStartW*factor)/vb.w, midX, midY);
+  }
 });
-function endDrag(){ dragLast = null; }
-viewport.addEventListener('pointerup', endDrag);
-viewport.addEventListener('pointercancel', endDrag);
+viewport.addEventListener('pointerup', (e)=>{
+  const wasSingle = pointers.size===1 && dragStart;
+  if(wasSingle && !dragMoved){
+    handleTap(dragStart.x, dragStart.y);
+  }
+  pointers.delete(e.pointerId);
+  if(pointers.size<2){ pinchStartDist=null; }
+  if(pointers.size<1){ dragStart=null; }
+});
+viewport.addEventListener('pointercancel', (e)=>{
+  pointers.delete(e.pointerId);
+  pinchStartDist=null; dragStart=null;
+});
+viewport.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  zoomBy(e.deltaY>0?1.12:0.89, e.clientX, e.clientY);
+}, {passive:false});
+
+function handleTap(clientX, clientY){
+  const el = document.elementFromPoint(clientX, clientY);
+  onMapTap(el);
+}
+
 
 // ===================== GAME CALENDAR =====================
 const CAL_KEY = "goblinwar_gameDay";
@@ -326,16 +435,18 @@ function closeCard(){
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
 
-document.getElementById('svg-holder').addEventListener('click', (e)=>{
-  if(e.target.tagName.toLowerCase() !== 'text'){ closeCard(); return; }
-  const group = e.target.closest('[id^="labels-"]');
+document.getElementById('svg-holder').addEventListener('click', (e)=>{ e.preventDefault(); });
+
+function onMapTap(el){
+  if(!el || el.tagName.toLowerCase() !== 'text'){ closeCard(); return; }
+  const group = el.closest('[id^="labels-"]');
   if(!group || !(group.id in TIER_BY_GROUP)){ closeCard(); return; }
   const tier = TIER_BY_GROUP[group.id];
-  const name = e.target.textContent.trim();
+  const name = el.textContent.trim();
 
   if(selectedEl) selectedEl.classList.remove('label-selected');
-  e.target.classList.add('label-selected');
-  selectedEl = e.target;
+  el.classList.add('label-selected');
+  selectedEl = el;
 
   document.getElementById('info-name').textContent = name;
   document.getElementById('info-meta').innerHTML =
@@ -352,7 +463,7 @@ document.getElementById('svg-holder').addEventListener('click', (e)=>{
     return;
   }
 
-  const burgId = findBurgIdFromLabel(e.target);
+  const burgId = findBurgIdFromLabel(el);
   selectedBurg = burgId;
 
   if(!burgId){
@@ -373,7 +484,7 @@ document.getElementById('svg-holder').addEventListener('click', (e)=>{
     }
   }
   document.getElementById('info-card').classList.add('open');
-});
+}
 
 document.getElementById('btn-travel').addEventListener('click', ()=>{
   if(!selectedBurg) return;

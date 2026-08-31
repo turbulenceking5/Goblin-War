@@ -58,42 +58,37 @@
   .zbtn:active{ transform:scale(.94); }
 
   #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); touch-action:none; }
-  #svg-holder{ position:absolute; inset:0; width:100%; height:100%; }
-  #svg-holder svg{ width:100%; height:100%; display:block; }
+  #map-stage{
+    position:absolute; left:0; top:0;
+    width:5120px; height:2554px;
+    transform-origin:0 0;
+    will-change:transform;
+  }
+  #map-img{ position:absolute; inset:0; width:5120px; height:2554px; display:block; user-select:none; -webkit-user-drag:none; }
+  #overlay{ position:absolute; inset:0; width:5120px; height:2554px; }
 
-  #svg-holder #labels-village text,
-  #svg-holder #labels-town text,
-  #svg-holder #labels-city text,
-  #svg-holder #labels-capital text,
-  #svg-holder #labels-state text{ cursor:pointer; }
-  #svg-holder text.label-selected{ fill:#7b2e2e !important; }
-  /* Hide heavy purely-decorative layers not used by gameplay — rivers (211KB)
-     and province borders (77KB) were the biggest single contributors.
-     Roads/trails are back (you asked for them) since they're comparatively
-     cheap and give the map a lived-in feel. Villages are hidden instead to
-     cut density/lag — see the note further down. */
-  #svg-holder #rivers,
-  #svg-holder #provinceBorders,
-  #svg-holder #oceanLayers,
-  #svg-holder #searoutes{ display:none; }
-
-  #svg-holder #labels-village,
-  #svg-holder #burgIcons #village{ display:none; }
+  .hitzone{ fill:transparent; cursor:pointer; }
+  #highlight-ring{
+    fill:none; stroke:var(--gold-lt); stroke-width:3;
+    opacity:0; transition:opacity .15s;
+    filter:drop-shadow(0 0 4px rgba(209,164,69,.8));
+  }
+  #highlight-ring.show{ opacity:1; }
+  #highlight-ring circle{ animation:pulse-ring 1.4s ease-in-out infinite; transform-origin:center; }
+  @keyframes pulse-ring{ 0%,100%{ r:22; opacity:1; } 50%{ r:27; opacity:.6; } }
 
   .tag{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:9.5px; letter-spacing:1px; margin-right:6px; color:#fff; font-family:'Cinzel',serif; }
   .tag.human{ background:#33502f; }
   .tag.dwarf{ background:#2f4d55; }
   .tag.ork,.tag.goblin{ background:#6e2626; }
 
-  #route-preview{ fill:none; stroke:#d1a445; stroke-width:2.6; stroke-dasharray:1 5; stroke-linecap:round; opacity:.9; pointer-events:none; }
+  #route-preview{ fill:none; stroke:#d1a445; stroke-width:2.6; stroke-dasharray:1 5; stroke-linecap:round; opacity:0; pointer-events:none; }
 
-  #full-map-view{ position:absolute; inset:0; display:none; background:var(--water-dk); }
-  #full-map-view.show{ display:block; }
-  #full-map-img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .player-token{ pointer-events:none; }
 
   #ui-vignette{ position:absolute; inset:0; pointer-events:none; z-index:15; box-shadow: inset 0 0 100px 34px rgba(0,0,0,.5); }
 
-  #view-toggle{
+  #recenter-btn{
     position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
     width:52px; height:52px; border-radius:50%;
     background:linear-gradient(180deg, var(--gold-lt), var(--gold));
@@ -101,7 +96,7 @@
     box-shadow:0 3px 10px rgba(0,0,0,.5);
     display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
   }
-  #view-toggle:active{ transform:scale(.94); }
+  #recenter-btn:active{ transform:scale(.94); }
 
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
@@ -118,15 +113,9 @@
   #info-travel{ font-size:15px; color:#4d3a24; margin:0 0 14px; line-height:1.5; }
   #info-travel b{ color:var(--ink); }
   #info-actions{ display:flex; gap:10px; }
-  .btn{
-    font-family:'Cinzel', serif; font-size:13px; letter-spacing:1px;
-    border:none; border-radius:8px; padding:11px 16px; cursor:pointer; flex:1;
-  }
+  .btn{ font-family:'Cinzel', serif; font-size:13px; letter-spacing:1px; border:none; border-radius:8px; padding:11px 16px; cursor:pointer; flex:1; }
   .btn:active{ transform:scale(.97); }
-  .btn-primary{
-    background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700;
-    box-shadow:0 3px 0 #7a5715;
-  }
+  .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
   .btn-secondary{ background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow); }
 
   #toast{
@@ -146,11 +135,7 @@
   }
   #loading.hide{ display:none; }
 
-  /* ---- Settlement (location) view — split screen ---- */
-  #location-view{
-    position:fixed; inset:0; z-index:60; display:none;
-    background:var(--water-dk);
-  }
+  #location-view{ position:fixed; inset:0; z-index:60; display:none; background:var(--water-dk); }
   #location-view.show{ display:flex; }
   #loc-actions{
     width:52%; height:100%; overflow-y:auto;
@@ -167,7 +152,6 @@
   #loc-visual svg{ width:78%; max-width:220px; }
   #loc-visual-name{ font-family:'Cinzel Decorative', serif; color:var(--gold-lt); font-size:16px; margin-top:10px; text-shadow:0 2px 3px rgba(0,0,0,.6); }
   #loc-visual-tier{ font-family:'Cinzel', serif; color:#a9926a; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-top:3px; }
-
   #loc-back{
     align-self:flex-start;
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
@@ -187,9 +171,6 @@
   .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
   .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--ink); }
   .loc-action .li-text span{ font-size:12.5px; color:#6a5a3a; }
-
-  /* ---- traveling marker ---- */
-  .player-token{ pointer-events:none; }
 </style>
 </head>
 <body>
@@ -198,7 +179,7 @@
   <header>
     <div>
       <h1 id="header-title">THE REALM</h1>
-      <div class="subtitle" id="header-sub">Tap or hover a name</div>
+      <div class="subtitle" id="header-sub">Tap a settlement</div>
     </div>
     <div id="date-badge">Day <b id="date-day">1</b>, Month <b id="date-month">1</b>, Year <b id="date-year">1</b></div>
   </header>
@@ -229,14 +210,19 @@
   </div>
 
   <div id="map-viewport">
-    <div id="svg-holder"></div>
-    <div id="full-map-view">
-      <img id="full-map-img" src="assets/full-map.jpg" alt="Full world map overview">
+    <div id="map-stage">
+      <img id="map-img" src="assets/world-raster.jpg" alt="World map" draggable="false">
+      <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
+        <path id="route-preview"/>
+        <g id="hitzones"></g>
+        <g id="player-layer"></g>
+        <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
+      </svg>
     </div>
     <div id="ui-vignette"></div>
   </div>
 
-  <button id="view-toggle">FULL<br>MAP</button>
+  <button id="recenter-btn">FIND<br>ME</button>
 
   <div id="toast"></div>
 
@@ -269,73 +255,79 @@
 </div>
 
 <script>
-const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital", state:"Region / State" };
+const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital" };
 const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
-const TIER_BY_GROUP = { 'labels-village':'village','labels-town':'town','labels-city':'city','labels-capital':'capital','labels-state':'state' };
 
-// ===================== MAP CANVAS / VIEW =====================
-const FULL_W = 2560, FULL_H = 1277;
-const START_X = 705, START_Y = 448;   // Bary — human starting kingdom
-const REGION_W = 700;                  // default zoom level
-const MIN_W = 120;                     // deepest zoom-in allowed
-const MAX_W = REGION_W;                // can't zoom out past the default region view
+// ===================== MAP CANVAS / VIEW (raster + CSS transform pan/zoom) =====================
+const STAGE_W = 5120, STAGE_H = 2554;      // native raster pixel size
+const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1 unit = 2 raster px)
+const START_X = 705, START_Y = 448;         // Bary — human starting kingdom
+const REGION_W = 700;                        // default zoom shows this many logical units wide
 
-let vb = { x: START_X - REGION_W/2, y: 0, w: REGION_W, h: REGION_W };
-let svgEl = null;
+let view = { scale: 1, tx: 0, ty: 0 };
+let svgEl = document.getElementById('overlay'); // the interaction overlay (tap zones, marker, etc.)
 
-function svgAspect(){
+function clampView(){
   const holder = document.getElementById('map-viewport');
-  return holder.clientHeight / holder.clientWidth;
+  const vw = holder.clientWidth, vh = holder.clientHeight;
+  const minScaleToFillW = vw / STAGE_W, minScaleToFillH = vh / STAGE_H;
+  const minScale = Math.max(minScaleToFillW, minScaleToFillH); // can't zoom out past fitting the map
+  const maxScale = 3.0; // deepest zoom-in (beyond native pixel res, graceful upscale)
+  view.scale = Math.max(minScale, Math.min(maxScale, view.scale));
+  const scaledW = STAGE_W*view.scale, scaledH = STAGE_H*view.scale;
+  view.tx = Math.max(vw - scaledW, Math.min(0, view.tx));
+  view.ty = Math.max(vh - scaledH, Math.min(0, view.ty));
 }
-function applyViewBox(){
-  vb.w = Math.max(MIN_W, Math.min(MAX_W, vb.w));
-  vb.h = vb.w * svgAspect();
-  vb.x = Math.max(0, Math.min(FULL_W - vb.w, vb.x));
-  vb.y = Math.max(0, Math.min(FULL_H - vb.h, vb.y));
-  if(svgEl) svgEl.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+function applyView(){
+  clampView();
+  document.getElementById('map-stage').style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;
 }
-vb.y = START_Y - (REGION_W*svgAspect())/2;
+function centerOnLogical(lx, ly, scale){
+  const holder = document.getElementById('map-viewport');
+  const vw = holder.clientWidth, vh = holder.clientHeight;
+  if(scale!=null) view.scale = scale;
+  const px = lx * (STAGE_W/LOGICAL_W) * view.scale;
+  const py = ly * (STAGE_H/LOGICAL_H) * view.scale;
+  view.tx = vw/2 - px;
+  view.ty = vh/2 - py;
+  applyView();
+}
 
 function zoomBy(factor, centerXpx, centerYpx){
   const holder = document.getElementById('map-viewport');
   const rect = holder.getBoundingClientRect();
-  const cx = centerXpx!=null ? vb.x + (centerXpx-rect.left)/rect.width * vb.w : vb.x + vb.w/2;
-  const cy = centerYpx!=null ? vb.y + (centerYpx-rect.top)/rect.height * vb.h : vb.y + vb.h/2;
-  vb.x = cx - (cx - vb.x) * factor;
-  vb.y = cy - (cy - vb.y) * factor;
-  vb.w = vb.w * factor;
-  applyViewBox();
+  const cx = centerXpx!=null ? centerXpx-rect.left : holder.clientWidth/2;
+  const cy = centerYpx!=null ? centerYpx-rect.top : holder.clientHeight/2;
+  const worldX = (cx - view.tx)/view.scale, worldY = (cy - view.ty)/view.scale;
+  view.scale *= factor;
+  view.tx = cx - worldX*view.scale;
+  view.ty = cy - worldY*view.scale;
+  applyView();
 }
-document.getElementById('zoom-in').addEventListener('click', ()=> zoomBy(0.75));
-document.getElementById('zoom-out').addEventListener('click', ()=> zoomBy(1.33));
+document.getElementById('zoom-in').addEventListener('click', ()=> zoomBy(1.35));
+document.getElementById('zoom-out').addEventListener('click', ()=> zoomBy(0.74));
 
-// ---- pan, pinch-zoom, and tap-to-select (unified so tap hit-testing survives pointer capture) ----
+// ---- pan, pinch-zoom, and tap-to-select ----
 const viewport = document.getElementById('map-viewport');
 let pointers = new Map();
-let dragStart = null;      // {x,y} screen px at gesture start
-let dragMoved = false;
-let pinchStartDist = null, pinchStartW = null;
-let viewBoxUpdateQueued = false;
-function scheduleViewBoxUpdate(){
-  if(viewBoxUpdateQueued) return;
-  viewBoxUpdateQueued = true;
-  requestAnimationFrame(()=>{ applyViewBox(); viewBoxUpdateQueued = false; });
+let dragStart = null, dragMoved = false;
+let pinchStartDist = null, pinchStartScale = null;
+let viewUpdateQueued = false;
+function scheduleViewUpdate(){
+  if(viewUpdateQueued) return;
+  viewUpdateQueued = true;
+  requestAnimationFrame(()=>{ applyView(); viewUpdateQueued = false; });
 }
-
 function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
 
 viewport.addEventListener('pointerdown', (e)=>{
   viewport.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if(pointers.size===1){
-    dragStart = {x:e.clientX, y:e.clientY};
-    dragMoved = false;
-  }
+  if(pointers.size===1){ dragStart = {x:e.clientX, y:e.clientY}; dragMoved = false; }
   if(pointers.size===2){
     const pts=[...pointers.values()];
-    pinchStartDist = dist(pts[0],pts[1]);
-    pinchStartW = vb.w;
-    dragMoved = true; // a pinch is never a tap
+    pinchStartDist = dist(pts[0],pts[1]); pinchStartScale = view.scale;
+    dragMoved = true;
   }
 });
 viewport.addEventListener('pointermove', (e)=>{
@@ -343,45 +335,43 @@ viewport.addEventListener('pointermove', (e)=>{
   const prev = pointers.get(e.pointerId);
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
   if(pointers.size===1){
-    const rect = viewport.getBoundingClientRect();
     const dxPx = e.clientX - prev.x, dyPx = e.clientY - prev.y;
     if(Math.abs(e.clientX-dragStart.x) > 6 || Math.abs(e.clientY-dragStart.y) > 6) dragMoved = true;
-    vb.x -= dxPx/rect.width * vb.w;
-    vb.y -= dyPx/rect.height * vb.h;
-    scheduleViewBoxUpdate();
+    view.tx += dxPx; view.ty += dyPx;
+    scheduleViewUpdate();
   } else if(pointers.size===2 && pinchStartDist){
     const pts=[...pointers.values()];
     const d = dist(pts[0],pts[1]);
-    const factor = pinchStartDist/d;
     const midX=(pts[0].x+pts[1].x)/2, midY=(pts[0].y+pts[1].y)/2;
-    zoomBy((pinchStartW*factor)/vb.w, midX, midY);
+    zoomBy((pinchStartScale*(d/pinchStartDist))/view.scale, midX, midY);
   }
 });
 viewport.addEventListener('pointerup', (e)=>{
-  const wasSingle = pointers.size===1 && dragStart;
-  if(wasSingle && !dragMoved){
-    handleTap(dragStart.x, dragStart.y);
-  }
+  if(pointers.size===1 && dragStart && !dragMoved) handleTap(dragStart.x, dragStart.y);
   pointers.delete(e.pointerId);
   if(pointers.size<2){ pinchStartDist=null; }
   if(pointers.size<1){ dragStart=null; }
 });
-viewport.addEventListener('pointercancel', (e)=>{
-  pointers.delete(e.pointerId);
-  pinchStartDist=null; dragStart=null;
-});
+viewport.addEventListener('pointercancel', (e)=>{ pointers.delete(e.pointerId); pinchStartDist=null; dragStart=null; });
 viewport.addEventListener('wheel', (e)=>{
   e.preventDefault();
-  zoomBy(e.deltaY>0?1.12:0.89, e.clientX, e.clientY);
+  zoomBy(e.deltaY>0?0.89:1.12, e.clientX, e.clientY);
 }, {passive:false});
 
 function handleTap(clientX, clientY){
   const el = document.elementFromPoint(clientX, clientY);
-  onMapTap(el);
+  if(el && el.classList && el.classList.contains('hitzone')){
+    onMapTap(el.dataset.burg);
+  } else {
+    closeCard();
+  }
 }
 
+document.getElementById('recenter-btn').addEventListener('click', ()=>{
+  const b = graph.burgs[currentBurg];
+  if(b) centerOnLogical(b.x, b.y, Math.max(view.scale, (viewport.clientWidth)/((STAGE_W/LOGICAL_W)*REGION_W)));
+});
 
-// ===================== GAME CALENDAR =====================
 const CAL_KEY = "goblinwar_gameDay";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 let gameDay = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
@@ -414,7 +404,7 @@ let currentBurg = localStorage.getItem(LOC_KEY) || "5"; // Bary
 let selectedBurg = null;
 let playerMarkerEl = null;
 let reachableSet = new Set(); // cell ids reachable from currentBurg's cell
-const labelElByBurg = {};      // burg id -> <text> element (built after SVG loads)
+const labelElByBurg = {}; // (unused holdover — no longer needed with tap-zones)
 
 function buildAdjacency(){
   graph.edges.forEach(e=>{
@@ -565,14 +555,6 @@ function drawPlayerMarker(){
   positionPlayerMarker(b.x, b.y);
 }
 
-function centerOn(burgId){
-  const b = graph.burgs[burgId];
-  if(!b) return;
-  vb.x = b.x - vb.w/2;
-  vb.y = b.y - vb.h/2;
-  applyViewBox();
-}
-
 // Build a flat list of {x,y} points tracing the actual road route (concatenating each
 // edge's real polyline, in the right direction), for path-following travel animation.
 let routePreviewEl = null;
@@ -621,7 +603,8 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
   if(totalLen === 0){ onDone(); return; }
 
   const startPos = points[0];
-  const offsetX = vb.x - startPos.x, offsetY = vb.y - startPos.y; // camera offset from character, held fixed
+  const pxPerUnit = (STAGE_W/LOGICAL_W) * view.scale;
+  const offsetTx = view.tx - startPos.x*pxPerUnit, offsetTy = view.ty - startPos.y*pxPerUnit; // camera offset from character, held fixed
 
   function posAtDistance(dist){
     let remaining = dist;
@@ -647,9 +630,9 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
     const pos = posAtDistance(totalLen * eased);
     setHeading(headingFromDelta(pos.dx, pos.dy));
     positionPlayerMarker(pos.x, pos.y);
-    vb.x = pos.x + offsetX;
-    vb.y = pos.y + offsetY;
-    applyViewBox();
+    view.tx = pos.x*pxPerUnit + offsetTx;
+    view.ty = pos.y*pxPerUnit + offsetTy;
+    applyView();
     if(p < 1){ requestAnimationFrame(frame); }
     else { onDone(); }
   }
@@ -667,64 +650,55 @@ function showToast(msg){
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
 }
 
-function findBurgIdFromLabel(el){
-  const group = el.closest('[id^="labels-"]');
-  if(!group) return null;
-  const tier = TIER_BY_GROUP[group.id];
-  if(!tier || tier === 'state') return null;
-  const id = el.getAttribute('data-id'); // exact burg id — avoids name-collision bugs
-  return (id && graph.burgs[id]) ? id : null;
-}
-
 let selectedEl = null;
 function closeCard(){
   document.getElementById('info-card').classList.remove('open');
-  if(selectedEl){ selectedEl.classList.remove('label-selected'); selectedEl = null; }
+  document.getElementById('highlight-ring').classList.remove('show');
+  selectedEl = null;
   selectedBurg = null;
   clearRoutePreview();
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
 
-document.getElementById('svg-holder').addEventListener('click', (e)=>{ e.preventDefault(); });
+// ---- build one invisible tap-zone circle per settlement, sized by tier ----
+const HIT_R = { village:9, town:12, city:15, capital:18 };
+function buildHitzones(){
+  const g = document.getElementById('hitzones');
+  g.innerHTML = '';
+  for(const id in graph.burgs){
+    const b = graph.burgs[id];
+    const c = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    c.setAttribute("class","hitzone");
+    c.setAttribute("cx", b.x);
+    c.setAttribute("cy", b.y);
+    c.setAttribute("r", HIT_R[b.tier] || 10);
+    c.dataset.burg = id;
+    g.appendChild(c);
+  }
+}
 
-function onMapTap(el){
-  if(!el || el.tagName.toLowerCase() !== 'text'){ closeCard(); return; }
-  const group = el.closest('[id^="labels-"]');
-  if(!group || !(group.id in TIER_BY_GROUP)){ closeCard(); return; }
-  const tier = TIER_BY_GROUP[group.id];
-  const name = el.textContent.trim();
+function showHighlight(x, y){
+  const ring = document.getElementById('highlight-ring');
+  ring.setAttribute('transform', `translate(${x},${y})`);
+  ring.classList.add('show');
+}
 
-  if(selectedEl) selectedEl.classList.remove('label-selected');
-  el.classList.add('label-selected');
-  selectedEl = el;
+function onMapTap(burgId){
+  const burg = graph.burgs[burgId];
+  if(!burg){ closeCard(); return; }
+  selectedBurg = burgId;
+  showHighlight(burg.x, burg.y);
 
-  document.getElementById('info-name').textContent = name;
+  document.getElementById('info-name').textContent = burg.name;
+  const raceTag = burg.race && burg.race !== 'neutral'
+    ? `<span class="tag ${burg.race}">${RACE_LABEL[burg.race]}</span>` : '';
+  const stateTag = burg.state ? `<span style="color:#8a7440;">${burg.state}</span>` : '';
+  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[burg.tier]||burg.tier}</span>${stateTag ? ' — '+stateTag : ''}`;
 
   const travelDiv = document.getElementById('info-travel');
   const travelBtn = document.getElementById('btn-travel');
-  clearRoutePreview();
 
-  if(tier === 'state'){
-    document.getElementById('info-meta').innerHTML = `<span>${TIER_LABEL[tier]}</span>`;
-    travelDiv.textContent = "A region, not a single place — tap a settlement within it to travel.";
-    travelBtn.style.display = 'none';
-    selectedBurg = null;
-    document.getElementById('info-card').classList.add('open');
-    return;
-  }
-
-  const burgId = findBurgIdFromLabel(el);
-  selectedBurg = burgId;
-  const burg = burgId ? graph.burgs[burgId] : null;
-  const raceTag = burg && burg.race && burg.race !== 'neutral'
-    ? `<span class="tag ${burg.race}">${RACE_LABEL[burg.race]}</span>` : '';
-  const stateTag = burg && burg.state ? `<span style="color:#8a7440;">${burg.state}</span>` : '';
-  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[tier]||tier}</span>${stateTag ? ' — '+stateTag : ''}`;
-
-  if(!burgId){
-    travelDiv.textContent = "Unable to locate this settlement in the travel data.";
-    travelBtn.style.display = 'none';
-  } else if(burgId === currentBurg){
+  if(burgId === currentBurg){
     travelDiv.textContent = "You are here.";
     travelBtn.style.display = 'block';
     travelBtn.textContent = 'Enter Settlement';
@@ -734,12 +708,12 @@ function onMapTap(el){
       travelDiv.textContent = "Distance unknown.";
       travelBtn.style.display = 'none';
     } else {
+      const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
       travelDiv.innerHTML = t.viaRoad
-        ? `<b>${t.miles} miles</b> by road — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`
         : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview(currentBurg, burgId, t.edges);
-
       travelBtn.textContent = `Travel Here (${t.days}d)`;
     }
   }
@@ -772,7 +746,6 @@ document.getElementById('btn-travel').addEventListener('click', ()=>{
   });
 });
 
-// ===================== LOCATION VIEW (split screen) =====================
 const TIER_ART = {
   village: `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path d="M30 150h140v20H30z" fill="#5c4a30"/>
@@ -894,25 +867,8 @@ document.getElementById('loc-back').addEventListener('click', ()=>{
   document.getElementById('location-view').classList.remove('show');
 });
 
-// ===================== FULL MAP TOGGLE =====================
-const toggleBtn = document.getElementById('view-toggle');
-const fullView = document.getElementById('full-map-view');
-let showingFull = false;
-toggleBtn.addEventListener('click', ()=>{
-  showingFull = !showingFull;
-  fullView.classList.toggle('show', showingFull);
-  document.getElementById('svg-holder').style.display = showingFull ? 'none' : 'block';
-  toggleBtn.innerHTML = showingFull ? 'BACK TO<br>MAP' : 'FULL<br>MAP';
-  document.getElementById('header-title').textContent = showingFull ? 'FULL WORLD MAP' : 'THE REALM';
-  document.getElementById('header-sub').textContent = showingFull ? 'Overview only — travel on the region map' : 'Tap or hover a name';
-  if(showingFull) closeCard();
-});
-
 // ===================== LOAD =====================
-Promise.all([
-  fetch('assets/game-map.svg').then(r=>r.text()),
-  fetch('assets/travel-graph.json').then(r=>r.json())
-]).then(([svgText, graphData])=>{
+fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   graph = graphData;
   buildAdjacency();
   if(!graph.burgs[currentBurg]){
@@ -920,45 +876,35 @@ Promise.all([
     localStorage.setItem(LOC_KEY, currentBurg);
   } else if(!(adjacency[graph.burgs[currentBurg].cell] && adjacency[graph.burgs[currentBurg].cell].length)){
     // Saved location exists but has no road connections at all (extremely
-    // rare now — only 1 of 796 settlements is fully isolated) — fall back
+    // rare — only 1 of 796 settlements is fully isolated) — fall back
     // to Bary rather than stranding the player somewhere with no way out.
     currentBurg = "5";
     localStorage.setItem(LOC_KEY, currentBurg);
   }
 
-  const holder = document.getElementById('svg-holder');
-  holder.innerHTML = svgText;
-  svgEl = holder.querySelector('svg');
-  svgEl.removeAttribute('width');
-  svgEl.removeAttribute('height');
-  applyViewBox();
-
-  routePreviewEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  routePreviewEl.setAttribute("id", "route-preview");
-  routePreviewEl.style.opacity = '0';
-  svgEl.appendChild(routePreviewEl);
-
-  // build burg id -> label element index (for reachability greying)
-  Object.entries(TIER_BY_GROUP).forEach(([gid, tier])=>{
-    if(tier === 'state') return;
-    const g = svgEl.querySelector('#'+gid);
-    if(!g) return;
-    g.querySelectorAll('text').forEach(t=>{
-      const id = t.getAttribute('data-id');
-      if(id && graph.burgs[id]) labelElByBurg[id] = t;
-    });
-  });
-
+  buildHitzones();
   drawPlayerMarker();
   refreshCalendarUI();
   refreshReachability();
-  document.getElementById('loading').classList.add('hide');
+
+  const img = document.getElementById('map-img');
+  const finishLoad = ()=>{
+    centerOnLogical(START_X, START_Y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
+    // if returning to a saved location elsewhere, recenter there instead
+    const b = graph.burgs[currentBurg];
+    if(b && (b.x !== START_X || b.y !== START_Y)){
+      centerOnLogical(b.x, b.y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
+    }
+    document.getElementById('loading').classList.add('hide');
+  };
+  if(img.complete) finishLoad();
+  else img.addEventListener('load', finishLoad);
 }).catch(err=>{
   document.getElementById('loading').textContent = 'Could not load the map.';
   console.error(err);
 });
 
-window.addEventListener('resize', applyViewBox);
+window.addEventListener('resize', applyView);
 </script>
 </body>
 </html>

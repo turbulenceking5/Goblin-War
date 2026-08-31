@@ -25,14 +25,38 @@
     border-radius:6px; padding:7px 12px; cursor:pointer;
   }
   #back-btn:active{ transform:scale(.96); }
-  main{ padding:24px 20px 60px; max-width:520px; margin:0 auto; }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#8a7440; text-transform:uppercase; margin-bottom:18px; text-align:center; }
-  .coming-soon{
-    text-align:center; padding:40px 20px; background:rgba(255,255,255,.35);
-    border:1.5px dashed var(--parchment-shadow); border-radius:12px; margin-top:20px;
+
+  .gold-card{
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    background:rgba(255,255,255,.4); border:1.5px solid var(--parchment-shadow); border-radius:12px;
+    padding:16px; margin-bottom:18px;
+    font-family:'Cinzel Decorative', serif; font-size:22px; color:#8a6a1f;
   }
-  .coming-soon .icon{ font-size:38px; margin-bottom:10px; opacity:.6; }
-  .coming-soon p{ font-size:16px; color:#5a4830; line-height:1.6; margin:0; }
+  .gold-card svg{ width:24px; height:24px; }
+
+  .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:6px 0 10px; }
+
+  .item-row{
+    display:flex; align-items:center; gap:12px;
+    background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px;
+    padding:12px 14px; margin-bottom:10px;
+  }
+  .item-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
+  .item-name{ flex:1; font-family:'Cinzel', serif; font-size:13.5px; color:var(--ink); }
+  .item-qty{
+    font-family:'Cinzel', serif; font-size:12px; color:#6a5a3a;
+    background:rgba(0,0,0,.08); border-radius:20px; padding:3px 10px;
+  }
+  .empty-note{ text-align:center; color:#8a7440; font-style:italic; padding:20px; }
+
+  .coming-soon{
+    text-align:center; padding:26px 20px; background:rgba(255,255,255,.3);
+    border:1.5px dashed var(--parchment-shadow); border-radius:12px; margin-top:8px;
+  }
+  .coming-soon .icon{ font-size:30px; margin-bottom:8px; opacity:.6; }
+  .coming-soon p{ font-size:14.5px; color:#5a4830; line-height:1.6; margin:0; }
 </style>
 </head>
 <body>
@@ -41,11 +65,47 @@
     <button id="back-btn" onclick="location.href='index.html'">&larr; Back to Map</button>
   </header>
   <main>
-    <div class="subtitle">Bag & Equipment</div>
+    <div class="subtitle">Bag &amp; Equipment</div>
+
+    <div class="gold-card">
+      <svg viewBox="0 0 24 24" fill="#c9a227"><circle cx="12" cy="12" r="9"/></svg>
+      <span id="gold-value">50</span> gold
+    </div>
+
+    <div class="stat-label">Carried Items</div>
+    <div id="item-list"></div>
+
+    <div class="stat-label" style="margin-top:20px;">Equipment</div>
     <div class="coming-soon">
       <div class="icon">🎒</div>
-      <p>Your inventory isn't built yet.<br>This is where gear, loot, and items will live once the equipment system is in place.</p>
+      <p>Weapons, armor, and the Marketplace to buy/sell them aren't built yet — that's next once combat exists.</p>
     </div>
   </main>
+
+<script>
+const GOLD_KEY = "goblinwar_gold";
+const INV_KEY = "goblinwar_inventory";
+
+const gold = parseInt(localStorage.getItem(GOLD_KEY) || "50", 10);
+document.getElementById('gold-value').textContent = gold;
+
+let items = [];
+try{ items = JSON.parse(localStorage.getItem(INV_KEY) || "[]"); }catch(e){ items = []; }
+
+const list = document.getElementById('item-list');
+if(items.length === 0){
+  list.innerHTML = `<div class="empty-note">Your bag is empty.</div>`;
+} else {
+  list.innerHTML = items.map(it => `
+    <div class="item-row">
+      <svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>
+      </svg>
+      <span class="item-name">${it.name}</span>
+      <span class="item-qty">&times;${it.qty}</span>
+    </div>
+  `).join('');
+}
+</script>
 </body>
 </html>

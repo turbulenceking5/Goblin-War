@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#7b2e2e; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{ margin:0; padding:0; min-height:100%; background:var(--parchment); font-family:'EB Garamond', serif; color:var(--ink); }
   header{
@@ -25,14 +25,47 @@
     border-radius:6px; padding:7px 12px; cursor:pointer;
   }
   #back-btn:active{ transform:scale(.96); }
-  main{ padding:24px 20px 60px; max-width:520px; margin:0 auto; }
-  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#8a7440; text-transform:uppercase; margin-bottom:18px; text-align:center; }
-  .coming-soon{
-    text-align:center; padding:40px 20px; background:rgba(255,255,255,.35);
-    border:1.5px dashed var(--parchment-shadow); border-radius:12px; margin-top:20px;
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
+  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#8a7440; text-transform:uppercase; margin-bottom:16px; text-align:center; }
+  .section-label{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:22px 0 10px; }
+
+  .current-card{
+    background:rgba(255,255,255,.4); border:1.5px solid var(--parchment-shadow); border-radius:10px;
+    padding:14px; text-align:center; margin-bottom:6px;
   }
-  .coming-soon .icon{ font-size:38px; margin-bottom:10px; opacity:.6; }
-  .coming-soon p{ font-size:16px; color:#5a4830; line-height:1.6; margin:0; }
+  .current-card b{ font-family:'Cinzel Decorative', serif; font-size:16px; color:var(--ink); }
+  .current-card div{ font-size:13px; color:#6a5a3a; margin-top:4px; }
+
+  .slot{
+    background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px;
+    padding:14px; margin-bottom:12px;
+  }
+  .slot-title{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#6a5a3a; margin-bottom:4px; }
+  .slot-summary{ font-size:14.5px; color:#4d3a24; margin-bottom:12px; min-height:20px; }
+  .slot-empty{ font-style:italic; color:#8a7440; }
+  .slot-actions{ display:flex; gap:10px; }
+  .btn{
+    font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
+    border:none; border-radius:8px; padding:10px 14px; cursor:pointer; flex:1;
+  }
+  .btn:active{ transform:scale(.97); }
+  .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
+  .btn-secondary{ background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow); }
+  .btn-secondary:disabled{ opacity:.4; }
+  .btn-danger{
+    background:transparent; color:var(--bad); border:1.5px solid var(--bad);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:.5px; border-radius:8px;
+    padding:11px 14px; width:100%; cursor:pointer; margin-top:8px;
+  }
+  .btn-danger:active{ transform:scale(.98); }
+  #toast{
+    position:fixed; top:66px; left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
 </style>
 </head>
 <body>
@@ -42,10 +75,128 @@
   </header>
   <main>
     <div class="subtitle">Game Options</div>
-    <div class="coming-soon">
-      <div class="icon">⚙️</div>
-      <p>No settings yet.<br>This is where things like resetting your save, travel pace, or display options will live.</p>
+
+    <div class="current-card">
+      <b id="current-location">—</b>
+      <div id="current-date">—</div>
     </div>
+
+    <div class="section-label">Save Slots</div>
+    <div id="slots"></div>
+
+    <button class="btn-danger" id="new-game-btn">Start New Game (reset progress)</button>
   </main>
+
+  <div id="toast"></div>
+
+<script>
+const LOC_KEY = "goblinwar_currentBurg";
+const CAL_KEY = "goblinwar_gameDay";
+const HEADING_KEY = "goblinwar_heading";
+const SLOT_KEYS = ["goblinwar_slot_1","goblinwar_slot_2","goblinwar_slot_3"];
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+
+let burgNames = {}; // id -> name, for display only
+
+function dateStr(dayCount){
+  const day = (dayCount % DAYS_PER_MONTH) + 1;
+  const month = (Math.floor(dayCount / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const year = Math.floor(dayCount / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  return `Day ${day}, Month ${month}, Year ${year}`;
+}
+
+function locationName(burgId){
+  return burgNames[burgId] || `Location #${burgId}`;
+}
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+
+function renderCurrent(){
+  const burgId = localStorage.getItem(LOC_KEY) || "5";
+  const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
+  document.getElementById('current-location').textContent = locationName(burgId);
+  document.getElementById('current-date').textContent = dateStr(day);
+}
+
+function renderSlots(){
+  const container = document.getElementById('slots');
+  container.innerHTML = '';
+  SLOT_KEYS.forEach((key, i)=>{
+    const raw = localStorage.getItem(key);
+    const slotEl = document.createElement('div');
+    slotEl.className = 'slot';
+    let summaryHTML, loadDisabled;
+    if(raw){
+      const data = JSON.parse(raw);
+      summaryHTML = `${locationName(data.burgId)} — ${dateStr(data.day)}<br><span style="font-size:11.5px; color:#8a7440;">Saved ${data.savedAt}</span>`;
+      loadDisabled = '';
+    } else {
+      summaryHTML = `<span class="slot-empty">Empty</span>`;
+      loadDisabled = 'disabled';
+    }
+    slotEl.innerHTML = `
+      <div class="slot-title">Slot ${i+1}</div>
+      <div class="slot-summary">${summaryHTML}</div>
+      <div class="slot-actions">
+        <button class="btn btn-secondary" data-load="${i}" ${loadDisabled}>Load</button>
+        <button class="btn btn-primary" data-save="${i}">Save Here</button>
+      </div>
+    `;
+    container.appendChild(slotEl);
+  });
+
+  container.querySelectorAll('[data-save]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const i = parseInt(btn.dataset.save, 10);
+      const data = {
+        burgId: localStorage.getItem(LOC_KEY) || "5",
+        day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
+        heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
+        savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
+      };
+      localStorage.setItem(SLOT_KEYS[i], JSON.stringify(data));
+      showToast(`Saved to Slot ${i+1}.`);
+      renderSlots();
+    });
+  });
+  container.querySelectorAll('[data-load]').forEach(btn=>{
+    if(btn.disabled) return;
+    btn.addEventListener('click', ()=>{
+      const i = parseInt(btn.dataset.load, 10);
+      const data = JSON.parse(localStorage.getItem(SLOT_KEYS[i]));
+      if(!confirm(`Load Slot ${i+1}? Your current unsaved progress will be overwritten.`)) return;
+      localStorage.setItem(LOC_KEY, data.burgId);
+      localStorage.setItem(CAL_KEY, String(data.day));
+      localStorage.setItem(HEADING_KEY, String(data.heading));
+      location.href = 'index.html';
+    });
+  });
+}
+
+document.getElementById('new-game-btn').addEventListener('click', ()=>{
+  if(!confirm("Start a new game? Your current unsaved progress (not in a save slot) will be lost.")) return;
+  localStorage.setItem(LOC_KEY, "5");
+  localStorage.setItem(CAL_KEY, "0");
+  localStorage.setItem(HEADING_KEY, "0");
+  location.href = 'index.html';
+});
+
+fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
+  Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);
+  renderCurrent();
+  renderSlots();
+}).catch(()=>{
+  // still usable without name resolution — fall back to raw ids
+  renderCurrent();
+  renderSlots();
+});
+</script>
 </body>
 </html>

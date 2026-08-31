@@ -60,12 +60,12 @@
   #map-viewport{ position:relative; flex:1; overflow:hidden; background:var(--water-dk); touch-action:none; }
   #map-stage{
     position:absolute; left:0; top:0;
-    width:8192px; height:4086px;
+    width:10240px; height:5108px;
     transform-origin:0 0;
     will-change:transform;
   }
-  #map-img{ position:absolute; inset:0; width:8192px; height:4086px; display:block; user-select:none; -webkit-user-drag:none; }
-  #overlay{ position:absolute; inset:0; width:8192px; height:4086px; }
+  #map-img{ position:absolute; inset:0; width:10240px; height:5108px; display:block; user-select:none; -webkit-user-drag:none; }
+  #overlay{ position:absolute; inset:0; width:10240px; height:5108px; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
   #highlight-ring{
@@ -259,7 +259,7 @@ const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capit
 const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
 
 // ===================== MAP CANVAS / VIEW (raster + CSS transform pan/zoom) =====================
-const STAGE_W = 8192, STAGE_H = 4086;      // native raster pixel size
+const STAGE_W = 10240, STAGE_H = 5108;      // native raster pixel size
 const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1 unit = 2 raster px)
 const START_X = 705, START_Y = 448;         // Bary — human starting kingdom
 const REGION_W = 260;                        // default zoom shows this many logical units wide
@@ -743,7 +743,10 @@ document.getElementById('btn-travel').addEventListener('click', ()=>{
   const startBurg = graph.burgs[currentBurg];
   centerOnLogical(startBurg.x, startBurg.y, view.scale);
 
-  const duration = Math.min(2600, 800 + t.days*180);
+  // Constant travel speed (like Bannerlord's overworld) rather than squeezing every
+  // trip into the same short window — longer journeys genuinely take longer to watch,
+  // with a generous cap only as a safety net against truly extreme distances.
+  const duration = Math.max(900, Math.min(9000, 500 + t.miles*3));
   animateTravel(currentBurg, destId, t.edges, duration, ()=>{
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);

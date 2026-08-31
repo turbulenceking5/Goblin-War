@@ -93,6 +93,15 @@
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
 const HEADING_KEY = "goblinwar_heading";
+const HEALTH_KEY = "goblinwar_health";
+const MAXHEALTH_KEY = "goblinwar_maxHealth";
+const GOLD_KEY = "goblinwar_gold";
+const INV_KEY = "goblinwar_inventory";
+const DEFAULT_INVENTORY = [
+  { name:"Traveler's Rations", qty:3 },
+  { name:"Waterskin", qty:1 },
+  { name:"Bedroll", qty:1 },
+];
 const SLOT_KEYS = ["goblinwar_slot_1","goblinwar_slot_2","goblinwar_slot_3"];
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 
@@ -121,8 +130,11 @@ function showToast(msg){
 function renderCurrent(){
   const burgId = localStorage.getItem(LOC_KEY) || "5";
   const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
+  const hp = localStorage.getItem(HEALTH_KEY) || "100";
+  const maxHp = localStorage.getItem(MAXHEALTH_KEY) || "100";
+  const gold = localStorage.getItem(GOLD_KEY) || "50";
   document.getElementById('current-location').textContent = locationName(burgId);
-  document.getElementById('current-date').textContent = dateStr(day);
+  document.getElementById('current-date').textContent = `${dateStr(day)} · ${hp}/${maxHp} HP · ${gold}g`;
 }
 
 function renderSlots(){
@@ -135,7 +147,8 @@ function renderSlots(){
     let summaryHTML, loadDisabled;
     if(raw){
       const data = JSON.parse(raw);
-      summaryHTML = `${locationName(data.burgId)} — ${dateStr(data.day)}<br><span style="font-size:11.5px; color:#8a7440;">Saved ${data.savedAt}</span>`;
+      const hpGold = (data.health!==undefined) ? ` &middot; ${data.health}/${data.maxHealth||100} HP &middot; ${data.gold||0}g` : '';
+      summaryHTML = `${locationName(data.burgId)} — ${dateStr(data.day)}${hpGold}<br><span style="font-size:11.5px; color:#8a7440;">Saved ${data.savedAt}</span>`;
       loadDisabled = '';
     } else {
       summaryHTML = `<span class="slot-empty">Empty</span>`;
@@ -159,6 +172,10 @@ function renderSlots(){
         burgId: localStorage.getItem(LOC_KEY) || "5",
         day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
         heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
+        health: parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10),
+        maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
+        gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
+        inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
         savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
       };
       localStorage.setItem(SLOT_KEYS[i], JSON.stringify(data));
@@ -175,6 +192,10 @@ function renderSlots(){
       localStorage.setItem(LOC_KEY, data.burgId);
       localStorage.setItem(CAL_KEY, String(data.day));
       localStorage.setItem(HEADING_KEY, String(data.heading));
+      if(data.health!==undefined) localStorage.setItem(HEALTH_KEY, String(data.health));
+      if(data.maxHealth!==undefined) localStorage.setItem(MAXHEALTH_KEY, String(data.maxHealth));
+      if(data.gold!==undefined) localStorage.setItem(GOLD_KEY, String(data.gold));
+      if(data.inventory) localStorage.setItem(INV_KEY, data.inventory);
       location.href = 'index.html';
     });
   });
@@ -185,6 +206,10 @@ document.getElementById('new-game-btn').addEventListener('click', ()=>{
   localStorage.setItem(LOC_KEY, "5");
   localStorage.setItem(CAL_KEY, "0");
   localStorage.setItem(HEADING_KEY, "0");
+  localStorage.setItem(MAXHEALTH_KEY, "100");
+  localStorage.setItem(HEALTH_KEY, "100");
+  localStorage.setItem(GOLD_KEY, "50");
+  localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
   location.href = 'index.html';
 });
 

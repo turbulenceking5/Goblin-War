@@ -604,7 +604,8 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
 
   const startPos = points[0];
   const pxPerUnit = (STAGE_W/LOGICAL_W) * view.scale;
-  const offsetTx = view.tx - startPos.x*pxPerUnit, offsetTy = view.ty - startPos.y*pxPerUnit; // camera offset from character, held fixed
+  // Screen position we want the character to stay at throughout the animation
+  const fixedScreenTx = view.tx + startPos.x*pxPerUnit, fixedScreenTy = view.ty + startPos.y*pxPerUnit;
 
   function posAtDistance(dist){
     let remaining = dist;
@@ -630,8 +631,8 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
     const pos = posAtDistance(totalLen * eased);
     setHeading(headingFromDelta(pos.dx, pos.dy));
     positionPlayerMarker(pos.x, pos.y);
-    view.tx = pos.x*pxPerUnit + offsetTx;
-    view.ty = pos.y*pxPerUnit + offsetTy;
+    view.tx = fixedScreenTx - pos.x*pxPerUnit;
+    view.ty = fixedScreenTy - pos.y*pxPerUnit;
     applyView();
     if(p < 1){ requestAnimationFrame(frame); }
     else { onDone(); }

@@ -118,6 +118,26 @@
   .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
   .btn-secondary{ background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow); }
 
+  #travel-controls{
+    position:fixed; left:12px; right:12px; top:calc(78px + env(safe-area-inset-top,0px)); z-index:35;
+    background:rgba(24,17,8,.95); border:1.5px solid var(--gold); border-radius:12px;
+    padding:12px 14px; display:none; box-shadow:0 6px 18px rgba(0,0,0,.5);
+  }
+  #travel-controls.show{ display:block; }
+  #travel-status{
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:.5px; color:var(--parchment);
+    margin-bottom:10px; text-align:center;
+  }
+  #travel-status b{ color:var(--gold-lt); }
+  #travel-buttons{ display:flex; gap:8px; }
+  .travel-btn{
+    flex:1; font-family:'Cinzel', serif; font-size:11.5px; letter-spacing:.5px;
+    border-radius:8px; padding:9px 10px; cursor:pointer; border:1.5px solid var(--gold-lt);
+  }
+  .travel-btn:active{ transform:scale(.96); }
+  #btn-stop-travel{ background:transparent; color:var(--gold-lt); }
+  #btn-camp-travel{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; border-color:#7a5715; }
+
   #toast{
     position:fixed; top:66px; left:50%; transform:translate(-50%,-14px);
     background:rgba(20,14,6,.94); color:var(--parchment);
@@ -223,6 +243,14 @@
   </div>
 
   <button id="recenter-btn">FIND<br>ME</button>
+
+  <div id="travel-controls">
+    <div id="travel-status">Traveling to <b id="travel-dest-name">—</b>…</div>
+    <div id="travel-buttons">
+      <button class="travel-btn" id="btn-stop-travel">Stop &amp; Turn Back</button>
+      <button class="travel-btn" id="btn-camp-travel">Set Up Camp</button>
+    </div>
+  </div>
 
   <div id="toast"></div>
 
@@ -589,9 +617,13 @@ function buildRoutePolyline(fromId, toId, edgeSteps){
 // Animate the marker (and camera) moving along the real road route from currentBurg.
 // Heading follows the local direction of travel at each point along the road, and
 // holds the final segment's heading after arrival until the next journey changes it.
-function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
+// Returns a controller {cancelled, rafId} so travel can be interrupted mid-journey.
+// onProgress(eased) reports the actual distance-fraction covered so far (not raw
+// time fraction), used to compute partial days elapsed if the player stops/camps.
+function animateTravel(fromId, toId, edgeSteps, durationMs, onDone, onProgress){
   const points = buildRoutePolyline(fromId, toId, edgeSteps);
-  if(points.length < 2){ onDone(); return; }
+  const controller = { cancelled:false, rafId:null };
+  if(points.length < 2){ onDone(); return controller; }
 
   const segLens = [];
   let totalLen = 0;
@@ -600,7 +632,7 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
     segLens.push(d);
     totalLen += d;
   }
-  if(totalLen === 0){ onDone(); return; }
+  if(totalLen === 0){ onDone(); return controller; }
 
   const startPos = points[0];
   const pxPerUnit = (STAGE_W/LOGICAL_W) * view.scale;
@@ -626,18 +658,21 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone){
 
   const t0 = performance.now();
   function frame(now){
+    if(controller.cancelled) return;
     let p = Math.min(1, (now - t0) / durationMs);
     const eased = p < 0.5 ? 2*p*p : 1 - Math.pow(-2*p+2, 2)/2;
+    if(onProgress) onProgress(eased);
     const pos = posAtDistance(totalLen * eased);
     setHeading(headingFromDelta(pos.dx, pos.dy));
     positionPlayerMarker(pos.x, pos.y);
     view.tx = fixedScreenTx - pos.x*pxPerUnit;
     view.ty = fixedScreenTy - pos.y*pxPerUnit;
     applyView();
-    if(p < 1){ requestAnimationFrame(frame); }
+    if(p < 1){ controller.rafId = requestAnimationFrame(frame); }
     else { onDone(); }
   }
-  requestAnimationFrame(frame);
+  controller.rafId = requestAnimationFrame(frame);
+  return controller;
 }
 
 
@@ -721,6 +756,36 @@ function onMapTap(burgId){
   document.getElementById('info-card').classList.add('open');
 }
 
+let activeTravel = null; // {controller, startId, destId, destName, totalDays, progress}
+
+function showTravelControls(destName){
+  document.getElementById('travel-dest-name').textContent = destName;
+  document.getElementById('travel-controls').classList.add('show');
+}
+function hideTravelControls(){
+  document.getElementById('travel-controls').classList.remove('show');
+}
+
+function interruptTravel(mode){ // mode: 'stop' or 'camp'
+  if(!activeTravel) return;
+  activeTravel.controller.cancelled = true;
+  cancelAnimationFrame(activeTravel.controller.rafId);
+  hideTravelControls();
+  const startBurg = graph.burgs[activeTravel.startId];
+  positionPlayerMarker(startBurg.x, startBurg.y);
+  centerOnLogical(startBurg.x, startBurg.y, view.scale);
+  if(mode === 'camp'){
+    const partialDays = Math.max(1, Math.round(activeTravel.totalDays * activeTravel.progress));
+    advanceDays(partialDays);
+    showToast(`You make camp for the night. ${partialDays} day${partialDays===1?'':'s'} pass.`);
+  } else {
+    showToast(`You turn back to ${startBurg.name}.`);
+  }
+  activeTravel = null;
+}
+document.getElementById('btn-stop-travel').addEventListener('click', ()=> interruptTravel('stop'));
+document.getElementById('btn-camp-travel').addEventListener('click', ()=> interruptTravel('camp'));
+
 document.getElementById('btn-travel').addEventListener('click', ()=>{
   if(!selectedBurg) return;
 
@@ -734,26 +799,31 @@ document.getElementById('btn-travel').addEventListener('click', ()=>{
   if(!t) return;
   const destId = selectedBurg;
   const destName = graph.burgs[destId].name;
+  const startId = currentBurg;
   closeCard();
-  showToast(`Traveling to ${destName}…`);
 
   // Snap the camera onto the character's current position first — if you
   // tapped a destination while the camera was elsewhere, this guarantees
   // the follow-cam has a known-good starting point.
   const startBurg = graph.burgs[currentBurg];
   centerOnLogical(startBurg.x, startBurg.y, view.scale);
+  showTravelControls(destName);
 
-  // Constant travel speed (like Bannerlord's overworld) rather than squeezing every
-  // trip into the same short window — longer journeys genuinely take longer to watch,
-  // with a generous cap only as a safety net against truly extreme distances.
-  const duration = Math.max(900, Math.min(9000, 500 + t.miles*3));
-  animateTravel(currentBurg, destId, t.edges, duration, ()=>{
+  // Real constant travel speed (like Bannerlord's overworld) — no artificial cap.
+  // A long journey genuinely takes longer to watch; Stop / Set Up Camp exist so
+  // you're never stuck sitting through one.
+  const duration = Math.max(1200, 550 + t.miles*4);
+  const controller = animateTravel(currentBurg, destId, t.edges, duration, ()=>{
+    hideTravelControls();
+    activeTravel = null;
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
     advanceDays(t.days);
     refreshReachability();
     showLocationView(currentBurg);
-  });
+  }, (eased)=>{ if(activeTravel) activeTravel.progress = eased; });
+
+  activeTravel = { controller, startId, destId, destName, totalDays: t.days, progress: 0 };
 });
 
 const TIER_ART = {

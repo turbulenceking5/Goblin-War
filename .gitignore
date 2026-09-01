@@ -1,0 +1,3 @@
+# Raw Azgaar Fantasy Map Generator export — large (~9.5MB), not read at runtime.
+# travel-graph.json (the processed data the game actually fetches) stays tracked.
+assets/game-map.json

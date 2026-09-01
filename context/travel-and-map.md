@@ -1,0 +1,57 @@
+# Travel & Map (index.html)
+
+The overworld screen. This is the largest and most complex system in the game — everything else (combat, resting, save state) hangs off of it.
+
+## Two coordinate spaces
+
+The world data and the rendered image use different scales, and the code converts between them constantly:
+
+- **Logical space** (`LOGICAL_W=2560, LOGICAL_H=1277`) — the coordinate system every settlement, road point, and the SVG `#overlay` viewBox use. This is what `travel-graph.json` stores `x`/`y` in.
+- **Raster/stage space** (`STAGE_W=10240, STAGE_H=5108`) — the actual pixel size of `world-raster.jpg` and `#map-stage`, exactly 4× logical space.
+
+`STAGE_W/LOGICAL_W` (4) is the conversion factor, used everywhere the camera needs to place something in screen pixels from a logical `x,y`.
+
+## Camera (pan/zoom)
+
+- `view = { scale, tx, ty }` is the single source of truth for the camera; `applyView()` writes it to `#map-stage`'s CSS transform after `clampView()` keeps it in bounds (can't zoom out past fitting the map, can't zoom in past `maxScale=3.0`).
+- `centerOnLogical(lx, ly, scale)` is the one function that points the camera at a logical coordinate — used on load, on recenter, and (critically) every frame during travel animation.
+- Panning/pinch-zoom is handled with raw Pointer Events (`pointerdown`/`pointermove`/`pointerup`) rather than touch/mouse-specific listeners, so it works the same on desktop and mobile. A single pointer that doesn't move more than 6px counts as a tap (`handleTap`), not a drag.
+
+## The road/sea graph
+
+`travel-graph.json` models the world as a graph of map **cells** (not just settlements) — every point along a drawn road, trail, or sea route is a node, so junctions and mid-route camping work naturally. See [data-files.md](data-files.md) for the exact JSON shape.
+
+- `buildAdjacency()` turns the flat `edges` array into a `cellId -> [{to, mi, edge, forward}]` map, once, at load.
+- `cellRoute(fromCell, toCell)` is a Dijkstra shortest-path search over that adjacency map using a hand-rolled binary `MinHeap` (a plain sorted array was too slow across thousands of cells). Returns `{miles, edges}` or `null` if there's no path at all.
+- `computeTravel(toId)` wraps `cellRoute` into game terms: miles → days (`Math.ceil(miles/ROAD_PACE)`, `ROAD_PACE=20`/day) → stamina cost (`days*STAMINA_PER_DAY`, `STAMINA_PER_DAY=8`). If no route exists (rare — most of the ~800 settlements are connected), it falls back to a straight-line "cross-country" estimate at `OFFROAD_PACE=12`/day instead of blocking travel entirely.
+- `computeReachable(fromCell)` is a separate, distance-ignorant flood fill used only once at load, to detect if the player's saved location got stranded with zero road connections (falls back to Bary, burg id `"5"`, if so).
+
+## Where you are: settlement vs. camp
+
+`currentBurg` (a burg id string, persisted as `goblinwar_currentBurg`) is the player's last-arrived-at settlement. But mid-journey the player can stop or camp somewhere that isn't a named settlement — `campPos = {x, y, cell, name}` holds that in-between position (snapped to the nearest real point on the road graph). Three helpers abstract over both cases so the rest of the code never has to branch on it:
+
+- `getCurrentCell()`, `getCurrentXY()`, `getCurrentDisplayName()` — all check `campPos` first, fall back to `graph.burgs[currentBurg]`.
+
+`campPos` is cleared (`= null`) only on a completed arrival (`beginTravel`'s `onDone`), never on rest — resting in camp keeps you on the road, it doesn't teleport you to a settlement.
+
+## Travel animation
+
+`beginTravel(destId)` is the entry point (called from the info-card's Travel button, or "Continue" in the camp view). It:
+
+1. Blocks immediately if `!canTravel()` (stamina is 0 — see [player-state.md](player-state.md)).
+2. Computes the route once via `computeTravel`, shows the `#travel-controls` bar (Stop / Set Up Camp).
+3. Hands off to `animateTravel(fromPos, toId, edgeSteps, ...)`, which:
+   - Builds one flat polyline (`buildRoutePolyline`) by concatenating each edge's real point list (`edge.pts`) in the correct direction — so the marker visibly follows actual drawn roads, not a straight line (unless there's no route at all).
+   - Walks that polyline at **constant linear speed** (no easing) over a duration proportional to distance (`Math.max(2000, 1000 + miles*8)` ms) — deliberately unhurried, like a Bannerlord-style overworld crossing, not a quick dart.
+   - On every animation frame, calls `centerOnLogical(pos.x, pos.y, view.scale)` — recomputed from the **current** `view.scale` each time, not a value cached at journey start. This is what keeps the character centered under the camera even if the player pinch-zooms or scrolls mid-journey; an earlier version cached the camera math once and zooming mid-travel caused visible drift.
+4. On arrival: sets `currentBurg`, advances the calendar (`advanceDays`), deducts stamina, and rolls a bandit ambush chance before opening the location view (see [combat.md](combat.md)).
+
+`stopTravel()` and `campMidTravel()` both cancel the in-flight animation (`controller.cancelled = true; cancelAnimationFrame(...)`) and snap the player to `activeTravel.lastSnap` — the most recent `{x, y, cell}` the animation reported via its `onProgress` callback, i.e. wherever they actually were when interrupted, not back at the start. `campMidTravel` additionally advances a partial day (proportional to `frac`, the fraction of the journey completed) and opens the camp screen.
+
+## Calendar
+
+A flat day counter (`gameDay`, key `goblinwar_gameDay`) is the only stored time value. `DAYS_PER_MONTH=30`, `MONTHS_PER_YEAR=12` are fixed constants used to derive day/month/year for display (`refreshCalendarUI`) — duplicated in character.html and settings.html rather than shared, since there's no module system (see root [CLAUDE.md](../CLAUDE.md)).
+
+## Tap-to-select and the info card
+
+Every settlement gets an invisible circular `<circle class="hitzone">` sized by tier (`HIT_R`), built once in `buildHitzones()`. Tapping one calls `onMapTap(burgId)`, which populates and opens `#info-card` with one of three states: "you are here" (already at that burg), "too exhausted" (stamina gate, see [player-state.md](player-state.md)), or a travel quote (miles/days/stamina cost, plus a route preview drawn along the same polyline logic as the travel animation).

@@ -260,7 +260,7 @@
   <div id="travel-controls">
     <div id="travel-status">Traveling to <b id="travel-dest-name">—</b>…</div>
     <div id="travel-buttons">
-      <button class="travel-btn" id="btn-stop-travel">Stop &amp; Turn Back</button>
+      <button class="travel-btn" id="btn-stop-travel">Stop</button>
       <button class="travel-btn" id="btn-camp-travel">Set Up Camp</button>
     </div>
   </div>
@@ -572,24 +572,34 @@ function computeReachable(fromCell){
   return seen;
 }
 
+// When the player stops or camps mid-journey, they're not standing at a named
+// settlement anymore — campPos holds that in-between position (snapped to the
+// nearest real road-graph point) so travel math still has a valid place to
+// route from, without needing every part of the game to support arbitrary
+// off-settlement positions.
+let campPos = null; // {x, y, cell, name} or null when at a real settlement
+function getCurrentCell(){ return campPos ? campPos.cell : graph.burgs[currentBurg].cell; }
+function getCurrentXY(){ return campPos ? {x:campPos.x, y:campPos.y} : {x:graph.burgs[currentBurg].x, y:graph.burgs[currentBurg].y}; }
+function getCurrentDisplayName(){ return campPos ? `the road near ${campPos.name}` : graph.burgs[currentBurg].name; }
+
 function computeTravel(toId){
-  const fromBurg = graph.burgs[currentBurg], toBurg = graph.burgs[toId];
-  if(!fromBurg || !toBurg) return null;
-  const route = cellRoute(fromBurg.cell, toBurg.cell);
+  const fromXY = getCurrentXY(), fromCell = getCurrentCell();
+  const toBurg = graph.burgs[toId];
+  if(!toBurg) return null;
+  const route = cellRoute(fromCell, toBurg.cell);
   if(route){
     const miles = Math.round(route.miles);
     const bySea = route.edges.some(s=>s.edge.kind==='sea');
     return { miles, days: Math.max(1, Math.ceil(miles/ROAD_PACE)), edges: route.edges, viaRoad:true, bySea };
   }
   // No route connects them at all (very rare now) — still travelable, just slower.
-  const straight = Math.hypot(fromBurg.x-toBurg.x, fromBurg.y-toBurg.y) * 3;
+  const straight = Math.hypot(fromXY.x-toBurg.x, fromXY.y-toBurg.y) * 3;
   const miles = Math.round(straight);
   return { miles, days: Math.max(1, Math.ceil(miles/OFFROAD_PACE)), edges:null, viaRoad:false, bySea:false };
 }
 
 function refreshReachability(){
-  const b = graph.burgs[currentBurg];
-  reachableSet = b ? computeReachable(b.cell) : new Set();
+  reachableSet = computeReachable(getCurrentCell());
 }
 
 // ===================== PLAYER MARKER =====================
@@ -639,9 +649,9 @@ function drawPlayerMarker(){
 // Build a flat list of {x,y} points tracing the actual road route (concatenating each
 // edge's real polyline, in the right direction), for path-following travel animation.
 let routePreviewEl = null;
-function drawRoutePreview(fromId, toId, edgeSteps){
+function drawRoutePreview(fromPos, toId, edgeSteps){
   if(!routePreviewEl) return;
-  const points = buildRoutePolyline(fromId, toId, edgeSteps);
+  const { points } = buildRoutePolyline(fromPos, toId, edgeSteps);
   const d = points.map((p,i)=> (i===0?'M':'L') + p.x + ',' + p.y).join(' ');
   routePreviewEl.setAttribute('d', d);
   routePreviewEl.style.opacity = '.9';
@@ -650,31 +660,31 @@ function clearRoutePreview(){
   if(routePreviewEl) routePreviewEl.style.opacity = '0';
 }
 
-function buildRoutePolyline(fromId, toId, edgeSteps){
-  const startBurg = graph.burgs[fromId];
+function buildRoutePolyline(fromPos, toId, edgeSteps){
   if(!edgeSteps){
     // off-road (no drawn path) — animate a straight line to the destination
     const endBurg = graph.burgs[toId];
-    return [{x:startBurg.x, y:startBurg.y}, {x:endBurg.x, y:endBurg.y}];
+    return { points:[{x:fromPos.x, y:fromPos.y}, {x:endBurg.x, y:endBurg.y}], cellIds:[fromPos.cell, endBurg.cell] };
   }
-  const points = [];
-  points.push({x:startBurg.x, y:startBurg.y});
+  const points = [{x:fromPos.x, y:fromPos.y}];
+  const cellIds = [fromPos.cell];
   edgeSteps.forEach(step=>{
     const pts = step.forward ? step.edge.pts : [...step.edge.pts].reverse();
-    // skip the first point of each segment (duplicate of the previous segment's end)
     pts.slice(1).forEach(([x,y])=> points.push({x,y}));
+    cellIds.push(step.forward ? step.edge.b : step.edge.a);
   });
-  return points;
+  return { points, cellIds };
 }
 
-// Animate the marker (and camera) moving along the real road route from currentBurg.
-// Heading follows the local direction of travel at each point along the road, and
-// holds the final segment's heading after arrival until the next journey changes it.
-// Returns a controller {cancelled, rafId} so travel can be interrupted mid-journey.
-// onProgress(eased) reports the actual distance-fraction covered so far (not raw
-// time fraction), used to compute partial days elapsed if the player stops/camps.
-function animateTravel(fromId, toId, edgeSteps, durationMs, onDone, onProgress){
-  const points = buildRoutePolyline(fromId, toId, edgeSteps);
+// Animate the marker (and camera) moving along the real road route from currentBurg,
+// at a constant linear speed (no easing) so it reads as steady travel rather than a
+// quick dart. Returns a controller {cancelled, rafId} so travel can be interrupted
+// mid-journey. onProgress(info) reports {frac, x, y, cell, name} each frame — frac is
+// the actual distance-fraction covered so far, and {x,y,cell} is the nearest real
+// road-graph point to the current position, used to snap the player there if they
+// stop or camp before arriving.
+function animateTravel(fromPos, toId, edgeSteps, destName, durationMs, onDone, onProgress){
+  const { points, cellIds } = buildRoutePolyline(fromPos, toId, edgeSteps);
   const controller = { cancelled:false, rafId:null };
   if(points.length < 2){ onDone(); return controller; }
 
@@ -698,24 +708,27 @@ function animateTravel(fromId, toId, edgeSteps, durationMs, onDone, onProgress){
       if(remaining <= segLens[i] || i === segLens.length-1){
         const t = segLens[i] > 0 ? remaining/segLens[i] : 0;
         const p0 = points[i], p1 = points[i+1];
+        const nearCell = t < 0.5 ? cellIds[i] : cellIds[i+1];
+        const nearPoint = t < 0.5 ? p0 : p1;
         return {
           x: p0.x + (p1.x-p0.x)*Math.min(1,t),
           y: p0.y + (p1.y-p0.y)*Math.min(1,t),
-          dx: p1.x-p0.x, dy: p1.y-p0.y
+          dx: p1.x-p0.x, dy: p1.y-p0.y,
+          nearCell, nearX: nearPoint.x, nearY: nearPoint.y
         };
       }
       remaining -= segLens[i];
     }
-    return { x: points[points.length-1].x, y: points[points.length-1].y, dx:1, dy:0 };
+    const last = points.length-1;
+    return { x: points[last].x, y: points[last].y, dx:1, dy:0, nearCell: cellIds[last], nearX: points[last].x, nearY: points[last].y };
   }
 
   const t0 = performance.now();
   function frame(now){
     if(controller.cancelled) return;
-    let p = Math.min(1, (now - t0) / durationMs);
-    const eased = p < 0.5 ? 2*p*p : 1 - Math.pow(-2*p+2, 2)/2;
-    if(onProgress) onProgress(eased);
-    const pos = posAtDistance(totalLen * eased);
+    let p = Math.min(1, (now - t0) / durationMs); // linear — no easing, constant travel speed
+    const pos = posAtDistance(totalLen * p);
+    if(onProgress) onProgress({ frac:p, x:pos.nearX, y:pos.nearY, cell:pos.nearCell, name: destName });
     setHeading(headingFromDelta(pos.dx, pos.dy));
     positionPlayerMarker(pos.x, pos.y);
     view.tx = fixedScreenTx - pos.x*pxPerUnit;
@@ -787,7 +800,7 @@ function onMapTap(burgId){
   const travelDiv = document.getElementById('info-travel');
   const travelBtn = document.getElementById('btn-travel');
 
-  if(burgId === currentBurg){
+  if(burgId === currentBurg && !campPos){
     travelDiv.textContent = "You are here.";
     travelBtn.style.display = 'block';
     travelBtn.textContent = 'Enter Settlement';
@@ -802,14 +815,14 @@ function onMapTap(burgId){
         ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`
         : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
       travelBtn.style.display = 'block';
-      if(t.viaRoad) drawRoutePreview(currentBurg, burgId, t.edges);
+      if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
       travelBtn.textContent = `Travel Here (${t.days}d)`;
     }
   }
   document.getElementById('info-card').classList.add('open');
 }
 
-let activeTravel = null; // {controller, startId, destId, destName, totalDays, progress}
+let activeTravel = null; // {controller, destId, destName, totalDays, lastSnap}
 
 function showTravelControls(destName){
   document.getElementById('travel-dest-name').textContent = destName;
@@ -819,64 +832,81 @@ function hideTravelControls(){
   document.getElementById('travel-controls').classList.remove('show');
 }
 
-function interruptTravel(mode){ // mode: 'stop' or 'camp'
-  if(!activeTravel) return;
-  activeTravel.controller.cancelled = true;
-  cancelAnimationFrame(activeTravel.controller.rafId);
-  hideTravelControls();
-  const startBurg = graph.burgs[activeTravel.startId];
-  positionPlayerMarker(startBurg.x, startBurg.y);
-  centerOnLogical(startBurg.x, startBurg.y, view.scale);
-  if(mode === 'camp'){
-    const partialDays = Math.max(1, Math.round(activeTravel.totalDays * activeTravel.progress));
-    advanceDays(partialDays);
-    showToast(`You make camp for the night. ${partialDays} day${partialDays===1?'':'s'} pass.`);
-  } else {
-    showToast(`You turn back to ${startBurg.name}.`);
-  }
-  activeTravel = null;
-}
-document.getElementById('btn-stop-travel').addEventListener('click', ()=> interruptTravel('stop'));
-document.getElementById('btn-camp-travel').addEventListener('click', ()=> interruptTravel('camp'));
-
-document.getElementById('btn-travel').addEventListener('click', ()=>{
-  if(!selectedBurg) return;
-
-  if(selectedBurg === currentBurg){
-    closeCard();
-    showLocationView(currentBurg);
-    return;
-  }
-
-  const t = computeTravel(selectedBurg);
+function beginTravel(destId){
+  const t = computeTravel(destId);
   if(!t) return;
-  const destId = selectedBurg;
   const destName = graph.burgs[destId].name;
-  const startId = currentBurg;
   closeCard();
 
-  // Snap the camera onto the character's current position first — if you
-  // tapped a destination while the camera was elsewhere, this guarantees
-  // the follow-cam has a known-good starting point.
-  const startBurg = graph.burgs[currentBurg];
-  centerOnLogical(startBurg.x, startBurg.y, view.scale);
+  const fromPos = { ...getCurrentXY(), cell:getCurrentCell() };
+  centerOnLogical(fromPos.x, fromPos.y, view.scale);
   showTravelControls(destName);
 
-  // Real constant travel speed (like Bannerlord's overworld) — no artificial cap.
+  // Constant, unhurried travel speed (like Bannerlord's overworld) — no artificial
+  // cap, no easing curve, so it reads as steady progress rather than a quick dart.
   // A long journey genuinely takes longer to watch; Stop / Set Up Camp exist so
   // you're never stuck sitting through one.
-  const duration = Math.max(1200, 550 + t.miles*4);
-  const controller = animateTravel(currentBurg, destId, t.edges, duration, ()=>{
+  const duration = Math.max(2000, 1000 + t.miles*8);
+  const controller = animateTravel(fromPos, destId, t.edges, destName, duration, ()=>{
     hideTravelControls();
     activeTravel = null;
+    campPos = null;
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
     advanceDays(t.days);
     refreshReachability();
     showLocationView(currentBurg);
-  }, (eased)=>{ if(activeTravel) activeTravel.progress = eased; });
+  }, (info)=>{ if(activeTravel) activeTravel.lastSnap = info; });
 
-  activeTravel = { controller, startId, destId, destName, totalDays: t.days, progress: 0 };
+  activeTravel = { controller, destId, destName, totalDays: t.days, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
+}
+
+// Cancels the current journey in place — the character stops exactly where the
+// animation had gotten to (snapped to the nearest real road-graph point), not
+// back at the start. No time cost.
+function stopTravel(){
+  if(!activeTravel) return;
+  activeTravel.controller.cancelled = true;
+  cancelAnimationFrame(activeTravel.controller.rafId);
+  hideTravelControls();
+  const snap = activeTravel.lastSnap;
+  campPos = { x:snap.x, y:snap.y, cell:snap.cell, name: snap.name };
+  positionPlayerMarker(campPos.x, campPos.y);
+  centerOnLogical(campPos.x, campPos.y, view.scale);
+  refreshReachability();
+  showToast(`You stop on the road toward ${activeTravel.destName}.`);
+  activeTravel = null;
+}
+
+// Cancels the journey in place, advances a partial day for the distance already
+// covered, and opens the Camp screen.
+function campMidTravel(){
+  if(!activeTravel) return;
+  activeTravel.controller.cancelled = true;
+  cancelAnimationFrame(activeTravel.controller.rafId);
+  hideTravelControls();
+  const snap = activeTravel.lastSnap;
+  campPos = { x:snap.x, y:snap.y, cell:snap.cell, name: snap.name };
+  positionPlayerMarker(campPos.x, campPos.y);
+  centerOnLogical(campPos.x, campPos.y, view.scale);
+  refreshReachability();
+  const partialDays = Math.max(1, Math.round(activeTravel.totalDays * activeTravel.lastSnap.frac));
+  advanceDays(partialDays);
+  showCampView(activeTravel.destId, activeTravel.destName, partialDays);
+  activeTravel = null;
+}
+
+document.getElementById('btn-stop-travel').addEventListener('click', stopTravel);
+document.getElementById('btn-camp-travel').addEventListener('click', campMidTravel);
+
+document.getElementById('btn-travel').addEventListener('click', ()=>{
+  if(!selectedBurg) return;
+  if(selectedBurg === currentBurg && !campPos){
+    closeCard();
+    showLocationView(currentBurg);
+    return;
+  }
+  beginTravel(selectedBurg);
 });
 
 const TIER_ART = {
@@ -939,6 +969,58 @@ const RUMOURS = [
   "A one-armed veteran drinks alone in the corner, muttering about 'the thing in the pass'.",
   "Two farmhands are arguing loudly about whose lord will call up levies first.",
 ];
+
+const CAMP_ART = `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="100" cy="168" rx="85" ry="10" fill="#1c2a2c" opacity=".4"/>
+  <path d="M55 168 L85 100 L100 120 L115 100 L145 168 Z" fill="#5c4a30" stroke="#2a1d10" stroke-width="1.5"/>
+  <path d="M85 100 L100 120 L115 100" stroke="#2a1d10" stroke-width="1.5" fill="none"/>
+  <rect x="93" y="130" width="14" height="38" fill="#2a1d10"/>
+  <circle cx="100" cy="150" r="16" fill="#e8952e" opacity=".85"/>
+  <circle cx="100" cy="150" r="9" fill="#f4c542"/>
+  <path d="M92 150 q3 -16 8 -20 q5 4 8 20" fill="#f4c542" opacity=".7"/>
+</svg>`;
+
+// Camp reuses the same split-screen shell as a settlement's location-view,
+// just populated with camp-specific content instead.
+function showCampView(destId, destName, partialDays){
+  document.getElementById('loc-heading').textContent = "Camp";
+  document.getElementById('loc-sub').textContent = `On the road to ${destName} — ${partialDays} day${partialDays===1?'':'s'} passed`;
+  document.getElementById('loc-visual-art').innerHTML = CAMP_ART;
+  document.getElementById('loc-visual-name').textContent = "Camp";
+  document.getElementById('loc-visual-tier').textContent = `En route to ${destName}`;
+
+  const list = document.getElementById('loc-action-list');
+  list.innerHTML = `
+    <button class="loc-action" id="camp-rest-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
+      <span class="li-text"><b>Rest Until Morning</b><span>Restores health &middot; Passes 1 more day</span></span>
+    </button>
+    <button class="loc-action" id="camp-continue-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      <span class="li-text"><b>Continue to ${destName}</b><span>Resume the journey from here</span></span>
+    </button>
+    <button class="loc-action" id="camp-choose-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+      <span class="li-text"><b>Choose a Different Destination</b><span>Return to the map from here</span></span>
+    </button>
+  `;
+  document.getElementById('camp-rest-btn').addEventListener('click', ()=>{
+    advanceDays(1);
+    const healed = playerMaxHealth - playerHealth;
+    setHealth(playerMaxHealth);
+    showToast(healed > 0 ? `You rest and recover ${healed} health.` : "You rest. Already at full health.");
+    document.getElementById('loc-sub').textContent = `On the road to ${destName} — resting`;
+  });
+  document.getElementById('camp-continue-btn').addEventListener('click', ()=>{
+    document.getElementById('location-view').classList.remove('show');
+    beginTravel(destId);
+  });
+  document.getElementById('camp-choose-btn').addEventListener('click', ()=>{
+    document.getElementById('location-view').classList.remove('show');
+  });
+
+  document.getElementById('location-view').classList.add('show');
+}
 
 function showLocationView(burgId){
   const b = graph.burgs[burgId];

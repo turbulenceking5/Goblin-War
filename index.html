@@ -59,6 +59,7 @@
     font-family:'Cinzel', serif; font-size:11px; color:var(--parchment);
   }
   .stat-pill svg{ width:12px; height:12px; color:var(--gold-lt); flex:none; }
+  .stat-pill.stamina-pill svg{ color:#5ba05b; }
   .stat-pill:first-child svg{ color:#c0524f; }
   .zbtn{
     width:30px; height:30px; border-radius:7px; border:1.5px solid var(--gold);
@@ -200,6 +201,33 @@
   .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
   .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--ink); }
   .loc-action .li-text span{ font-size:12.5px; color:#6a5a3a; }
+
+  #combat-view{
+    position:fixed; inset:0; z-index:70; display:none; flex-direction:column;
+    background:radial-gradient(ellipse at 50% 0%, #2c1414, #150a0a 70%);
+  }
+  #combat-view.show{ display:flex; }
+  #combat-header{ padding:18px 16px 8px; text-align:center; }
+  #combat-title{ font-family:'Cinzel Decorative', serif; font-size:22px; color:#e2857f; text-shadow:0 2px 4px rgba(0,0,0,.6); }
+  #combat-stage{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 20px; gap:14px; }
+  #combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); }
+  .combat-bar-row{ width:100%; max-width:320px; }
+  .combat-name{ font-family:'Cinzel', serif; font-size:12px; color:var(--parchment); margin-bottom:4px; display:flex; justify-content:space-between; letter-spacing:.5px; }
+  .combat-bar-track{ background:rgba(0,0,0,.35); border-radius:8px; height:14px; overflow:hidden; border:1px solid rgba(255,255,255,.15); }
+  .combat-bar-fill{ height:100%; transition:width .3s; }
+  .combat-bar-fill.enemy{ background:linear-gradient(90deg,#8c3a3a,#c0524f); }
+  .combat-bar-fill.player{ background:linear-gradient(90deg,#3d7a3d,#5ba05b); }
+  #combat-log{
+    width:100%; max-width:320px; height:100px; overflow-y:auto;
+    background:rgba(0,0,0,.3); border-radius:8px; padding:10px 12px;
+    font-family:'EB Garamond', serif; font-size:13.5px; color:#e9dcb8; line-height:1.5;
+  }
+  #combat-log div{ margin-bottom:4px; }
+  #combat-actions{ display:flex; gap:10px; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .combat-btn{ flex:1; font-family:'Cinzel', serif; font-size:13.5px; letter-spacing:.5px; padding:13px; border-radius:10px; cursor:pointer; border:none; }
+  .combat-btn:active{ transform:scale(.97); }
+  #combat-attack-btn{ background:linear-gradient(180deg,#c0524f,#8c3a3a); color:#fff; border:1.5px solid #6e2626; font-weight:700; box-shadow:0 3px 0 #5a1f1f; }
+  #combat-flee-btn{ background:transparent; color:var(--parchment); border:1.5px solid rgba(255,255,255,.3); }
 </style>
 </head>
 <body>
@@ -234,6 +262,7 @@
     </div>
     <div id="player-stats">
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
+      <span class="stat-pill stamina-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg><b id="stat-sp">100/100</b></span>
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
     <div id="zoom-controls">
@@ -291,6 +320,33 @@
       <div id="loc-visual-art"></div>
       <div id="loc-visual-name">—</div>
       <div id="loc-visual-tier"></div>
+    </div>
+  </div>
+
+  <div id="combat-view">
+    <div id="combat-header">
+      <div id="combat-title">Ambush!</div>
+    </div>
+    <div id="combat-stage">
+      <div class="combat-bar-row">
+        <div class="combat-name"><span id="combat-enemy-name">Bandit</span><span id="combat-enemy-hp-text">30/30</span></div>
+        <div class="combat-bar-track"><div class="combat-bar-fill enemy" id="combat-enemy-hp-bar" style="width:100%"></div></div>
+      </div>
+      <svg id="combat-enemy-icon" viewBox="0 0 100 100" width="90" height="90" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="34" r="16" fill="#5c4a30" stroke="#2a1d10" stroke-width="2"/>
+        <path d="M28 90c0-16 10-28 22-28s22 12 22 28z" fill="#4a3a24" stroke="#2a1d10" stroke-width="2"/>
+        <path d="M40 30h20M36 40l6 4M64 40l-6 4" stroke="#2a1d10" stroke-width="2"/>
+        <path d="M65 55l20-14-4 10 10-2-22 18z" fill="#7d7d82" stroke="#2a1d10" stroke-width="1.5"/>
+      </svg>
+      <div class="combat-bar-row">
+        <div class="combat-name"><span>You</span><span id="combat-player-hp-text">100/100</span></div>
+        <div class="combat-bar-track"><div class="combat-bar-fill player" id="combat-player-hp-bar" style="width:100%"></div></div>
+      </div>
+      <div id="combat-log"></div>
+    </div>
+    <div id="combat-actions">
+      <button class="combat-btn" id="combat-flee-btn">Flee</button>
+      <button class="combat-btn" id="combat-attack-btn">Attack</button>
     </div>
   </div>
 </div>
@@ -479,9 +535,91 @@ function setGold(v){
 }
 function refreshPlayerStatUI(){
   const hp = document.getElementById('stat-hp');
+  const sp = document.getElementById('stat-sp');
   const gp = document.getElementById('stat-gold');
   if(hp) hp.textContent = `${playerHealth}/${playerMaxHealth}`;
+  if(sp) sp.textContent = `${playerStamina}/${playerMaxStamina}`;
   if(gp) gp.textContent = playerGold;
+}
+
+// ===================== COMBAT (minimal turn-based, one enemy type) =====================
+let combat = null; // {enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd}
+
+function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min; }
+
+function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd){
+  combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd };
+  document.getElementById('combat-title').textContent = `${enemyName} Ambush!`;
+  document.getElementById('combat-enemy-name').textContent = enemyName;
+  document.getElementById('combat-log').innerHTML = `<div>A ${enemyName} blocks your path!</div>`;
+  updateCombatUI();
+  document.getElementById('combat-view').classList.add('show');
+}
+
+function updateCombatUI(){
+  if(!combat) return;
+  document.getElementById('combat-enemy-hp-bar').style.width = Math.max(0, Math.round((combat.enemyHp/combat.enemyMaxHp)*100)) + '%';
+  document.getElementById('combat-enemy-hp-text').textContent = `${Math.max(0,combat.enemyHp)}/${combat.enemyMaxHp}`;
+  document.getElementById('combat-player-hp-bar').style.width = Math.max(0, Math.round((playerHealth/playerMaxHealth)*100)) + '%';
+  document.getElementById('combat-player-hp-text').textContent = `${playerHealth}/${playerMaxHealth}`;
+}
+
+function combatLog(msg){
+  const log = document.getElementById('combat-log');
+  const div = document.createElement('div');
+  div.textContent = msg;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function combatAttack(){
+  if(!combat) return;
+  const dmg = randRange(combat.playerDmgRange);
+  combat.enemyHp -= dmg;
+  combatLog(`You hit the ${combat.enemyName} for ${dmg} damage.`);
+  if(combat.enemyHp <= 0){
+    updateCombatUI();
+    endCombat('victory');
+    return;
+  }
+  const edmg = randRange(combat.enemyDmgRange);
+  setHealth(playerHealth - edmg);
+  combatLog(`The ${combat.enemyName} hits you for ${edmg} damage.`);
+  updateCombatUI();
+  if(playerHealth <= 0){ endCombat('defeat'); }
+}
+
+function combatFlee(){
+  if(!combat) return;
+  combatLog(`You break off and flee.`);
+  endCombat('flee');
+}
+
+function endCombat(result){
+  const enemyName = combat ? combat.enemyName : 'enemy';
+  const onEnd = combat ? combat.onEnd : null;
+  setTimeout(()=>{
+    document.getElementById('combat-view').classList.remove('show');
+    if(result === 'victory'){
+      const reward = randRange([8,20]);
+      setGold(playerGold + reward);
+      showToast(`Victory! You defeated the ${enemyName} and found ${reward} gold.`);
+    } else if(result === 'defeat'){
+      setHealth(10);
+      showToast(`You were beaten badly but managed to escape with your life.`);
+    } else {
+      showToast(`You flee from the fight.`);
+    }
+    combat = null;
+    if(onEnd) onEnd(result);
+  }, result === 'victory' || result === 'defeat' ? 700 : 0);
+}
+
+document.getElementById('combat-attack-btn').addEventListener('click', combatAttack);
+document.getElementById('combat-flee-btn').addEventListener('click', combatFlee);
+
+function triggerBanditFight(onEnd){
+  startCombat('Bandit', 30, [5,12], [8,15], onEnd || (()=>{}));
 }
 
 // ===================== TRAVEL GRAPH =====================
@@ -595,6 +733,8 @@ function getCurrentCell(){ return campPos ? campPos.cell : graph.burgs[currentBu
 function getCurrentXY(){ return campPos ? {x:campPos.x, y:campPos.y} : {x:graph.burgs[currentBurg].x, y:graph.burgs[currentBurg].y}; }
 function getCurrentDisplayName(){ return campPos ? `the road near ${campPos.name}` : graph.burgs[currentBurg].name; }
 
+const STAMINA_PER_DAY = 8;
+
 function computeTravel(toId){
   const fromXY = getCurrentXY(), fromCell = getCurrentCell();
   const toBurg = graph.burgs[toId];
@@ -602,13 +742,15 @@ function computeTravel(toId){
   const route = cellRoute(fromCell, toBurg.cell);
   if(route){
     const miles = Math.round(route.miles);
+    const days = Math.max(1, Math.ceil(miles/ROAD_PACE));
     const bySea = route.edges.some(s=>s.edge.kind==='sea');
-    return { miles, days: Math.max(1, Math.ceil(miles/ROAD_PACE)), edges: route.edges, viaRoad:true, bySea };
+    return { miles, days, staminaCost: days*STAMINA_PER_DAY, edges: route.edges, viaRoad:true, bySea };
   }
   // No route connects them at all (very rare now) — still travelable, just slower.
   const straight = Math.hypot(fromXY.x-toBurg.x, fromXY.y-toBurg.y) * 3;
   const miles = Math.round(straight);
-  return { miles, days: Math.max(1, Math.ceil(miles/OFFROAD_PACE)), edges:null, viaRoad:false, bySea:false };
+  const days = Math.max(1, Math.ceil(miles/OFFROAD_PACE));
+  return { miles, days, staminaCost: days*STAMINA_PER_DAY, edges:null, viaRoad:false, bySea:false };
 }
 
 function refreshReachability(){
@@ -824,9 +966,12 @@ function onMapTap(burgId){
       travelBtn.style.display = 'none';
     } else {
       const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
-      travelDiv.innerHTML = t.viaRoad
-        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`
-        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel.`;
+      const staminaWarn = t.staminaCost > playerStamina
+        ? `<br><span style="color:#8c3a3a;">Not enough stamina (${t.staminaCost} needed, ${playerStamina} left) — you'll arrive exhausted.</span>` : '';
+      travelDiv.innerHTML = (t.viaRoad
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.staminaCost} stamina</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.staminaCost} stamina</b>.`)
+        + staminaWarn;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
       travelBtn.textContent = `Travel Here (${t.days}d)`;
@@ -867,8 +1012,11 @@ function beginTravel(destId){
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
     advanceDays(t.days);
+    const exhausted = t.staminaCost > playerStamina;
+    setStamina(playerStamina - t.staminaCost);
     refreshReachability();
     showLocationView(currentBurg);
+    if(exhausted) showToast("You arrive exhausted — resting would help.");
   }, (info)=>{ if(activeTravel) activeTravel.lastSnap = info; });
 
   activeTravel = { controller, destId, destName, totalDays: t.days, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
@@ -905,6 +1053,7 @@ function campMidTravel(){
   refreshReachability();
   const partialDays = Math.max(1, Math.round(activeTravel.totalDays * activeTravel.lastSnap.frac));
   advanceDays(partialDays);
+  setStamina(playerStamina - partialDays*STAMINA_PER_DAY);
   showCampView(activeTravel.destId, activeTravel.destName, partialDays);
   activeTravel = null;
 }
@@ -1016,6 +1165,10 @@ function showCampView(destId, destName, partialDays){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
       <span class="li-text"><b>Choose a Different Destination</b><span>Return to the map from here</span></span>
     </button>
+    <button class="loc-action" id="camp-fight-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.5 6.5 3 18l3 3 11.5-11.5z"/><path d="M13 8l3 3"/></svg>
+      <span class="li-text"><b>Bandits in the Night (test)</b><span>Manual combat trigger — no random encounters yet</span></span>
+    </button>
   `;
   document.getElementById('camp-rest-btn').addEventListener('click', ()=>{
     advanceDays(1);
@@ -1031,6 +1184,10 @@ function showCampView(destId, destName, partialDays){
   });
   document.getElementById('camp-choose-btn').addEventListener('click', ()=>{
     document.getElementById('location-view').classList.remove('show');
+  });
+  document.getElementById('camp-fight-btn').addEventListener('click', ()=>{
+    document.getElementById('location-view').classList.remove('show');
+    triggerBanditFight(()=> showCampView(destId, destName, partialDays));
   });
 
   document.getElementById('location-view').classList.add('show');
@@ -1049,6 +1206,7 @@ function showLocationView(burgId){
     { icon:`<circle cx="12" cy="12" r="9"/><path d="M9 10h6M9 14h4"/>`, title:"The Inn", desc:"Rest up and hear local rumours", action:'inn' },
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy and sell gear", action:'stub' },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'stub' },
+    { icon:`<path d="M14.5 6.5 3 18l3 3 11.5-11.5z"/><path d="M13 8l3 3"/>`, title:"Trouble in the Streets (test)", desc:"Manual combat trigger — no random encounters yet", action:'fight' },
   ];
   const list = document.getElementById('loc-action-list');
   list.innerHTML = actions.map(a => `
@@ -1060,6 +1218,7 @@ function showLocationView(burgId){
   list.querySelectorAll('.loc-action').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(btn.dataset.action === 'inn') showInnPanel(burgId);
+      else if(btn.dataset.action === 'fight') triggerBanditFight(()=> showLocationView(burgId));
       else showToast("Not built yet — coming in a future update.");
     });
   });

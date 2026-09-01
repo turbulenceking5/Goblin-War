@@ -217,7 +217,7 @@
     <div id="nav-icons">
       <button class="nav-btn" onclick="location.href='inventory.html'">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
-        Bag
+        Inventory
       </button>
       <button class="nav-btn" onclick="location.href='party.html'">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.6"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M13.5 14.2c2.6.3 4.5 2.4 4.5 5.8"/></svg>
@@ -409,8 +409,8 @@ function handleTap(clientX, clientY){
 }
 
 document.getElementById('recenter-btn').addEventListener('click', ()=>{
-  const b = graph.burgs[currentBurg];
-  if(b) centerOnLogical(b.x, b.y, Math.max(view.scale, (viewport.clientWidth)/((STAGE_W/LOGICAL_W)*REGION_W)));
+  const pos = getCurrentXY();
+  centerOnLogical(pos.x, pos.y, Math.max(view.scale, (viewport.clientWidth)/((STAGE_W/LOGICAL_W)*REGION_W)));
 });
 
 const CAL_KEY = "goblinwar_gameDay";
@@ -431,9 +431,12 @@ function advanceDays(n){
   refreshCalendarUI();
 }
 
-// ===================== PLAYER STATE (health / gold / inventory) =====================
+// ===================== PLAYER STATE (health / stamina / gold / inventory / age) =====================
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
+const STAMINA_KEY = "goblinwar_stamina";
+const MAXSTAMINA_KEY = "goblinwar_maxStamina";
+const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const DEFAULT_INVENTORY = [
@@ -445,6 +448,9 @@ const DEFAULT_INVENTORY = [
 function initPlayerStateIfMissing(){
   if(localStorage.getItem(MAXHEALTH_KEY) === null) localStorage.setItem(MAXHEALTH_KEY, "100");
   if(localStorage.getItem(HEALTH_KEY) === null) localStorage.setItem(HEALTH_KEY, localStorage.getItem(MAXHEALTH_KEY));
+  if(localStorage.getItem(MAXSTAMINA_KEY) === null) localStorage.setItem(MAXSTAMINA_KEY, "100");
+  if(localStorage.getItem(STAMINA_KEY) === null) localStorage.setItem(STAMINA_KEY, localStorage.getItem(MAXSTAMINA_KEY));
+  if(localStorage.getItem(AGE_KEY) === null) localStorage.setItem(AGE_KEY, "24");
   if(localStorage.getItem(GOLD_KEY) === null) localStorage.setItem(GOLD_KEY, "50");
   if(localStorage.getItem(INV_KEY) === null) localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
 }
@@ -452,11 +458,18 @@ initPlayerStateIfMissing();
 
 let playerHealth = parseInt(localStorage.getItem(HEALTH_KEY), 10);
 let playerMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY), 10);
+let playerStamina = parseInt(localStorage.getItem(STAMINA_KEY), 10);
+let playerMaxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY), 10);
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
 
 function setHealth(v){
   playerHealth = Math.max(0, Math.min(playerMaxHealth, v));
   localStorage.setItem(HEALTH_KEY, String(playerHealth));
+  refreshPlayerStatUI();
+}
+function setStamina(v){
+  playerStamina = Math.max(0, Math.min(playerMaxStamina, v));
+  localStorage.setItem(STAMINA_KEY, String(playerStamina));
   refreshPlayerStatUI();
 }
 function setGold(v){
@@ -1008,6 +1021,7 @@ function showCampView(destId, destName, partialDays){
     advanceDays(1);
     const healed = playerMaxHealth - playerHealth;
     setHealth(playerMaxHealth);
+    setStamina(playerMaxStamina);
     showToast(healed > 0 ? `You rest and recover ${healed} health.` : "You rest. Already at full health.");
     document.getElementById('loc-sub').textContent = `On the road to ${destName} — resting`;
   });
@@ -1076,6 +1090,7 @@ function showInnPanel(burgId){
     advanceDays(1);
     const healed = playerMaxHealth - playerHealth;
     setHealth(playerMaxHealth);
+    setStamina(playerMaxStamina);
     showToast(healed > 0 ? `You rest for the night and recover ${healed} health.` : "You rest for the night. Already at full health.");
     document.getElementById('inn-rumour').textContent = `"${RUMOURS[Math.floor(Math.random()*RUMOURS.length)]}"`;
   });

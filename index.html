@@ -26,7 +26,6 @@
     box-shadow:0 4px 14px rgba(0,0,0,.5);
   }
   h1{ font-family:'Cinzel Decorative', serif; font-size:17px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
-  .subtitle{ font-family:'Cinzel', serif; font-size:8.5px; letter-spacing:2.5px; color:#a9926a; text-transform:uppercase; }
   #date-badge{
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
     color:var(--parchment); background:rgba(255,255,255,.06);
@@ -249,8 +248,7 @@
 
   <header>
     <div>
-      <h1 id="header-title">THE REALM</h1>
-      <div class="subtitle" id="header-sub">Tap a settlement</div>
+      <h1 id="header-title">GOBLIN WAR</h1>
     </div>
     <div id="date-badge">Day <b id="date-day">1</b>, Month <b id="date-month">1</b>, Year <b id="date-year">1</b></div>
   </header>
@@ -292,6 +290,7 @@
       <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
         <path id="route-preview"/>
         <g id="hitzones"></g>
+        <g id="city-icons" style="pointer-events:none"></g>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
       </svg>
@@ -525,9 +524,19 @@ const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACI
 const FOOD_PRICE = 2;     // gold per unit of Food at the Marketplace
 const CARRY_CAPACITY = 40; // total weight (qty * weight-per-unit, summed across every carried item) allowed
 const DEFAULT_INVENTORY = [
-  { name:FOOD_NAME, qty:10, weight:FOOD_WEIGHT },
-  { name:"Waterskin", qty:1, weight:2 },
-  { name:"Bedroll", qty:1, weight:3 },
+  { name:FOOD_NAME, qty:10, weight:FOOD_WEIGHT, value:FOOD_PRICE },
+  { name:"Waterskin", qty:1, weight:2, value:3 },
+  { name:"Bedroll", qty:1, weight:3, value:5 },
+];
+// Everything the Marketplace stocks beyond Food (see showMarketPanel) — weapons/armor
+// aren't equippable yet (see roadmap.md), these just sit in the bag like Waterskin/Bedroll.
+const MARKET_ITEMS = [
+  { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Keeps you fed on the road" },
+  { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade" },
+  { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
+  { name:"Books", price:7, weight:2, desc:"Lore and local history" },
+  { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
+  { name:"Shield", price:25, weight:8, desc:"Extra protection in a fight" },
 ];
 
 function initPlayerStateIfMissing(){
@@ -557,14 +566,15 @@ function getItem(name){ return playerInventory.find(it => it.name === name); }
 function getFoodQty(){ const f = getItem(FOOD_NAME); return f ? f.qty : 0; }
 function getCarriedWeight(){ return playerInventory.reduce((sum, it) => sum + it.weight*it.qty, 0); }
 
-// Adds qty of an item (creating the stack, at the given weight-per-unit, if not already carried).
-// Refuses (returns false, no change made) if it would push total carried weight over CARRY_CAPACITY.
-function addItem(name, qty, weightEach){
+// Adds qty of an item (creating the stack, at the given weight/value-per-unit, if not
+// already carried). Refuses (returns false, no change made) if it would push total
+// carried weight over CARRY_CAPACITY.
+function addItem(name, qty, weightEach, valueEach){
   const addedWeight = weightEach * qty;
   if(getCarriedWeight() + addedWeight > CARRY_CAPACITY) return false;
   const existing = getItem(name);
   if(existing) existing.qty += qty;
-  else playerInventory.push({ name, qty, weight:weightEach });
+  else playerInventory.push({ name, qty, weight:weightEach, value:valueEach });
   saveInventory();
   return true;
 }
@@ -808,9 +818,16 @@ function getCurrentXY(){ return campPos ? {x:campPos.x, y:campPos.y} : {x:graph.
 function getCurrentDisplayName(){ return campPos ? `the road near ${campPos.name}` : graph.burgs[currentBurg].name; }
 
 const FOOD_PER_DAY = 1;
+const HOURS_PER_DAY = 24;
 const AMBUSH_CHANCE_PER_DAY = 0.12; // chance per day of travel that bandits ambush the road
 const NIGHT_AMBUSH_CHANCE = 0.15;   // chance bandits strike an exposed camp overnight
-function rollAmbush(days){ return Math.random() < 1 - Math.pow(1-AMBUSH_CHANCE_PER_DAY, days); }
+function rollAmbush(hours){ const days = hours/HOURS_PER_DAY; return Math.random() < 1 - Math.pow(1-AMBUSH_CHANCE_PER_DAY, days); }
+// Trips are timed in hours, not days, so a short hop is over in an afternoon rather
+// than eating a full day off the calendar — only genuinely long treks (many hours)
+// advance the date or cost more than the minimum 1 Food. Both derived from the same
+// ROAD_PACE/OFFROAD_PACE "miles per day" numbers, just read as hours instead of days.
+function hoursToDaysElapsed(hours){ return Math.floor(hours/HOURS_PER_DAY); }
+function hoursToFoodCost(hours){ return Math.max(1, Math.ceil((hours/HOURS_PER_DAY)*FOOD_PER_DAY)); }
 
 function computeTravel(toId){
   const fromXY = getCurrentXY(), fromCell = getCurrentCell();
@@ -819,15 +836,20 @@ function computeTravel(toId){
   const route = cellRoute(fromCell, toBurg.cell);
   if(route){
     const miles = Math.round(route.miles / DISTANCE_SCALE);
-    const days = Math.max(1, Math.ceil(miles/ROAD_PACE));
+    const hours = Math.max(1, Math.ceil(miles/ROAD_PACE));
     const bySea = route.edges.some(s=>s.edge.kind==='sea');
-    return { miles, days, foodCost: days*FOOD_PER_DAY, edges: route.edges, viaRoad:true, bySea };
+    return { miles, hours, foodCost: hoursToFoodCost(hours), edges: route.edges, viaRoad:true, bySea };
   }
   // No route connects them at all (very rare now) — still travelable, just slower.
   const straight = (Math.hypot(fromXY.x-toBurg.x, fromXY.y-toBurg.y) * 3) / DISTANCE_SCALE;
   const miles = Math.round(straight);
-  const days = Math.max(1, Math.ceil(miles/OFFROAD_PACE));
-  return { miles, days, foodCost: days*FOOD_PER_DAY, edges:null, viaRoad:false, bySea:false };
+  const hours = Math.max(1, Math.ceil(miles/OFFROAD_PACE));
+  return { miles, hours, foodCost: hoursToFoodCost(hours), edges:null, viaRoad:false, bySea:false };
+}
+function formatDuration(hours){
+  if(hours < HOURS_PER_DAY) return `${hours} hour${hours===1?'':'s'}`;
+  const d = Math.floor(hours/HOURS_PER_DAY), h = hours%HOURS_PER_DAY;
+  return `${d} day${d===1?'':'s'}${h ? ` ${h} hour${h===1?'':'s'}` : ''}`;
 }
 
 function refreshReachability(){
@@ -1007,6 +1029,27 @@ function buildHitzones(){
   }
 }
 
+// ---- small crenellated-tower glyph marking City/Capital-tier settlements, drawn
+// above the map's own native labels so major cities read at a glance while zoomed out ----
+const CITY_ICON_PATH = "M-5,4 L-5,-2 L-3,-2 L-3,-4 L-1,-4 L-1,-2 L1,-2 L1,-4 L3,-4 L3,-2 L5,-2 L5,4 Z";
+function buildCityIcons(){
+  const g = document.getElementById('city-icons');
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  for(const id in graph.burgs){
+    const b = graph.burgs[id];
+    if(b.tier !== 'city' && b.tier !== 'capital') continue;
+    const scale = b.tier === 'capital' ? 1.5 : 1;
+    const icon = document.createElementNS(ns, "path");
+    icon.setAttribute("d", CITY_ICON_PATH);
+    icon.setAttribute("transform", `translate(${b.x},${b.y - HIT_R[b.tier] - 2}) scale(${scale})`);
+    icon.setAttribute("fill", b.tier === 'capital' ? '#d1a445' : '#8a6a3a');
+    icon.setAttribute("stroke", "#2a1d10");
+    icon.setAttribute("stroke-width", "0.6");
+    g.appendChild(icon);
+  }
+}
+
 function showHighlight(x, y){
   const ring = document.getElementById('highlight-ring');
   ring.setAttribute('transform', `translate(${x},${y})`);
@@ -1040,25 +1083,25 @@ function onMapTap(burgId){
     } else if(t.foodCost > getFoodQty()){
       const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
       travelDiv.innerHTML = (t.viaRoad
-        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.foodCost} food</b>.`
-        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.foodCost} food</b>.`)
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`)
         + `<br><span style="color:#8c3a3a;">Not enough food to make it there (need ${t.foodCost}, have ${getFoodQty()}). Buy more at a Marketplace first.</span>`;
       travelBtn.style.display = 'none';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
     } else {
       const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
       travelDiv.innerHTML = t.viaRoad
-        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.foodCost} food</b>.`
-        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.foodCost} food</b>.`;
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
-      travelBtn.textContent = `Travel Here (${t.days}d)`;
+      travelBtn.textContent = `Travel Here (${t.hours}h)`;
     }
   }
   document.getElementById('info-card').classList.add('open');
 }
 
-let activeTravel = null; // {controller, destId, destName, totalDays, lastSnap}
+let activeTravel = null; // {controller, destId, destName, totalHours, lastSnap}
 
 function showTravelControls(destName){
   document.getElementById('travel-dest-name').textContent = destName;
@@ -1095,10 +1138,10 @@ function beginTravel(destId){
     campPos = null;
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
-    advanceDays(t.days);
+    advanceDays(hoursToDaysElapsed(t.hours));
     consumeItem(FOOD_NAME, t.foodCost);
     refreshReachability();
-    if(rollAmbush(t.days)){
+    if(rollAmbush(t.hours)){
       showToast("Bandits ambush you on the road!");
       triggerBanditFight(()=> showLocationView(currentBurg));
     } else {
@@ -1106,7 +1149,7 @@ function beginTravel(destId){
     }
   }, (info)=>{ if(activeTravel) activeTravel.lastSnap = info; });
 
-  activeTravel = { controller, destId, destName, totalDays: t.days, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
+  activeTravel = { controller, destId, destName, totalHours: t.hours, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
 }
 
 // Cancels the current journey in place — the character stops exactly where the
@@ -1126,8 +1169,8 @@ function stopTravel(){
   activeTravel = null;
 }
 
-// Cancels the journey in place, advances a partial day for the distance already
-// covered, and opens the Camp screen.
+// Cancels the journey in place, advances the calendar for whatever whole days (if
+// any) the distance already covered amounted to, and opens the Camp screen.
 function campMidTravel(){
   if(!activeTravel) return;
   activeTravel.controller.cancelled = true;
@@ -1138,10 +1181,10 @@ function campMidTravel(){
   positionPlayerMarker(campPos.x, campPos.y);
   centerOnLogical(campPos.x, campPos.y, view.scale);
   refreshReachability();
-  const partialDays = Math.max(1, Math.round(activeTravel.totalDays * activeTravel.lastSnap.frac));
-  advanceDays(partialDays);
-  consumeItem(FOOD_NAME, partialDays*FOOD_PER_DAY);
-  showCampView(activeTravel.destId, activeTravel.destName, partialDays);
+  const partialHours = Math.max(1, Math.round(activeTravel.totalHours * activeTravel.lastSnap.frac));
+  advanceDays(hoursToDaysElapsed(partialHours));
+  consumeItem(FOOD_NAME, hoursToFoodCost(partialHours));
+  showCampView(activeTravel.destId, activeTravel.destName, partialHours);
   activeTravel = null;
 }
 
@@ -1231,14 +1274,14 @@ const CAMP_ART = `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.or
 
 // Camp reuses the same split-screen shell as a settlement's location-view,
 // just populated with camp-specific content instead.
-function showCampView(destId, destName, partialDays){
+function showCampView(destId, destName, partialHours){
   const standalone = !destId; // camped from the map directly, not mid-journey
   const here = getCurrentDisplayName();
 
   document.getElementById('loc-heading').textContent = "Camp";
   document.getElementById('loc-sub').textContent = standalone
     ? `Making camp at ${here}`
-    : `On the road to ${destName} — ${partialDays} day${partialDays===1?'':'s'} passed`;
+    : `On the road to ${destName} — ${formatDuration(partialHours)} passed`;
   document.getElementById('loc-visual-art').innerHTML = CAMP_ART;
   document.getElementById('loc-visual-name').textContent = "Camp";
   document.getElementById('loc-visual-tier').textContent = standalone ? here : `En route to ${destName}`;
@@ -1303,6 +1346,7 @@ function showLocationView(burgId){
   const actions = [
     { icon:`<circle cx="12" cy="12" r="9"/><path d="M9 10h6M9 14h4"/>`, title:"The Inn", desc:"Rest up and hear local rumours", action:'inn' },
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market' },
+    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc:"Take on odd jobs for a few hours' pay", action:'work' },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'stub' },
   ];
   const list = document.getElementById('loc-action-list');
@@ -1316,11 +1360,26 @@ function showLocationView(burgId){
     btn.addEventListener('click', ()=>{
       if(btn.dataset.action === 'inn') showInnPanel(burgId);
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
+      else if(btn.dataset.action === 'work') doWork();
       else showToast("Not built yet — coming in a future update.");
     });
   });
 
   document.getElementById('location-view').classList.add('show');
+}
+
+const WORK_LINES = [
+  "You spend the afternoon hauling crates at the docks.",
+  "You help mend a fence for a grateful farmer.",
+  "You lend a hand chopping wood behind the smithy.",
+  "You do a few hours of odd jobs for the innkeeper.",
+  "You help a merchant unload a cart of goods.",
+];
+function doWork(){
+  const earned = randRange([3,15]);
+  setGold(playerGold + earned);
+  const line = WORK_LINES[Math.floor(Math.random()*WORK_LINES.length)];
+  showToast(`${line} You earn ${earned} gold.`);
 }
 
 function showInnPanel(burgId){
@@ -1332,14 +1391,14 @@ function showInnPanel(burgId){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
       <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
     </button>
-    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0;">
-      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:8px;">Tavern Talk</div>
-      <div id="inn-rumour" style="font-size:14.5px; line-height:1.55; color:#4d3a24; font-style:italic;">"${rumour}"</div>
-    </div>
     <button class="loc-action" id="inn-rest-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
       <span class="li-text"><b>Rest for the Night</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
     </button>
+    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0;">
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:8px;">Tavern Talk</div>
+      <div id="inn-rumour" style="font-size:14.5px; line-height:1.55; color:#4d3a24; font-style:italic;">"${rumour}"</div>
+    </div>
   `;
   document.getElementById('inn-back-btn').addEventListener('click', ()=> showLocationView(burgId));
   document.getElementById('inn-rest-btn').addEventListener('click', ()=>{
@@ -1358,6 +1417,16 @@ function showMarketPanel(burgId){
   const list = document.getElementById('loc-action-list');
 
   function render(){
+    const itemRows = MARKET_ITEMS.map((mi, i) => `
+      <div class="loc-action" style="cursor:default;">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${mi.price}g each &middot; ${mi.weight} weight each &middot; carrying ${getItem(mi.name) ? getItem(mi.name).qty : 0}</span></span>
+      </div>
+      <div style="display:flex; gap:10px; margin:-4px 0 10px;">
+        <button class="btn btn-secondary" data-buy="${i}" data-qty="1">Buy 1 (${mi.price}g)</button>
+        <button class="btn btn-primary" data-buy="${i}" data-qty="5">Buy 5 (${mi.price*5}g)</button>
+      </div>
+    `).join('');
     list.innerHTML = `
       <button class="loc-action" id="market-back-btn">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
@@ -1367,26 +1436,20 @@ function showMarketPanel(burgId){
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
         <div style="display:flex; justify-content:space-between;"><span>Carried weight</span><b>${getCarriedWeight()} / ${CARRY_CAPACITY}</b></div>
       </div>
-      <div class="loc-action" style="cursor:default;">
-        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg>
-        <span class="li-text"><b>Food</b><span>${FOOD_PRICE}g each &middot; ${FOOD_WEIGHT} weight each &middot; carrying ${getFoodQty()}</span></span>
-      </div>
-      <div style="display:flex; gap:10px; margin:-4px 0 10px;">
-        <button class="btn btn-secondary" id="buy-food-1">Buy 1 (${FOOD_PRICE}g)</button>
-        <button class="btn btn-primary" id="buy-food-5">Buy 5 (${FOOD_PRICE*5}g)</button>
-      </div>
+      ${itemRows}
     `;
     document.getElementById('market-back-btn').addEventListener('click', ()=> showLocationView(burgId));
-    document.getElementById('buy-food-1').addEventListener('click', ()=> buyFood(1));
-    document.getElementById('buy-food-5').addEventListener('click', ()=> buyFood(5));
+    list.querySelectorAll('[data-buy]').forEach(btn=>{
+      btn.addEventListener('click', ()=> buyItem(MARKET_ITEMS[parseInt(btn.dataset.buy,10)], parseInt(btn.dataset.qty,10)));
+    });
   }
 
-  function buyFood(qty){
-    const cost = qty*FOOD_PRICE;
+  function buyItem(mi, qty){
+    const cost = qty*mi.price;
     if(playerGold < cost){ showToast("You don't have enough gold for that."); return; }
-    if(!addItem(FOOD_NAME, qty, FOOD_WEIGHT)){ showToast("Not enough room to carry that much — check your weight limit."); return; }
+    if(!addItem(mi.name, qty, mi.weight, mi.price)){ showToast("Not enough room to carry that much — check your weight limit."); return; }
     setGold(playerGold - cost);
-    showToast(`Bought ${qty} Food for ${cost} gold.`);
+    showToast(`Bought ${qty} ${mi.name} for ${cost} gold.`);
     render();
   }
 
@@ -1414,6 +1477,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   }
 
   buildHitzones();
+  buildCityIcons();
   drawPlayerMarker();
   refreshCalendarUI();
   refreshPlayerStatUI();

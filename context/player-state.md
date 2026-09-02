@@ -23,13 +23,13 @@ Stamina exists again as of this pass, but scoped only to combat — see "Stamina
 `DEFAULT_INVENTORY` is:
 ```js
 [
-  { name:"Food", qty:10, weight:1 },
-  { name:"Waterskin", qty:1, weight:2 },
-  { name:"Bedroll", qty:1, weight:3 },
+  { name:"Food", qty:10, weight:1, value:2 },
+  { name:"Waterskin", qty:1, weight:2, value:3 },
+  { name:"Bedroll", qty:1, weight:3, value:5 },
 ]
 ```
 
-`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). Only Food is actually consumed or restocked by anything in the game right now; Waterskin and Bedroll just sit in the bag as flavor/weight.
+`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). `value` is also per single unit, gold, display-only right now (shown in inventory.html as "Ng each") — there's no sell-back mechanic, so it doesn't do anything mechanical yet, it's just what the item would cost to (re-)buy. Only Food is actually consumed or restocked by anything in the game right now; Waterskin, Bedroll, and everything else the Marketplace now sells (see [locations-and-camp.md](locations-and-camp.md)) just sit in the bag as flavor/weight/value.
 
 ## Initialization
 
@@ -39,7 +39,7 @@ Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every ke
 
 `setHealth(v)`, `setStamina(v)`, and `setGold(v)` clamp to a valid range (`0..max` for health/stamina, `0..∞` for gold), persist to `localStorage`, and call `refreshPlayerStatUI()`. Inventory has its own pair instead of a single setter, because items are a list, not a scalar:
 
-- `addItem(name, qty, weightEach)` — creates the stack (or adds to an existing one), *unless* doing so would push total carried weight over `CARRY_CAPACITY` (`40`), in which case it changes nothing and returns `false`. Every call site (currently just the Marketplace, see [locations-and-camp.md](locations-and-camp.md)) must check that return value.
+- `addItem(name, qty, weightEach, valueEach)` — creates the stack (or adds to an existing one), *unless* doing so would push total carried weight over `CARRY_CAPACITY` (`40`), in which case it changes nothing and returns `false`. Every call site (currently just the Marketplace, see [locations-and-camp.md](locations-and-camp.md)) must check that return value. `valueEach` is stored on the item purely for display (see `value` above) — it plays no part in the weight check.
 - `consumeItem(name, qty)` — subtracts, clamped at 0, and drops the stack entirely once it hits empty. Used for Food during travel; nothing currently removes non-Food items.
 - `getItem(name)`, `getFoodQty()`, `getCarriedWeight()` — read-only helpers built on the same in-memory `playerInventory` array, which both mutators keep in sync with `localStorage` via `saveInventory()`.
 
@@ -47,8 +47,8 @@ There's no `setAge` — age is set once at new-game and never changes.
 
 ## Food: the travel resource
 
-Food replaced stamina as what travel costs and what gates it. `computeTravel(toId)` returns `foodCost` (the full cost of the trip, `days * FOOD_PER_DAY`), checked against `getFoodQty()` at both points travel can start — you can't set out at all unless you're carrying enough to actually arrive:
-- `onMapTap`, where a destination you can't afford shows the miles/days quote plus a red "Not enough food to make it there" line, and the Travel button is hidden entirely rather than shown with a warning.
+Food replaced stamina as what travel costs and what gates it. `computeTravel(toId)` returns `foodCost` (the full cost of the trip — trips are timed in hours now, not days, see [travel-and-map.md](travel-and-map.md), so this is derived from that hour count rather than a flat `days*FOOD_PER_DAY`, but it's still at least 1 Food per journey), checked against `getFoodQty()` at both points travel can start — you can't set out at all unless you're carrying enough to actually arrive:
+- `onMapTap`, where a destination you can't afford shows the miles/duration quote plus a red "Not enough food to make it there" line, and the Travel button is hidden entirely rather than shown with a warning.
 - `beginTravel`, as a hard guard (with a toast) that blocks starting a journey even if something else tries to call it directly — e.g. the camp screen's "Continue" button, which recomputes the trip fresh from wherever you camped and can still refuse if you haven't restocked.
 
 Because the check happens before departure, running out mid-trip can't happen — a journey that was affordable when it started stays affordable, since nothing else consumes Food while `animateTravel` is running. Food is deducted via `consumeItem(FOOD_NAME, t.foodCost)` once on arrival (or on the partial amount if the journey is interrupted by `campMidTravel`).

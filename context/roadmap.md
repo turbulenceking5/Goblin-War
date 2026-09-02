@@ -4,11 +4,11 @@ Every "coming soon" placeholder currently in the game, collected in one place so
 
 ## Skills & Progression — character.html
 
-`.coming-soon` block below the stats card: *"Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state."* No XP, levels, or skill points exist anywhere in the code yet — `combat.md`'s fight outcomes only affect HP and gold, never anything that would feed a progression system.
+`.coming-soon` block below the stats card: *"Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state."* No XP, levels, or skill points exist anywhere in the code yet — `combat.md`'s fight outcomes only affect HP and gold, never anything that would feed a progression system. The "Equipment" section above it has its own static level bar (`#level-bar`, labeled "Level 1 · progression system coming soon") that's permanently empty (`width:0%`) for the same reason — it's a visual placeholder for where a real XP bar will eventually go, not backed by any `goblinwar_level`/`goblinwar_xp` key.
 
-## Equipment — inventory.html
+## Equipment — inventory.html / character.html
 
-inventory.html's `.coming-soon` block: *"Weapons and armor aren't built yet. The Marketplace (in any settlement) currently only sells Food."* The Marketplace itself is no longer a stub — `showMarketPanel` in index.html (see [locations-and-camp.md](locations-and-camp.md)) sells Food, which is what unlocked it: Food replaced stamina as the travel resource, and needed a way to be bought (see [player-state.md](player-state.md)). What's still missing is everything else a shop could sell — weapons, armor, or any equipment slot to put them in. (Stamina itself came back shortly after as a separate, combat-only resource — see [combat.md](combat.md) — but it isn't sold here; resting is still the only way to refill it.)
+inventory.html's `.coming-soon` block: *"Equipping weapons and armor isn't built yet — the Marketplace (in any settlement) sells Swords, Shields, and more, but they just sit in the bag for now."* The Marketplace itself is no longer a stub — `showMarketPanel` in index.html (see [locations-and-camp.md](locations-and-camp.md)) now sells six items (`MARKET_ITEMS`: Food, Sword, Healing Potion, Books, Firewood, Shield), each purchasable and carried, but nothing consumes or equips them yet — buying a Sword does nothing beyond adding weight and a line in the bag. character.html visually anticipates this: its "Equipment" section (see [secondary-pages.md](secondary-pages.md)) draws 6 empty paper-doll slots around the hero icon, but they're pure decoration — not wired to `playerInventory` at all, no click handler, nothing happens if you tap one. What's still missing: an actual equip action (Marketplace or inventory.html → paper-doll slot), and any mechanical effect from having something equipped (damage, defense, etc.).
 
 ## Talk to Townsfolk — index.html
 

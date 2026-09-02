@@ -10,7 +10,11 @@ Every "coming soon" placeholder currently in the game, collected in one place so
 
 Equipping is real now: six `MARKET_ITEMS` entries (Sword, Shield, Leather Cap, Leather Armour, Leather Boots, Lucky Charm) each carry a `slot` and a `dmg`/`def` combat bonus, `goblinwar_equipped` tracks what's in each of the 6 slots, inventory.html is where you equip/unequip (an Equip/Unequip button per equippable item row), character.html shows what's equipped and lets you unequip from there too, and `combatAttack()` (index.html) actually applies the bonus to damage dealt/taken — see [player-state.md](player-state.md) and [combat.md](combat.md) for the full mechanics.
 
-What's still not built: the **Accessories** grid (character.html, 8 unlabeled slots) is pure decoration — no accessory-type item exists in `MARKET_ITEMS`, nothing points at those slots, tapping one does nothing. Also still missing: selling/dropping equipment, any UI hint in the Marketplace itself that an item is equippable (you only find out on inventory.html), and stacking multiple bonus *sources* per slot (each slot holds exactly one item, as intended, but there's no rarity/tier variation — a Sword is always +4, forever).
+What's still not built: the **Accessories** grid (character.html, 8 unlabeled slots) is pure decoration — no accessory-type item exists in `MARKET_ITEMS`, nothing points at those slots, tapping one does nothing. Also still missing: any UI hint in the Marketplace itself that an item is equippable *before* you buy it (you only find out on inventory.html), and stacking multiple bonus *sources* per slot (each slot holds exactly one item, as intended, but there's no rarity/tier variation — a Sword is always +4, forever). Selling now exists (see [locations-and-camp.md](locations-and-camp.md)) and correctly auto-unequips an item if you sell its last copy — dropping (destroying an item for no gold) still doesn't exist as a separate action.
+
+## Faction AI, territory & war economy — index.html
+
+A real weekly tick now exists — see [factions-and-territory.md](factions-and-territory.md) for the full mechanics (kingdoms war/raid/sue-for-peace, settlements can actually change hands, Marketplace prices react to it). Its own "Known simplifications" section is the checklist for this system specifically (binary per-kingdom war state rather than a real relations matrix, raids as a flat coin-flip with no siege/garrison concept, no player involvement in the outcome) — not duplicated here to avoid the two files drifting apart.
 
 ## Talk to Townsfolk — index.html
 

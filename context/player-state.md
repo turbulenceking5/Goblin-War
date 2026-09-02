@@ -17,7 +17,12 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_currentBurg` | Burg id (string) of last-arrived settlement | `"5"` (Bary) | index.html, character.html, settings.html |
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |
+| `goblinwar_territoryControl` | JSON object `{burgId: race}` — sparse, only conquered settlements | `{}` | index.html only |
+| `goblinwar_warState` | JSON object `{kingdomName: "war"\|"peace"}` — sparse, missing = peace | `{}` | index.html only |
+| `goblinwar_lastWarTick` | `gameDay` the faction AI last ran | `0` | index.html only |
 | `goblinwar_slot_1/2/3` | Full save-slot snapshots | unset | settings.html only — see [save-system.md](save-system.md) |
+
+The last three are world state, not player state — they don't currently round-trip through save slots or reset on New Game (see [save-system.md](save-system.md)) and aren't read by character.html/inventory.html/settings.html at all yet. Full mechanics in [factions-and-territory.md](factions-and-territory.md).
 
 Stamina exists again as of this pass, but scoped only to combat — see "Stamina: a combat-only resource" below. It has nothing to do with travel, which is paced by Food instead (see below). A returning save from before Food existed won't have a `"Food"` entry in its inventory, but that's not a soft-lock: entering a settlement you're already standing in never costs anything, so the player can always reach a Marketplace to buy some. Likewise, a save from before stamina was reintroduced will get `100`/`100` seeded in by `initPlayerStateIfMissing()` the next time index.html loads.
 

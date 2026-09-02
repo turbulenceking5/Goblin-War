@@ -403,6 +403,7 @@
 <script>
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital" };
 const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
+const ALLIANCE = { human:"Good", dwarf:"Good", ork:"Bad", goblin:"Bad" };
 
 // ===================== MAP CANVAS / VIEW (raster + CSS transform pan/zoom) =====================
 const STAGE_W = 10240, STAGE_H = 5108;      // native raster pixel size
@@ -539,6 +540,131 @@ function advanceDays(n){
   gameDay += n;
   localStorage.setItem(CAL_KEY, String(gameDay));
   refreshCalendarUI();
+  maybeRunFactionAI();
+}
+
+// ===================== TERRITORY CONTROL & FACTION AI =====================
+// A settlement's *historical* kingdom/race (graph.burgs[id].state/.race, from the Azgaar
+// export) never changes — that's its permanent identity. Its *current controller* is a
+// separate, sparse override (goblinwar_territoryControl), only present once a settlement has
+// actually been fought over. War state (goblinwar_warState) belongs to kingdoms, not
+// settlements or races — a captured settlement stays labeled by its original kingdom, and
+// that kingdom's war/peace status is what the Marketplace prices react to (see showMarketPanel),
+// regardless of who's currently occupying any one of its settlements.
+const TERRITORY_KEY = "goblinwar_territoryControl";
+const WARSTATE_KEY = "goblinwar_warState";
+const LASTWARTICK_KEY = "goblinwar_lastWarTick";
+const WAR_TICK_INTERVAL_DAYS = 7;   // faction AI only rolls once per in-game week
+const WAR_DECLARE_CHANCE = 0.06;    // per kingdom, per tick, while at peace
+const WAR_PEACE_CHANCE = 0.15;      // per kingdom, per tick, while at war — sues for peace
+const RAID_CHANCE = 0.35;           // per kingdom, per tick, while at war — attempts a raid
+const RAID_SUCCESS_CHANCE = 0.5;    // per raid attempted
+const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered per raid
+
+let KINGDOM_RACE = {};  // kingdom name -> race, derived from graph.burgs once loaded
+let ALL_KINGDOMS = [];
+function buildFactionData(){
+  KINGDOM_RACE = {};
+  Object.values(graph.burgs).forEach(b=>{
+    if(b.state && b.race && b.race !== 'neutral' && !KINGDOM_RACE[b.state]) KINGDOM_RACE[b.state] = b.race;
+  });
+  ALL_KINGDOMS = Object.keys(KINGDOM_RACE);
+}
+
+function getTerritoryControl(){ try{ return JSON.parse(localStorage.getItem(TERRITORY_KEY)) || {}; }catch(e){ return {}; } }
+function getController(burgId){
+  const overrides = getTerritoryControl();
+  if(overrides[burgId]) return overrides[burgId];
+  const b = graph.burgs[burgId];
+  return b ? b.race : null;
+}
+function setController(burgId, race){
+  const overrides = getTerritoryControl();
+  overrides[burgId] = race;
+  localStorage.setItem(TERRITORY_KEY, JSON.stringify(overrides));
+}
+
+function getWarStateMap(){ try{ return JSON.parse(localStorage.getItem(WARSTATE_KEY)) || {}; }catch(e){ return {}; } }
+function getWarState(kingdom){ return getWarStateMap()[kingdom] || 'peace'; }
+function setWarState(kingdom, state){
+  const map = getWarStateMap();
+  map[kingdom] = state;
+  localStorage.setItem(WARSTATE_KEY, JSON.stringify(map));
+}
+function isAtWarAt(burgId){
+  const b = graph.burgs[burgId];
+  return b && b.state ? getWarState(b.state) === 'war' : false;
+}
+
+// War-driven Marketplace pricing (see showMarketPanel): a kingdom at war is short on
+// supply, so buying costs more everywhere; but weapons/armour/firewood are in high demand
+// there too, so *selling* those specific goods pays a premium instead of the usual cut price.
+const WAR_BUY_MULTIPLIER = 1.5;
+const WAR_SELL_BONUS_MULT = 1.2;
+const PEACE_SELL_FRACTION = 0.5;
+function isWarRelevant(mi){ return !!mi.slot || mi.name === "Firewood"; }
+function getBuyPrice(mi, burgId){ return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1)); }
+function getSellPrice(mi, burgId){
+  return (isWarRelevant(mi) && isAtWarAt(burgId))
+    ? Math.round(mi.price * WAR_SELL_BONUS_MULT)
+    : Math.round(mi.price * PEACE_SELL_FRACTION);
+}
+
+// Picks one enemy-alliance settlement to raid, biased toward the attacker's own territory
+// (nearest RAID_CANDIDATE_POOL enemy-held settlements to the centroid of what the attacking
+// kingdom currently controls) rather than a uniformly random settlement anywhere on the map.
+function attemptRaid(attackerKingdom){
+  const attackerRace = KINGDOM_RACE[attackerKingdom];
+  const attackerAlliance = ALLIANCE[attackerRace];
+  const ownBurgs = Object.values(graph.burgs).filter(b => getController(b.id) === attackerRace);
+  if(!ownBurgs.length) return null;
+  const cx = ownBurgs.reduce((s,b)=>s+b.x,0) / ownBurgs.length;
+  const cy = ownBurgs.reduce((s,b)=>s+b.y,0) / ownBurgs.length;
+  const enemyBurgs = Object.values(graph.burgs).filter(b=>{
+    const race = getController(b.id);
+    return race && race !== 'neutral' && ALLIANCE[race] && ALLIANCE[race] !== attackerAlliance;
+  });
+  if(!enemyBurgs.length) return null;
+  enemyBurgs.sort((a,b)=> Math.hypot(a.x-cx,a.y-cy) - Math.hypot(b.x-cx,b.y-cy));
+  const candidates = enemyBurgs.slice(0, RAID_CANDIDATE_POOL);
+  const target = candidates[Math.floor(Math.random()*candidates.length)];
+  const success = Math.random() < RAID_SUCCESS_CHANCE;
+  if(success) setController(target.id, attackerRace);
+  return { success, target, attackerKingdom, attackerRace };
+}
+
+// Runs the whole weekly tick across every kingdom and returns a short list of {text} events
+// worth telling the player about (captures only — declarations/peace deals are frequent
+// enough that surfacing every one would be noise).
+function runFactionAITick(){
+  const events = [];
+  ALL_KINGDOMS.forEach(kingdom=>{
+    const state = getWarState(kingdom);
+    if(state === 'peace'){
+      if(Math.random() < WAR_DECLARE_CHANCE) setWarState(kingdom, 'war');
+    } else {
+      if(Math.random() < RAID_CHANCE){
+        const result = attemptRaid(kingdom);
+        if(result && result.success){
+          events.push(`${result.target.name} has fallen to ${RACE_LABEL[result.attackerRace]} forces from ${kingdom}.`);
+        }
+      }
+      if(Math.random() < WAR_PEACE_CHANCE) setWarState(kingdom, 'peace');
+    }
+  });
+  return events;
+}
+
+function maybeRunFactionAI(){
+  if(!graph || !ALL_KINGDOMS.length) return;
+  const lastTick = parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10);
+  if(gameDay - lastTick < WAR_TICK_INTERVAL_DAYS) return;
+  localStorage.setItem(LASTWARTICK_KEY, String(gameDay));
+  const events = runFactionAITick();
+  if(events.length){
+    const summary = events.length === 1 ? events[0] : `${events.length} settlements changed hands this week, including ${events[0]}`;
+    showToast(summary);
+  }
 }
 
 // ===================== PLAYER STATE (health / gold / inventory / weight / age) =====================
@@ -609,6 +735,9 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(GOLD_KEY) === null) localStorage.setItem(GOLD_KEY, "50");
   if(localStorage.getItem(INV_KEY) === null) localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
   if(localStorage.getItem(EQUIPPED_KEY) === null) localStorage.setItem(EQUIPPED_KEY, JSON.stringify({}));
+  if(localStorage.getItem(TERRITORY_KEY) === null) localStorage.setItem(TERRITORY_KEY, JSON.stringify({}));
+  if(localStorage.getItem(WARSTATE_KEY) === null) localStorage.setItem(WARSTATE_KEY, JSON.stringify({}));
+  if(localStorage.getItem(LASTWARTICK_KEY) === null) localStorage.setItem(LASTWARTICK_KEY, "0");
 }
 initPlayerStateIfMissing();
 
@@ -1145,10 +1274,12 @@ function onMapTap(burgId){
   showHighlight(burg.x, burg.y);
 
   document.getElementById('info-name').textContent = burg.name;
-  const raceTag = burg.race && burg.race !== 'neutral'
-    ? `<span class="tag ${burg.race}">${RACE_LABEL[burg.race]}</span>` : '';
+  const controller = getController(burgId);
+  const raceTag = controller && controller !== 'neutral'
+    ? `<span class="tag ${controller}">${RACE_LABEL[controller]}</span>` : '';
   const stateTag = burg.state ? `<span style="color:#8a7440;">${burg.state}</span>` : '';
-  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[burg.tier]||burg.tier}</span>${stateTag ? ' — '+stateTag : ''}`;
+  const capturedNote = (controller !== burg.race) ? ` <span style="color:#8c3a3a; font-weight:700;">(captured)</span>` : '';
+  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[burg.tier]||burg.tier}</span>${stateTag ? ' — '+stateTag : ''}${capturedNote}`;
 
   const travelDiv = document.getElementById('info-travel');
   const travelBtn = document.getElementById('btn-travel');
@@ -1420,7 +1551,9 @@ function showLocationView(burgId){
   const b = graph.burgs[burgId];
   if(!b) return;
   document.getElementById('loc-heading').textContent = b.name;
-  document.getElementById('loc-sub').textContent = `${TIER_LABEL[b.tier]||b.tier}`;
+  const controller = getController(burgId);
+  const controlNote = (controller !== b.race) ? ` · ${RACE_LABEL[controller]}-controlled` : '';
+  document.getElementById('loc-sub').textContent = `${TIER_LABEL[b.tier]||b.tier}${controlNote}`;
   document.getElementById('loc-visual-art').innerHTML = TIER_ART[b.tier] || TIER_ART.village;
   document.getElementById('loc-visual-name').textContent = b.name;
   document.getElementById('loc-visual-tier').textContent = TIER_LABEL[b.tier]||b.tier;
@@ -1573,20 +1706,30 @@ function showMarketPanel(burgId){
 
   const MAX_SLIDER_QTY = 30; // just a sane slider ceiling — affordability/weight cap it lower below
   function render(){
+    const atWar = isAtWarAt(burgId);
     const itemRows = MARKET_ITEMS.map((mi, i) => {
-      const affordableQty = mi.price > 0 ? Math.floor(playerGold / mi.price) : MAX_SLIDER_QTY;
+      const buyPrice = getBuyPrice(mi, burgId);
+      const sellPrice = getSellPrice(mi, burgId);
+      const carried = getItem(mi.name);
+      const affordableQty = buyPrice > 0 ? Math.floor(playerGold / buyPrice) : MAX_SLIDER_QTY;
       const capacityQty = mi.weight > 0 ? Math.floor((CARRY_CAPACITY - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
       const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
+      const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#7a3a1f;">wartime demand</span>' : '';
       return `
       <div class="loc-action" style="cursor:default;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
-        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${mi.price}g each &middot; ${mi.weight} weight each &middot; carrying ${getItem(mi.name) ? getItem(mi.name).qty : 0}</span></span>
+        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}</span></span>
       </div>
       <div class="buy-row">
         <input type="range" class="qty-slider" min="1" max="${maxQty}" value="1" data-slider="${i}">
-        <div class="qty-readout" id="qty-readout-${i}">1 &middot; ${mi.price}g</div>
+        <div class="qty-readout" id="qty-readout-${i}">1 &middot; ${buyPrice}g</div>
         <button class="btn btn-primary" data-buy="${i}">Buy</button>
       </div>
+      ${carried && carried.qty > 0 ? `
+      <div class="buy-row" style="margin-top:-8px;">
+        <span style="flex:1; font-size:11.5px; color:#6a5a3a;">Sell 1 for ${sellPrice}g${sellNote}</span>
+        <button class="btn btn-secondary" data-sell="${i}">Sell</button>
+      </div>` : ''}
       `;
     }).join('');
     list.innerHTML = `
@@ -1596,7 +1739,8 @@ function showMarketPanel(burgId){
       </button>
       <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0; font-size:13.5px; color:#4d3a24;">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
-        <div style="display:flex; justify-content:space-between;"><span>Carried weight</span><b>${getCarriedWeight()} / ${CARRY_CAPACITY}</b></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${CARRY_CAPACITY}</b></div>
+        <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#8c3a3a':'#33502f'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
       </div>
       ${itemRows}
     `;
@@ -1604,8 +1748,8 @@ function showMarketPanel(burgId){
     list.querySelectorAll('.qty-slider').forEach(slider=>{
       slider.addEventListener('input', ()=>{
         const i = parseInt(slider.dataset.slider, 10);
-        const mi = MARKET_ITEMS[i];
-        document.getElementById(`qty-readout-${i}`).textContent = `${slider.value} · ${slider.value*mi.price}g`;
+        const price = getBuyPrice(MARKET_ITEMS[i], burgId);
+        document.getElementById(`qty-readout-${i}`).textContent = `${slider.value} · ${slider.value*price}g`;
       });
     });
     list.querySelectorAll('[data-buy]').forEach(btn=>{
@@ -1615,14 +1759,32 @@ function showMarketPanel(burgId){
         buyItem(MARKET_ITEMS[i], parseInt(slider.value, 10));
       });
     });
+    list.querySelectorAll('[data-sell]').forEach(btn=>{
+      btn.addEventListener('click', ()=> sellItem(MARKET_ITEMS[parseInt(btn.dataset.sell, 10)]));
+    });
   }
 
   function buyItem(mi, qty){
-    const cost = qty*mi.price;
+    const cost = qty * getBuyPrice(mi, burgId);
     if(playerGold < cost){ showToast("You don't have enough gold for that."); return; }
     if(!addItem(mi.name, qty, mi.weight, mi.price)){ showToast("Not enough room to carry that much — check your weight limit."); return; }
     setGold(playerGold - cost);
     showToast(`Bought ${qty} ${mi.name} for ${cost} gold.`);
+    render();
+  }
+
+  function sellItem(mi){
+    const carried = getItem(mi.name);
+    if(!carried || carried.qty < 1) return;
+    const price = getSellPrice(mi, burgId);
+    consumeItem(mi.name, 1);
+    let unequipped = false;
+    if(mi.slot && !getItem(mi.name) && getEquipped()[mi.slot] === mi.name){
+      setEquippedSlot(mi.slot, null); // sold the last one — can't stay equipped
+      unequipped = true;
+    }
+    setGold(playerGold + price);
+    showToast(`Sold 1 ${mi.name} for ${price} gold.${unequipped ? ' Unequipped — none left.' : ''}`);
     render();
   }
 
@@ -1638,6 +1800,7 @@ document.getElementById('loc-back').addEventListener('click', ()=>{
 fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   graph = graphData;
   buildAdjacency();
+  buildFactionData();
   if(!graph.burgs[currentBurg]){
     currentBurg = "5"; // Bary — fallback if a stale/invalid location was saved
     localStorage.setItem(LOC_KEY, currentBurg);

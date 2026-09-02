@@ -7,9 +7,10 @@ These files exist so an AI assistant (or a returning human) can load just the sy
 1. **[player-state.md](player-state.md)** — the `localStorage` keys everything else touches. Read this first regardless of what you're changing.
 2. **[travel-and-map.md](travel-and-map.md)** — the biggest system; most other systems hang off the map screen.
 3. **[combat.md](combat.md)** and **[locations-and-camp.md](locations-and-camp.md)** — both extend the map screen, best read after it.
-4. **[save-system.md](save-system.md)** and **[secondary-pages.md](secondary-pages.md)** — the smaller, mostly-independent pages.
-5. **[data-files.md](data-files.md)** — reference material on the world data shape, read on demand rather than up front.
-6. **[roadmap.md](roadmap.md)** — what's intentionally unbuilt, useful before proposing new features so you don't duplicate a stub that already has a planned home.
+4. **[factions-and-territory.md](factions-and-territory.md)** — the weekly faction AI tick; depends on `locations-and-camp.md`'s Marketplace section (war-driven pricing) and the calendar in `travel-and-map.md` (the tick rides on `advanceDays`).
+5. **[save-system.md](save-system.md)** and **[secondary-pages.md](secondary-pages.md)** — the smaller, mostly-independent pages.
+6. **[data-files.md](data-files.md)** — reference material on the world data shape, read on demand rather than up front.
+7. **[roadmap.md](roadmap.md)** — what's intentionally unbuilt, useful before proposing new features so you don't duplicate a stub that already has a planned home.
 
 ## Dependency notes
 

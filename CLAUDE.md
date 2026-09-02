@@ -28,6 +28,7 @@ Each covers one system in depth — read the relevant one before changing that p
 - [context/player-state.md](context/player-state.md) — health/stamina/food/weight/gold/age/inventory: the `localStorage` keys every page shares.
 - [context/combat.md](context/combat.md) — the turn-based bandit encounter system and how it's triggered.
 - [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Inn, Marketplace, etc.) and the camp screen.
+- [context/factions-and-territory.md](context/factions-and-territory.md) — the weekly faction AI tick, settlement conquest, and war-driven Marketplace pricing.
 - [context/save-system.md](context/save-system.md) — save slots and new-game reset in settings.html.
 - [context/secondary-pages.md](context/secondary-pages.md) — character.html, inventory.html, party.html.
 - [context/data-files.md](context/data-files.md) — the shape of `travel-graph.json` and where the map assets come from.

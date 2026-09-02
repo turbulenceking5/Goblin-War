@@ -23,7 +23,7 @@ The world data and the rendered image use different scales, and the code convert
 
 - `buildAdjacency()` turns the flat `edges` array into a `cellId -> [{to, mi, edge, forward}]` map, once, at load.
 - `cellRoute(fromCell, toCell)` is a Dijkstra shortest-path search over that adjacency map using a hand-rolled binary `MinHeap` (a plain sorted array was too slow across thousands of cells). Returns `{miles, edges}` or `null` if there's no path at all.
-- `computeTravel(toId)` wraps `cellRoute` into game terms: miles → days (`Math.ceil(miles/ROAD_PACE)`, `ROAD_PACE=20`/day) → stamina cost (`days*STAMINA_PER_DAY`, `STAMINA_PER_DAY=8`). If no route exists (rare — most of the ~800 settlements are connected), it falls back to a straight-line "cross-country" estimate at `OFFROAD_PACE=12`/day instead of blocking travel entirely.
+- `computeTravel(toId)` wraps `cellRoute` into game terms: raw miles are first divided by `DISTANCE_SCALE` (`5`) — the world data's mileage is realistic-scale and would otherwise make a cross-map trip take dozens of in-game days, so this compresses every distance down before anything else touches it. From there: miles → days (`Math.ceil(miles/ROAD_PACE)`, `ROAD_PACE=20`/day) → Food cost (`days*FOOD_PER_DAY`, `FOOD_PER_DAY=1`, see [player-state.md](player-state.md)). If no route exists (rare — most of the ~800 settlements are connected), it falls back to a straight-line "cross-country" estimate at `OFFROAD_PACE=12`/day instead of blocking travel entirely (also scaled by `DISTANCE_SCALE`).
 - `computeReachable(fromCell)` is a separate, distance-ignorant flood fill used only once at load, to detect if the player's saved location got stranded with zero road connections (falls back to Bary, burg id `"5"`, if so).
 
 ## Where you are: settlement vs. camp
@@ -38,13 +38,13 @@ The world data and the rendered image use different scales, and the code convert
 
 `beginTravel(destId)` is the entry point (called from the info-card's Travel button, or "Continue" in the camp view). It:
 
-1. Blocks immediately if `!canTravel()` (stamina is 0 — see [player-state.md](player-state.md)).
-2. Computes the route once via `computeTravel`, shows the `#travel-controls` bar (Stop / Set Up Camp).
+1. Computes the route via `computeTravel` and blocks immediately (with a toast) if `foodCost` exceeds `getFoodQty()` — see [player-state.md](player-state.md) for the Food gate.
+2. Shows the `#travel-controls` bar (Stop / Set Up Camp).
 3. Hands off to `animateTravel(fromPos, toId, edgeSteps, ...)`, which:
    - Builds one flat polyline (`buildRoutePolyline`) by concatenating each edge's real point list (`edge.pts`) in the correct direction — so the marker visibly follows actual drawn roads, not a straight line (unless there's no route at all).
-   - Walks that polyline at **constant linear speed** (no easing) over a duration proportional to distance (`Math.max(2000, 1000 + miles*8)` ms) — deliberately unhurried, like a Bannerlord-style overworld crossing, not a quick dart.
+   - Walks that polyline at **constant linear speed** (no easing) over a duration proportional to (already-scaled) distance (`Math.max(2000, 1000 + miles*8)` ms) — deliberately unhurried, like a Bannerlord-style overworld crossing, not a quick dart.
    - On every animation frame, calls `centerOnLogical(pos.x, pos.y, view.scale)` — recomputed from the **current** `view.scale` each time, not a value cached at journey start. This is what keeps the character centered under the camera even if the player pinch-zooms or scrolls mid-journey; an earlier version cached the camera math once and zooming mid-travel caused visible drift.
-4. On arrival: sets `currentBurg`, advances the calendar (`advanceDays`), deducts stamina, and rolls a bandit ambush chance before opening the location view (see [combat.md](combat.md)).
+4. On arrival: sets `currentBurg`, advances the calendar (`advanceDays`), consumes Food (`consumeItem(FOOD_NAME, t.foodCost)`), and rolls a bandit ambush chance before opening the location view (see [combat.md](combat.md)).
 
 `stopTravel()` and `campMidTravel()` both cancel the in-flight animation (`controller.cancelled = true; cancelAnimationFrame(...)`) and snap the player to `activeTravel.lastSnap` — the most recent `{x, y, cell}` the animation reported via its `onProgress` callback, i.e. wherever they actually were when interrupted, not back at the start. `campMidTravel` additionally advances a partial day (proportional to `frac`, the fraction of the journey completed) and opens the camp screen.
 
@@ -54,8 +54,8 @@ A flat day counter (`gameDay`, key `goblinwar_gameDay`) is the only stored time 
 
 ## Tap-to-select and the info card
 
-Every settlement gets an invisible circular `<circle class="hitzone">` sized by tier (`HIT_R`), built once in `buildHitzones()`. Tapping one calls `onMapTap(burgId)`, which populates and opens `#info-card` with one of three states: "you are here" (already at that burg), a travel quote with the button hidden and a red warning if you don't have enough stamina to make the *full* trip (stamina gate, see [player-state.md](player-state.md)), or a normal travel quote (miles/days/stamina cost, plus a route preview drawn along the same polyline logic as the travel animation) with the Travel button enabled.
+Every settlement gets an invisible circular `<circle class="hitzone">` sized by tier (`HIT_R`), built once in `buildHitzones()`. Tapping one calls `onMapTap(burgId)`, which populates and opens `#info-card` with one of three states: "you are here" (already at that burg), a travel quote with the button hidden and a red warning if you don't have enough Food to make the *full* trip (the Food gate, see [player-state.md](player-state.md)), or a normal travel quote (miles/days/Food cost, plus a route preview drawn along the same polyline logic as the travel animation) with the Travel button enabled.
 
 ## Camping from the map
 
-Beyond interrupting an active journey, a fixed "MAKE CAMP" button (`#camp-here-btn`, stacked above the recenter button, hidden while `#travel-controls` is showing) lets the player camp on the spot at any time — see [locations-and-camp.md](locations-and-camp.md) for the standalone camp flow. This is what keeps the stamina gate above from ever creating a soft-lock: even at 0 stamina with nowhere affordable to travel, the player can always rest right where they stand.
+Beyond interrupting an active journey, a fixed "MAKE CAMP" button (`#camp-here-btn`, stacked above the recenter button, hidden while `#travel-controls` is showing) lets the player camp on the spot at any time — see [locations-and-camp.md](locations-and-camp.md) for the standalone camp flow. This is what keeps the Food gate above from ever creating a soft-lock: even at 0 Food with nowhere affordable to travel, the player can always rest right where they stand (though resting only heals — reaching a Marketplace to restock Food still requires being at, or walking into, a settlement).

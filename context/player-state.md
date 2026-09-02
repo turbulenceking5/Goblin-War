@@ -8,24 +8,26 @@ There is no player-state module — every page reads and writes the same `localS
 |---|---|---|---|
 | `goblinwar_health` | Current HP | = max health | index.html, character.html, settings.html |
 | `goblinwar_maxHealth` | Max HP | `100` | index.html, character.html, settings.html |
-| `goblinwar_stamina` | Current stamina | = max stamina | index.html, settings.html |
-| `goblinwar_maxStamina` | Max stamina | `100` | index.html, settings.html |
 | `goblinwar_age` | Hero's age (string) | `"24"` | character.html, settings.html |
 | `goblinwar_gold` | Gold carried | `50` | index.html, character.html, inventory.html, settings.html |
-| `goblinwar_inventory` | JSON array of `{name, qty}` | see `DEFAULT_INVENTORY` below | index.html, inventory.html, settings.html |
+| `goblinwar_inventory` | JSON array of `{name, qty, weight}` | see `DEFAULT_INVENTORY` below | index.html, character.html, inventory.html, settings.html |
 | `goblinwar_currentBurg` | Burg id (string) of last-arrived settlement | `"5"` (Bary) | index.html, character.html, settings.html |
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |
 | `goblinwar_slot_1/2/3` | Full save-slot snapshots | unset | settings.html only — see [save-system.md](save-system.md) |
 
+There is no stamina stat — travel is paced by Food instead (see below). A returning save from before Food existed won't have a `"Food"` entry in its inventory, but that's not a soft-lock: entering a settlement you're already standing in never costs anything, so the player can always reach a Marketplace to buy some.
+
 `DEFAULT_INVENTORY` is:
 ```js
 [
-  { name:"Traveler's Rations", qty:3 },
-  { name:"Waterskin", qty:1 },
-  { name:"Bedroll", qty:1 },
+  { name:"Food", qty:10, weight:1 },
+  { name:"Waterskin", qty:1, weight:2 },
+  { name:"Bedroll", qty:1, weight:3 },
 ]
 ```
+
+`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). Only Food is actually consumed or restocked by anything in the game right now; Waterskin and Bedroll just sit in the bag as flavor/weight.
 
 ## Initialization
 
@@ -33,18 +35,28 @@ Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every ke
 
 ## Mutators (index.html only)
 
-`setHealth(v)`, `setStamina(v)`, `setGold(v)` are the only three functions that write these keys during play. Each clamps to a valid range (`0..max` for health/stamina, `0..∞` for gold), persists to `localStorage`, and calls `refreshPlayerStatUI()` to update the three stat pills in the toolbar. There's no `setAge` or inventory mutator yet — age is set once at new-game and never changes; inventory is only ever read back out (see [roadmap.md](roadmap.md) — there's no item-use or shop system yet).
+`setHealth(v)` and `setGold(v)` clamp to a valid range (`0..max` for health, `0..∞` for gold), persist to `localStorage`, and call `refreshPlayerStatUI()`. Inventory has its own pair instead of a single setter, because items are a list, not a scalar:
 
-## The stamina gate
+- `addItem(name, qty, weightEach)` — creates the stack (or adds to an existing one), *unless* doing so would push total carried weight over `CARRY_CAPACITY` (`40`), in which case it changes nothing and returns `false`. Every call site (currently just the Marketplace, see [locations-and-camp.md](locations-and-camp.md)) must check that return value.
+- `consumeItem(name, qty)` — subtracts, clamped at 0, and drops the stack entirely once it hits empty. Used for Food during travel; nothing currently removes non-Food items.
+- `getItem(name)`, `getFoodQty()`, `getCarriedWeight()` — read-only helpers built on the same in-memory `playerInventory` array, which both mutators keep in sync with `localStorage` via `saveInventory()`.
 
-Travel is gated per-destination, not just on "any stamina left": `computeTravel(toId)` returns `staminaCost` (the full cost of the trip), and that's compared against `playerStamina` at both points travel can start — you can't set out at all unless you have enough stamina to actually arrive:
-- `onMapTap`, where a destination you can't afford shows the miles/days quote plus a red "Not enough stamina to make it there" line, and the Travel button is hidden entirely rather than shown with a warning.
-- `beginTravel`, as a hard guard (with a toast) that blocks starting a journey even if something else tries to call it directly — e.g. the camp screen's "Continue" button, which recomputes the trip fresh from wherever you camped and can still refuse if you haven't rested enough.
+There's no `setAge` — age is set once at new-game and never changes.
 
-Because the check happens before departure, arriving "exhausted" mid-trip can't happen — a journey that was affordable when it started stays affordable, since nothing else drains stamina while `animateTravel` is running.
+## Food: the travel resource
 
-The only ways stamina goes back up are resting: `setStamina(playerMaxStamina)` in the Inn's rest button (showInnPanel) and the camp's rest button (showCampView) — see [locations-and-camp.md](locations-and-camp.md). Camping is reachable two ways: interrupting an in-progress journey (Stop / Set Up Camp), or the standalone "Make Camp" map button, so a player stranded with too little stamina to reach anywhere is never stuck — they can always camp exactly where they stand.
+Food replaced stamina as what travel costs and what gates it. `computeTravel(toId)` returns `foodCost` (the full cost of the trip, `days * FOOD_PER_DAY`), checked against `getFoodQty()` at both points travel can start — you can't set out at all unless you're carrying enough to actually arrive:
+- `onMapTap`, where a destination you can't afford shows the miles/days quote plus a red "Not enough food to make it there" line, and the Travel button is hidden entirely rather than shown with a warning.
+- `beginTravel`, as a hard guard (with a toast) that blocks starting a journey even if something else tries to call it directly — e.g. the camp screen's "Continue" button, which recomputes the trip fresh from wherever you camped and can still refuse if you haven't restocked.
 
-## Health vs. stamina in combat
+Because the check happens before departure, running out mid-trip can't happen — a journey that was affordable when it started stays affordable, since nothing else consumes Food while `animateTravel` is running. Food is deducted via `consumeItem(FOOD_NAME, t.foodCost)` once on arrival (or on the partial amount if the journey is interrupted by `campMidTravel`).
 
-Combat (see [combat.md](combat.md)) only ever touches `playerHealth`, never stamina — a bandit fight can knock you down to 10 HP on defeat, but it doesn't tire you out. Stamina is purely a travel-pacing resource.
+Unlike the old stamina system, **resting does not refill Food** — the Inn and camp's "Rest" actions only restore health now. The only way to get more Food is to buy it at a settlement's Marketplace (see [locations-and-camp.md](locations-and-camp.md)) — a deliberate change so the Marketplace has a real reason to exist. Camping is still reachable two ways (interrupting an in-progress journey, or the standalone "Make Camp" map button) so a player stuck at 0 Food is never soft-locked — see [travel-and-map.md](travel-and-map.md) for the camera/travel side of this.
+
+## Carry weight
+
+`CARRY_CAPACITY` (`40`) is a fixed constant, not a stat tied to anything else yet (no strength/character-build system exists — see [roadmap.md](roadmap.md)). `getCarriedWeight()` sums `weight * qty` across every item in the inventory array; `addItem` is the only enforcement point — buying more Food than you have room for fails with a toast rather than partially succeeding. There's no weight penalty to travel speed or anything else — exceeding capacity currently can't happen at all, since the only way to add weight (buying Food) is blocked at the limit.
+
+## Health vs. Food in combat
+
+Combat (see [combat.md](combat.md)) only ever touches `playerHealth` — a bandit fight can knock you down to 10 HP on defeat, but doesn't cost you Food or gold beyond a victory reward.

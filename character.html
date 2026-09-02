@@ -43,7 +43,6 @@
   .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:16px 0 6px; }
   .bar-track{ background:rgba(0,0,0,.15); border-radius:8px; height:16px; overflow:hidden; border:1px solid var(--parchment-shadow); }
   .bar-fill{ height:100%; background:linear-gradient(90deg,#8c3a3a,var(--hp)); border-radius:8px 0 0 8px; transition:width .3s; }
-  .bar-fill.stamina{ background:linear-gradient(90deg,#3d7a3d,#2f5d2f); }
   .bar-value{ font-size:13px; color:#4d3a24; margin-top:4px; text-align:right; }
 
   .gold-row{ display:flex; align-items:center; gap:8px; font-size:20px; font-family:'Cinzel Decorative',serif; color:#8a6a1f; }
@@ -84,10 +83,6 @@
       <div class="bar-track"><div class="bar-fill" id="hp-bar" style="width:100%"></div></div>
       <div class="bar-value" id="hp-value">100 / 100</div>
 
-      <div class="stat-label">Stamina</div>
-      <div class="bar-track"><div class="bar-fill stamina" id="sp-bar" style="width:100%"></div></div>
-      <div class="bar-value" id="sp-value">100 / 100</div>
-
       <div class="stat-label">Purse</div>
       <div class="gold-row">
         <svg viewBox="0 0 24 24" fill="#c9a227"><circle cx="12" cy="12" r="9"/></svg>
@@ -100,6 +95,8 @@
       <div class="info-line"><span>Origin</span><span>Kingdom of Bary</span></div>
       <div class="info-line"><span>Current location</span><span id="current-loc">—</span></div>
       <div class="info-line"><span>Day</span><span id="current-date">—</span></div>
+      <div class="info-line"><span>Food carried</span><span id="food-value">0</span></div>
+      <div class="info-line"><span>Carried weight</span><span id="weight-value">0 / 0</span></div>
     </div>
 
     <div class="stat-label">Skills &amp; Progression</div>
@@ -112,13 +109,14 @@
 <script>
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
-const STAMINA_KEY = "goblinwar_stamina";
-const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
+const INV_KEY = "goblinwar_inventory";
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+const FOOD_NAME = "Food";
+const CARRY_CAPACITY = 40;
 
 function dateStr(dayCount){
   const day = (dayCount % DAYS_PER_MONTH) + 1;
@@ -129,20 +127,23 @@ function dateStr(dayCount){
 
 const hp = parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10);
 const maxHp = parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10);
-const sp = parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10);
-const maxSp = parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10);
 const age = localStorage.getItem(AGE_KEY) || "24";
 const gold = parseInt(localStorage.getItem(GOLD_KEY) || "50", 10);
 const burgId = localStorage.getItem(LOC_KEY) || "5";
 const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
 
+let inventory = [];
+try{ inventory = JSON.parse(localStorage.getItem(INV_KEY) || "[]"); }catch(e){ inventory = []; }
+const food = inventory.find(it => it.name === FOOD_NAME);
+const carriedWeight = inventory.reduce((sum, it) => sum + it.weight*it.qty, 0);
+
 document.getElementById('hp-bar').style.width = Math.round((hp/maxHp)*100) + '%';
 document.getElementById('hp-value').textContent = `${hp} / ${maxHp}`;
-document.getElementById('sp-bar').style.width = Math.round((sp/maxSp)*100) + '%';
-document.getElementById('sp-value').textContent = `${sp} / ${maxSp}`;
 document.getElementById('age-value').textContent = age;
 document.getElementById('gold-value').textContent = gold;
 document.getElementById('current-date').textContent = dateStr(day);
+document.getElementById('food-value').textContent = food ? food.qty : 0;
+document.getElementById('weight-value').textContent = `${carriedWeight} / ${CARRY_CAPACITY}`;
 
 fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
   const b = data.burgs[burgId];

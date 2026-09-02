@@ -6,9 +6,9 @@ Every "coming soon" placeholder currently in the game, collected in one place so
 
 `.coming-soon` block below the stats card: *"Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state."* No XP, levels, or skill points exist anywhere in the code yet — `combat.md`'s fight outcomes only affect HP and gold, never anything that would feed a progression system.
 
-## Equipment & Marketplace — inventory.html + index.html
+## Equipment — inventory.html
 
-inventory.html's `.coming-soon` block: *"Weapons, armor, and the Marketplace to buy/sell them aren't built yet — that's next once combat exists."* Combat now exists (see [combat.md](combat.md)), which is what unblocks this per the note's own framing. The **Marketplace** action in a settlement's location view (`showLocationView` in index.html, `action:'stub'`) is the intended entry point on the map side — currently just toasts "Not built yet."
+inventory.html's `.coming-soon` block: *"Weapons and armor aren't built yet. The Marketplace (in any settlement) currently only sells Food."* The Marketplace itself is no longer a stub — `showMarketPanel` in index.html (see [locations-and-camp.md](locations-and-camp.md)) sells Food, which is what unlocked it: Food replaced stamina as the travel resource, and needed a way to be bought (see [player-state.md](player-state.md)). What's still missing is everything else a shop could sell — weapons, armor, or any equipment slot to put them in.
 
 ## Talk to Townsfolk — index.html
 
@@ -20,7 +20,8 @@ The entire page is one `.coming-soon` block: *"No followers yet. Recruitable com
 
 ## Smaller/implicit gaps (not marked with a UI stub, but visible from the code)
 
-- **No item usage.** inventory.html renders items but has no click handler on rows — nothing consumes a "Traveler's Rations" or "Waterskin" despite them existing in `DEFAULT_INVENTORY`.
+- **Waterskin and Bedroll do nothing.** Food is consumed by travel now, but the other two `DEFAULT_INVENTORY` items are pure flavor/weight — inventory.html has no click handler on rows, so nothing ever uses them.
+- **Carry capacity isn't tied to anything.** `CARRY_CAPACITY` (`40`) is a flat constant — there's no strength stat, character build, or way to increase it (e.g. a bigger pack as purchasable gear). See [player-state.md](player-state.md).
 - **No character customization.** character.html hardcodes "The Traveler" / "Human" / "Kingdom of Bary" — there's no race/origin choice, even though the world data (`travel-graph.json`) already models four races and dozens of states that a real origin system could draw from.
 - **Single enemy type.** Combat only knows about "Bandit" — see [combat.md](combat.md) for how straightforward adding a second type would be (parameterized already, just needs a second wrapper + a trigger site).
 - **No random encounters while simply walking around** — only the two fixed ambush rolls (on arrival, on overnight camp) exist; there's no per-day-of-travel "something happens" table beyond bandits.

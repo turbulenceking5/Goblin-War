@@ -9,8 +9,8 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | File | Role |
 |---|---|
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
-| [character.html](character.html) | Read-only hero sheet (HP/stamina/gold/age/location). |
-| [inventory.html](inventory.html) | Read-only bag contents and gold. |
+| [character.html](character.html) | Read-only hero sheet (HP/gold/food/weight/age/location). |
+| [inventory.html](inventory.html) | Read-only bag contents, gold, and carried weight. |
 | [party.html](party.html) | Stub — no companion system yet. |
 | [settings.html](settings.html) | 3 save slots (read/write `localStorage` snapshots) and a new-game reset. |
 | [game-map.html](game-map.html) | Legacy prototype map (scroll-based, pre-dates index.html's pan/zoom canvas). Not linked from anywhere — dead code, kept for reference only. |
@@ -23,9 +23,9 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 Each covers one system in depth — read the relevant one before changing that part of the game:
 
 - [context/travel-and-map.md](context/travel-and-map.md) — the map canvas, road-graph pathfinding, travel animation, camp/stop-mid-journey, calendar.
-- [context/player-state.md](context/player-state.md) — health/stamina/gold/age/inventory: the `localStorage` keys every page shares.
+- [context/player-state.md](context/player-state.md) — health/food/weight/gold/age/inventory: the `localStorage` keys every page shares.
 - [context/combat.md](context/combat.md) — the turn-based bandit encounter system and how it's triggered.
-- [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Inn, Marketplace stub, etc.) and the camp screen.
+- [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Inn, Marketplace, etc.) and the camp screen.
 - [context/save-system.md](context/save-system.md) — save slots and new-game reset in settings.html.
 - [context/secondary-pages.md](context/secondary-pages.md) — character.html, inventory.html, party.html.
 - [context/data-files.md](context/data-files.md) — the shape of `travel-graph.json` and where the map assets come from.

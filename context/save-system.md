@@ -9,15 +9,15 @@ Three fixed save slots plus a hard reset, both operating on the same `localStora
 ```js
 {
   burgId, day, heading,
-  health, maxHealth, stamina, maxStamina,
+  health, maxHealth,
   age, gold,
-  inventory,   // JSON string, not parsed — copied as-is from goblinwar_inventory
+  inventory,   // JSON string, not parsed — copied as-is from goblinwar_inventory (carries Food + weights)
   savedAt      // localized date string, display only
 }
 ```
 
 - **Save Here** (`data-save` buttons in `renderSlots()`): reads every live key, builds the object above, `JSON.stringify`s it into the slot key, re-renders. Overwrites without confirmation — there's no "are you sure" on save, only on load/reset.
-- **Load** (`data-load` buttons): `confirm()`s first ("current unsaved progress will be overwritten"), then writes every field from the slot back onto the live keys and redirects to `index.html`. Each field is written only `if(data.field !== undefined)` — this is defensive against loading a slot saved by an older version of the game that predates a given field (e.g. slots saved before stamina existed).
+- **Load** (`data-load` buttons): `confirm()`s first ("current unsaved progress will be overwritten"), then writes every field from the slot back onto the live keys and redirects to `index.html`. Each field is written only `if(data.field !== undefined)` — this is defensive against loading a slot saved by an older version of the game that predates a given field (e.g. a slot saved before Food/weight existed has no `weight` on its inventory items, or a slot saved before Food replaced stamina still carries now-ignored `stamina`/`maxStamina` fields — harmless, just unread).
 - A slot with no saved data shows "Empty" and a disabled Load button; `renderSlots()` fully rebuilds the three slot cards from scratch on every call rather than diffing.
 
 ## New Game

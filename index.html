@@ -184,7 +184,7 @@
   #loc-actions{
     box-sizing:border-box; width:100%; max-width:560px; height:100%; margin:0 auto; overflow-y:auto;
     background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
-    padding:16px 14px calc(150px + env(safe-area-inset-bottom));
+    padding:calc(16px + env(safe-area-inset-top)) 14px calc(150px + env(safe-area-inset-bottom));
     display:flex; flex-direction:column;
   }
   /* Reserved corner for per-location art, once it exists — pinned in place (not part of
@@ -220,6 +220,25 @@
   .loc-action:active{ transform:scale(.98); background:rgba(255,255,255,.55); }
   .loc-action:disabled{ opacity:.5; cursor:not-allowed; }
   .loc-action:disabled:active{ transform:none; background:rgba(255,255,255,.35); }
+
+  .buy-row{ display:flex; align-items:center; gap:10px; margin:-4px 0 14px; }
+  .qty-slider{
+    flex:1; -webkit-appearance:none; appearance:none; height:6px; border-radius:3px;
+    background:var(--parchment-shadow); outline:none;
+  }
+  .qty-slider::-webkit-slider-thumb{
+    -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold)); border:2px solid #7a5715; cursor:pointer;
+  }
+  .qty-slider::-moz-range-thumb{
+    width:22px; height:22px; border-radius:50%; border:2px solid #7a5715;
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold)); cursor:pointer;
+  }
+  .qty-readout{
+    flex:none; min-width:64px; text-align:center; font-family:'Cinzel', serif; font-size:11.5px;
+    color:#4d3a24; background:rgba(0,0,0,.06); border-radius:8px; padding:6px 4px;
+  }
+  .buy-row .btn{ flex:none; padding:10px 16px; }
   .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
   .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--ink); }
   .loc-action .li-text span{ font-size:12.5px; color:#6a5a3a; }
@@ -229,7 +248,7 @@
     background:radial-gradient(ellipse at 50% 0%, #2c1414, #150a0a 70%);
   }
   #combat-view.show{ display:flex; }
-  #combat-header{ padding:18px 16px 8px; text-align:center; }
+  #combat-header{ padding:calc(18px + env(safe-area-inset-top)) 16px 8px; text-align:center; }
   #combat-title{ font-family:'Cinzel Decorative', serif; font-size:22px; color:#e2857f; text-shadow:0 2px 4px rgba(0,0,0,.6); }
   #combat-stage{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 20px; gap:14px; }
   #combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); }
@@ -1040,29 +1059,41 @@ function buildHitzones(){
   }
 }
 
-// ---- small skyline glyph marking City/Capital-tier settlements, centered right on the
-// settlement's own point (not offset above it) so major cities read at a glance while
-// zoomed out. It can't truly draw *behind* a settlement's name — the map's labels are
-// baked into world-raster.jpg, a flat image with no separate DOM layer to z-order against
-// (see labelElByBurg's comment) — so instead it's kept small, mostly rising above the
-// point rather than below (Azgaar's own label placement is normally below/beside the
-// point), and semi-transparent, to stay out of the label's way in practice.
+// ---- small skyline glyph marking City/Capital-tier settlements, offset well above the
+// settlement's own point, so major cities read at a glance while zoomed out without
+// covering the settlement's name. It can't truly draw *behind* the name — the map's
+// labels are baked into world-raster.jpg, a flat image with no separate DOM layer to
+// z-order against (see labelElByBurg's comment) — and testing at high zoom showed
+// Azgaar centers each label directly ON the point (not offset below/beside it, as
+// originally assumed), so a real vertical gap above the point is needed to clear it.
+// That offset alone isn't enough in dense clusters, though: two settlements can sit close
+// enough that one's *offset* icon lands on top of a *different* settlement's label. Rather
+// than chase that per-pair, buildCityIcons() checks each candidate icon position against
+// every settlement's point (not just City/Capital ones) and simply skips drawing it if it
+// would land within MIN_CLEARANCE of one — better to omit an icon in a crowded area than
+// to cover a name.
 const CITY_ICON_PATH = "M-6,2 L-6,-2 L-3,-2 L-3,2 Z M-2,2 L-2,-5 L1.5,-5 L1.5,2 Z M2.5,2 L2.5,-3 L6,-3 L6,2 Z";
+const CITY_ICON_OFFSET_Y = -16; // logical units above the point, clearing that settlement's own centered label
+const CITY_ICON_MIN_CLEARANCE = 12; // logical units — skip if this close to any settlement's point
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
+  const allBurgs = Object.values(graph.burgs);
   for(const id in graph.burgs){
     const b = graph.burgs[id];
     if(b.tier !== 'city' && b.tier !== 'capital') continue;
-    const scale = b.tier === 'capital' ? 1.3 : 0.9;
+    const iconY = b.y + CITY_ICON_OFFSET_Y;
+    const tooClose = allBurgs.some(other => other !== b && Math.hypot(other.x-b.x, other.y-iconY) < CITY_ICON_MIN_CLEARANCE);
+    if(tooClose) continue;
+    const scale = b.tier === 'capital' ? 1.1 : 0.8;
     const icon = document.createElementNS(ns, "path");
     icon.setAttribute("d", CITY_ICON_PATH);
-    icon.setAttribute("transform", `translate(${b.x},${b.y}) scale(${scale})`);
+    icon.setAttribute("transform", `translate(${b.x},${iconY}) scale(${scale})`);
     icon.setAttribute("fill", b.tier === 'capital' ? '#d1a445' : '#8a6a3a');
     icon.setAttribute("stroke", "#2a1d10");
     icon.setAttribute("stroke-width", "0.5");
-    icon.setAttribute("opacity", "0.85");
+    icon.setAttribute("opacity", "0.9");
     g.appendChild(icon);
   }
 }
@@ -1367,6 +1398,15 @@ function showLocationView(burgId){
     { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : "Take on odd jobs for a few hours' pay", action:'work', disabled:workedToday },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'stub' },
   ];
+  // City/Capital settlements get extra actions on top of the base four, so a big
+  // settlement actually feels bigger rather than just carrying a fancier building icon.
+  if(b.tier === 'city' || b.tier === 'capital'){
+    actions.push({ icon:`<path d="M12 3l2.5 4.5H20l-4 4 1.5 5.5L12 14l-5.5 3 1.5-5.5-4-4h5.5z"/>`, title:"Temple", desc:"Seek a blessing", action:'temple' });
+    actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/>`, title:"Guard House", desc:"Hear how the watch is holding the walls", action:'guardhouse' });
+  }
+  if(b.tier === 'capital'){
+    actions.push({ icon:`<path d="M4 21h16"/><path d="M5 21V9l3-3 4 3 4-3 3 3v12"/><path d="M12 21v-6"/>`, title:"The Palace", desc:"Learn of the ruling court", action:'palace' });
+  }
   const list = document.getElementById('loc-action-list');
   list.innerHTML = actions.map(a => `
     <button class="loc-action" data-action="${a.action}" ${a.disabled ? 'disabled' : ''}>
@@ -1379,6 +1419,9 @@ function showLocationView(burgId){
       if(btn.dataset.action === 'inn') showInnPanel(burgId);
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
+      else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
+      else if(btn.dataset.action === 'guardhouse') showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES);
+      else if(btn.dataset.action === 'palace') showFlavorPanel(burgId, 'The Palace', PALACE_LINES);
       else showToast("Not built yet — coming in a future update.");
     });
   });
@@ -1419,6 +1462,47 @@ function doWork(burgId){
   showLocationView(burgId);
 }
 
+// City/Capital-only flavor buildings (Temple, Guard House, The Palace) — pure world-building
+// color like the Inn's rumour pool, no mechanical effect, so bigger settlements have more to
+// see without inventing systems that aren't built yet.
+const TEMPLE_LINES = [
+  "A hooded priest murmurs a blessing over the altar flame.",
+  "Pilgrims from outlying villages kneel in quiet prayer.",
+  "Incense curls up through a shaft of coloured light.",
+  "A novice presses a small token into your hand and asks for nothing in return.",
+  "The bell tower tolls the hour as you step inside.",
+];
+const GUARDHOUSE_LINES = [
+  "A watch-captain briefs a fresh patrol on the state of the roads.",
+  "Sharpened pikes line the wall, ready for a call to arms.",
+  "A weary sentry mentions bandit sightings on a nearby route.",
+  "The garrison drills in the yard, boots striking the packed earth in unison.",
+  "A quartermaster counts arrows into crates bound for the wall towers.",
+];
+const PALACE_LINES = [
+  "Courtiers trade quiet gossip beneath tall banners.",
+  "A herald reads a proclamation to a half-listening hall.",
+  "Petitioners queue for an audience that may not come today.",
+  "Guards in ceremonial armour stand motionless beside the throne.",
+  "Word in the court is that the war is weighing heavily on the ruler's mind.",
+];
+function showFlavorPanel(burgId, title, lines){
+  const b = graph.burgs[burgId];
+  const line = lines[Math.floor(Math.random()*lines.length)];
+  const list = document.getElementById('loc-action-list');
+  list.innerHTML = `
+    <button class="loc-action" id="flavor-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+    </button>
+    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0;">
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:8px;">${title}</div>
+      <div style="font-size:14.5px; line-height:1.55; color:#4d3a24; font-style:italic;">"${line}"</div>
+    </div>
+  `;
+  document.getElementById('flavor-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+}
+
 function showInnPanel(burgId){
   const b = graph.burgs[burgId];
   const rumour = RUMOURS[Math.floor(Math.random()*RUMOURS.length)];
@@ -1453,17 +1537,24 @@ function showMarketPanel(burgId){
   const b = graph.burgs[burgId];
   const list = document.getElementById('loc-action-list');
 
+  const MAX_SLIDER_QTY = 30; // just a sane slider ceiling — affordability/weight cap it lower below
   function render(){
-    const itemRows = MARKET_ITEMS.map((mi, i) => `
+    const itemRows = MARKET_ITEMS.map((mi, i) => {
+      const affordableQty = mi.price > 0 ? Math.floor(playerGold / mi.price) : MAX_SLIDER_QTY;
+      const capacityQty = mi.weight > 0 ? Math.floor((CARRY_CAPACITY - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
+      const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
+      return `
       <div class="loc-action" style="cursor:default;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
         <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${mi.price}g each &middot; ${mi.weight} weight each &middot; carrying ${getItem(mi.name) ? getItem(mi.name).qty : 0}</span></span>
       </div>
-      <div style="display:flex; gap:10px; margin:-4px 0 10px;">
-        <button class="btn btn-secondary" data-buy="${i}" data-qty="1">Buy 1 (${mi.price}g)</button>
-        <button class="btn btn-primary" data-buy="${i}" data-qty="5">Buy 5 (${mi.price*5}g)</button>
+      <div class="buy-row">
+        <input type="range" class="qty-slider" min="1" max="${maxQty}" value="1" data-slider="${i}">
+        <div class="qty-readout" id="qty-readout-${i}">1 &middot; ${mi.price}g</div>
+        <button class="btn btn-primary" data-buy="${i}">Buy</button>
       </div>
-    `).join('');
+      `;
+    }).join('');
     list.innerHTML = `
       <button class="loc-action" id="market-back-btn">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
@@ -1476,8 +1567,19 @@ function showMarketPanel(burgId){
       ${itemRows}
     `;
     document.getElementById('market-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    list.querySelectorAll('.qty-slider').forEach(slider=>{
+      slider.addEventListener('input', ()=>{
+        const i = parseInt(slider.dataset.slider, 10);
+        const mi = MARKET_ITEMS[i];
+        document.getElementById(`qty-readout-${i}`).textContent = `${slider.value} · ${slider.value*mi.price}g`;
+      });
+    });
     list.querySelectorAll('[data-buy]').forEach(btn=>{
-      btn.addEventListener('click', ()=> buyItem(MARKET_ITEMS[parseInt(btn.dataset.buy,10)], parseInt(btn.dataset.qty,10)));
+      btn.addEventListener('click', ()=>{
+        const i = parseInt(btn.dataset.buy, 10);
+        const slider = list.querySelector(`[data-slider="${i}"]`);
+        buyItem(MARKET_ITEMS[i], parseInt(slider.value, 10));
+      });
     });
   }
 

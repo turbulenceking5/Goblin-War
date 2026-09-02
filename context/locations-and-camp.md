@@ -7,11 +7,17 @@ Two full-screen overlays (`#location-view`, shared markup, z-index 60) that show
 Reached by tapping "Enter Settlement" / "Travel Here" on a burg you're already at, or automatically on arrival after travel (post-ambush-roll, see [combat.md](combat.md)).
 
 - The visual side picks an SVG from `TIER_ART` (`village`/`town`/`city`/`capital` — four hand-drawn building illustrations, no per-settlement art).
-- The action list is a small array of `{icon, title, desc, action}` objects rendered identically, currently:
+- The action list is a small array of `{icon, title, desc, action}` objects rendered identically. Every settlement gets the same base four:
   - **The Inn** (`action:'inn'`) → `showInnPanel(burgId)`.
   - **Marketplace** (`action:'market'`) → `showMarketPanel(burgId)`.
   - **Work** (`action:'work'`) → `doWork()`, straight from the action list with no sub-panel — see "Work" below.
   - **Talk to Townsfolk** (`action:'stub'`) → toast "Not built yet — coming in a future update." (see [roadmap.md](roadmap.md)).
+
+  City- and Capital-tier settlements get more on top, appended conditionally by `b.tier` before the array is rendered — deliberately so a big settlement has more to actually do, not just a fancier building icon:
+  - **Temple** (`action:'temple'`, City + Capital) and **Guard House** (`action:'guardhouse'`, City + Capital) → `showFlavorPanel(burgId, title, LINES)`.
+  - **The Palace** (`action:'palace'`, Capital only) → same, one tier further.
+
+  All three route through one shared `showFlavorPanel(burgId, title, lines)` rather than three near-copies of `showInnPanel` — it picks a random line from whichever pool is passed in (`TEMPLE_LINES`/`GUARDHOUSE_LINES`/`PALACE_LINES`, 5 lines each, same flavor-only pattern as `RUMOURS`) and renders one Back button + one quote box. No mechanical effect, same as Talk to Townsfolk's eventual replacement is likely to be — see [roadmap.md](roadmap.md).
 - `loc-back` (the `&larr; Back to Map` button) just hides the overlay — no state changes.
 
 ### The Inn — `showInnPanel(burgId)`
@@ -30,10 +36,11 @@ When it's available: picks a random gold amount in `[3,15]` (`randRange`, same h
 ### The Marketplace — `showMarketPanel(burgId)`
 
 The only shop in the game, and the only source of Food besides whatever you start with. Sells everything in the `MARKET_ITEMS` array (index.html, near `DEFAULT_INVENTORY`) — currently Food, Sword, Healing Potion, Books, Firewood, and Shield, each with its own `{name, price, weight, desc}`:
-- Shows current gold and carried weight (`getCarriedWeight()`/`CARRY_CAPACITY`) up top, then one row per `MARKET_ITEMS` entry (price/weight-per-unit, current carried amount from `getItem(name)`), each with its own **Buy 1** / **Buy 5** buttons.
-- Buttons carry `data-buy`/`data-qty` attributes (index into `MARKET_ITEMS`, and 1 or 5) rather than one hardcoded handler per item, so adding a new item to `MARKET_ITEMS` is enough — no new wiring needed in `render()`.
+- Shows current gold and carried weight (`getCarriedWeight()`/`CARRY_CAPACITY`) up top, then one row per `MARKET_ITEMS` entry (price/weight-per-unit, current carried amount from `getItem(name)`), each with a quantity **slider** (`<input type="range">`, `data-slider`) instead of fixed Buy 1/Buy 5 buttons, a live readout (`#qty-readout-N`, updated on the slider's `input` event without a full re-render), and one **Buy** button that reads the slider's current value.
+- Each slider's `max` isn't a flat number — `render()` computes `Math.min(MAX_SLIDER_QTY (30), affordableQty, capacityQty)` per item, so you can never drag past what you could actually afford or carry at render time (though gold/weight can still change between renders from other purchases, which is what the real gate in `buyItem` is for — the slider max is a UX convenience, not the source of truth).
+- Buy buttons carry a `data-buy` index into `MARKET_ITEMS` (not a fixed qty) rather than one hardcoded handler per item, so adding a new item to `MARKET_ITEMS` is enough — no new wiring needed in `render()`.
 - `buyItem(mi, qty)` (generalized from the old Food-only `buyFood`) checks gold first (toast + no-op if short), then calls `addItem(mi.name, qty, mi.weight, mi.price)` (toast + no-op if it would exceed `CARRY_CAPACITY` — see [player-state.md](player-state.md)), and only deducts gold (`setGold`) if the item was actually added. Order matters here: a failed weight check must never have already spent the player's gold.
-- Re-renders itself in place after every purchase (`render()` is a closure over `burgId`/`list`, called both initially and after `buyItem` succeeds) so the gold/weight/carried numbers stay current without leaving the panel.
+- Re-renders itself in place after every purchase (`render()` is a closure over `burgId`/`list`, called both initially and after `buyItem` succeeds) so the gold/weight/carried numbers — and every slider's recomputed `max` — stay current without leaving the panel. Sliders reset to `1` on every re-render; there's no "remember what I had the slider set to" behavior.
 - Buying doesn't equip anything — Sword/Shield/etc. just sit in the bag like Waterskin/Bedroll always have. No equip system exists yet (see [roadmap.md](roadmap.md)).
 
 ## Camp view — `showCampView(destId, destName, partialHours)`
@@ -51,4 +58,6 @@ Actions (the "Continue" button only renders `${standalone ? '' : ...}` — omitt
 
 ## Adding a new location action
 
-All three view functions follow the same pattern: build an array of small metadata objects (or, for Inn/Market, just a fixed block of HTML), `.map()` or template them into `#loc-action-list`, then `querySelectorAll` + `addEventListener` to wire clicks. `showMarketPanel` is the template to copy for a second shop (e.g. an Armorer) — replace `#loc-action-list`'s contents with a new sub-screen rather than adding a new top-level overlay, so the existing "Back" chain of `location-view → sub-panel → location-view → map` stays intact. Work is the exception: not every action needs a sub-panel — a one-shot result like `doWork()` can just run directly from `showLocationView`'s action-list handler and toast the outcome, no `showXPanel`/Back-button pair required.
+All three view functions follow the same pattern: build an array of small metadata objects (or, for Inn/Market, just a fixed block of HTML), `.map()` or template them into `#loc-action-list`, then `querySelectorAll` + `addEventListener` to wire clicks. `showMarketPanel` is the template to copy for a second shop (e.g. an Armorer) — replace `#loc-action-list`'s contents with a new sub-screen rather than adding a new top-level overlay, so the existing "Back" chain of `location-view → sub-panel → location-view → map` stays intact. Work is the exception: not every action needs a sub-panel — a one-shot result like `doWork()` can just run directly from `showLocationView`'s action-list handler and toast the outcome, no `showXPanel`/Back-button pair required. For a pure-flavor sub-panel with no mechanical effect (Temple, Guard House, The Palace), `showFlavorPanel(burgId, title, lines)` is the one to reuse rather than writing a fourth near-identical function — it's already generic over title and line pool.
+
+Gating an action to certain settlement tiers (as Temple/Guard House/Palace do) is just conditionally `.push()`-ing onto the `actions` array in `showLocationView` before it's rendered — `b.tier` is already available there from the burg lookup at the top of the function.

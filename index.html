@@ -108,6 +108,17 @@
   }
   #recenter-btn:active{ transform:scale(.94); }
 
+  #camp-here-btn{
+    position:fixed; right:12px; bottom:calc(76px + env(safe-area-inset-bottom)); z-index:26;
+    width:52px; height:52px; border-radius:50%;
+    background:rgba(20,14,6,.88);
+    border:2px solid var(--gold-lt); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:9px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+  }
+  #camp-here-btn:active{ transform:scale(.94); }
+  #camp-here-btn.hide{ display:none; }
+
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
     background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
@@ -285,6 +296,7 @@
   </div>
 
   <button id="recenter-btn">FIND<br>ME</button>
+  <button id="camp-here-btn">MAKE<br>CAMP</button>
 
   <div id="travel-controls">
     <div id="travel-status">Traveling to <b id="travel-dest-name">—</b>…</div>
@@ -469,6 +481,11 @@ document.getElementById('recenter-btn').addEventListener('click', ()=>{
   centerOnLogical(pos.x, pos.y, Math.max(view.scale, (viewport.clientWidth)/((STAGE_W/LOGICAL_W)*REGION_W)));
 });
 
+document.getElementById('camp-here-btn').addEventListener('click', ()=>{
+  closeCard();
+  showCampView(null, null, 0);
+});
+
 const CAL_KEY = "goblinwar_gameDay";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 let gameDay = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
@@ -541,8 +558,6 @@ function refreshPlayerStatUI(){
   if(sp) sp.textContent = `${playerStamina}/${playerMaxStamina}`;
   if(gp) gp.textContent = playerGold;
 }
-function canTravel(){ return playerStamina > 0; }
-
 // ===================== COMBAT (minimal turn-based, one enemy type) =====================
 let combat = null; // {enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd}
 
@@ -959,23 +974,24 @@ function onMapTap(burgId){
     travelDiv.textContent = "You are here.";
     travelBtn.style.display = 'block';
     travelBtn.textContent = 'Enter Settlement';
-  } else if(!canTravel()){
-    travelDiv.innerHTML = `<span style="color:#8c3a3a;">You're too exhausted to travel. Rest at a camp or an inn to recover stamina first.</span>`;
-    travelBtn.style.display = 'none';
-    clearRoutePreview();
   } else {
     const t = computeTravel(burgId);
     if(!t){
       travelDiv.textContent = "Distance unknown.";
       travelBtn.style.display = 'none';
-    } else {
+    } else if(t.staminaCost > playerStamina){
       const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
-      const staminaWarn = t.staminaCost > playerStamina
-        ? `<br><span style="color:#8c3a3a;">Not enough stamina (${t.staminaCost} needed, ${playerStamina} left) — you'll arrive exhausted.</span>` : '';
       travelDiv.innerHTML = (t.viaRoad
         ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.staminaCost} stamina</b>.`
         : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.staminaCost} stamina</b>.`)
-        + staminaWarn;
+        + `<br><span style="color:#8c3a3a;">Not enough stamina to make it there (need ${t.staminaCost}, have ${playerStamina}). Rest at a camp or an inn first.</span>`;
+      travelBtn.style.display = 'none';
+      if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
+    } else {
+      const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
+      travelDiv.innerHTML = t.viaRoad
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.staminaCost} stamina</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${t.days} day${t.days===1?'':'s'}</b> travel, <b>${t.staminaCost} stamina</b>.`;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
       travelBtn.textContent = `Travel Here (${t.days}d)`;
@@ -989,18 +1005,20 @@ let activeTravel = null; // {controller, destId, destName, totalDays, lastSnap}
 function showTravelControls(destName){
   document.getElementById('travel-dest-name').textContent = destName;
   document.getElementById('travel-controls').classList.add('show');
+  document.getElementById('camp-here-btn').classList.add('hide');
 }
 function hideTravelControls(){
   document.getElementById('travel-controls').classList.remove('show');
+  document.getElementById('camp-here-btn').classList.remove('hide');
 }
 
 function beginTravel(destId){
-  if(!canTravel()){
-    showToast("You're too exhausted to travel. Rest at a camp or an inn first.");
-    return;
-  }
   const t = computeTravel(destId);
   if(!t) return;
+  if(t.staminaCost > playerStamina){
+    showToast("You don't have enough stamina to make it there. Rest at a camp or an inn first.");
+    return;
+  }
   const destName = graph.burgs[destId].name;
   closeCard();
 
@@ -1020,10 +1038,8 @@ function beginTravel(destId){
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
     advanceDays(t.days);
-    const exhausted = t.staminaCost > playerStamina;
     setStamina(playerStamina - t.staminaCost);
     refreshReachability();
-    if(exhausted) showToast("You arrive exhausted — resting would help.");
     if(rollAmbush(t.days)){
       showToast("Bandits ambush you on the road!");
       triggerBanditFight(()=> showLocationView(currentBurg));
@@ -1158,25 +1174,31 @@ const CAMP_ART = `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.or
 // Camp reuses the same split-screen shell as a settlement's location-view,
 // just populated with camp-specific content instead.
 function showCampView(destId, destName, partialDays){
+  const standalone = !destId; // camped from the map directly, not mid-journey
+  const here = getCurrentDisplayName();
+
   document.getElementById('loc-heading').textContent = "Camp";
-  document.getElementById('loc-sub').textContent = `On the road to ${destName} — ${partialDays} day${partialDays===1?'':'s'} passed`;
+  document.getElementById('loc-sub').textContent = standalone
+    ? `Making camp at ${here}`
+    : `On the road to ${destName} — ${partialDays} day${partialDays===1?'':'s'} passed`;
   document.getElementById('loc-visual-art').innerHTML = CAMP_ART;
   document.getElementById('loc-visual-name').textContent = "Camp";
-  document.getElementById('loc-visual-tier').textContent = `En route to ${destName}`;
+  document.getElementById('loc-visual-tier').textContent = standalone ? here : `En route to ${destName}`;
 
   const list = document.getElementById('loc-action-list');
   list.innerHTML = `
     <button class="loc-action" id="camp-rest-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
-      <span class="li-text"><b>Rest Until Morning</b><span>Restores health &amp; stamina &middot; Passes 1 more day</span></span>
+      <span class="li-text"><b>Rest Until Morning</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
     </button>
+    ${standalone ? '' : `
     <button class="loc-action" id="camp-continue-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       <span class="li-text"><b>Continue to ${destName}</b><span>Resume the journey from here</span></span>
-    </button>
+    </button>`}
     <button class="loc-action" id="camp-choose-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
-      <span class="li-text"><b>Choose a Different Destination</b><span>Return to the map from here</span></span>
+      <span class="li-text"><b>${standalone ? 'Back to Map' : 'Choose a Different Destination'}</b><span>${standalone ? 'Return to the map' : 'Return to the map from here'}</span></span>
     </button>
   `;
   document.getElementById('camp-rest-btn').addEventListener('click', ()=>{
@@ -1186,7 +1208,9 @@ function showCampView(destId, destName, partialDays){
       setHealth(playerMaxHealth);
       setStamina(playerMaxStamina);
       showToast(healed > 0 ? `You rest and recover ${healed} health.` : "You rest. Already at full health.");
-      document.getElementById('loc-sub').textContent = `On the road to ${destName} — resting`;
+      document.getElementById('loc-sub').textContent = standalone
+        ? `Making camp at ${here} — resting`
+        : `On the road to ${destName} — resting`;
     }
     if(Math.random() < NIGHT_AMBUSH_CHANCE){
       showToast("Bandits creep into your camp in the night!");
@@ -1195,10 +1219,12 @@ function showCampView(destId, destName, partialDays){
       finishRest();
     }
   });
-  document.getElementById('camp-continue-btn').addEventListener('click', ()=>{
-    document.getElementById('location-view').classList.remove('show');
-    beginTravel(destId);
-  });
+  if(!standalone){
+    document.getElementById('camp-continue-btn').addEventListener('click', ()=>{
+      document.getElementById('location-view').classList.remove('show');
+      beginTravel(destId);
+    });
+  }
   document.getElementById('camp-choose-btn').addEventListener('click', ()=>{
     document.getElementById('location-view').classList.remove('show');
   });

@@ -54,4 +54,8 @@ A flat day counter (`gameDay`, key `goblinwar_gameDay`) is the only stored time 
 
 ## Tap-to-select and the info card
 
-Every settlement gets an invisible circular `<circle class="hitzone">` sized by tier (`HIT_R`), built once in `buildHitzones()`. Tapping one calls `onMapTap(burgId)`, which populates and opens `#info-card` with one of three states: "you are here" (already at that burg), "too exhausted" (stamina gate, see [player-state.md](player-state.md)), or a travel quote (miles/days/stamina cost, plus a route preview drawn along the same polyline logic as the travel animation).
+Every settlement gets an invisible circular `<circle class="hitzone">` sized by tier (`HIT_R`), built once in `buildHitzones()`. Tapping one calls `onMapTap(burgId)`, which populates and opens `#info-card` with one of three states: "you are here" (already at that burg), a travel quote with the button hidden and a red warning if you don't have enough stamina to make the *full* trip (stamina gate, see [player-state.md](player-state.md)), or a normal travel quote (miles/days/stamina cost, plus a route preview drawn along the same polyline logic as the travel animation) with the Travel button enabled.
+
+## Camping from the map
+
+Beyond interrupting an active journey, a fixed "MAKE CAMP" button (`#camp-here-btn`, stacked above the recenter button, hidden while `#travel-controls` is showing) lets the player camp on the spot at any time — see [locations-and-camp.md](locations-and-camp.md) for the standalone camp flow. This is what keeps the stamina gate above from ever creating a soft-lock: even at 0 stamina with nowhere affordable to travel, the player can always rest right where they stand.

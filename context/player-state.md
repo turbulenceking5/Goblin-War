@@ -37,11 +37,13 @@ Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every ke
 
 ## The stamina gate
 
-`canTravel()` is just `playerStamina > 0`. It's checked in two places in index.html:
-- `onMapTap`, to show "You're too exhausted to travel" in the info card instead of a travel quote, when the tapped burg isn't the current one.
-- `beginTravel`, as a hard guard that blocks starting a journey (with a toast) even if something else tries to call it directly (e.g. the camp screen's "Continue" button).
+Travel is gated per-destination, not just on "any stamina left": `computeTravel(toId)` returns `staminaCost` (the full cost of the trip), and that's compared against `playerStamina` at both points travel can start — you can't set out at all unless you have enough stamina to actually arrive:
+- `onMapTap`, where a destination you can't afford shows the miles/days quote plus a red "Not enough stamina to make it there" line, and the Travel button is hidden entirely rather than shown with a warning.
+- `beginTravel`, as a hard guard (with a toast) that blocks starting a journey even if something else tries to call it directly — e.g. the camp screen's "Continue" button, which recomputes the trip fresh from wherever you camped and can still refuse if you haven't rested enough.
 
-The only ways stamina goes back up are resting: `setStamina(playerMaxStamina)` in the Inn's rest button (showInnPanel) and the camp's rest button (showCampView) — see [locations-and-camp.md](locations-and-camp.md).
+Because the check happens before departure, arriving "exhausted" mid-trip can't happen — a journey that was affordable when it started stays affordable, since nothing else drains stamina while `animateTravel` is running.
+
+The only ways stamina goes back up are resting: `setStamina(playerMaxStamina)` in the Inn's rest button (showInnPanel) and the camp's rest button (showCampView) — see [locations-and-camp.md](locations-and-camp.md). Camping is reachable two ways: interrupting an in-progress journey (Stop / Set Up Camp), or the standalone "Make Camp" map button, so a player stranded with too little stamina to reach anywhere is never stuck — they can always camp exactly where they stand.
 
 ## Health vs. stamina in combat
 

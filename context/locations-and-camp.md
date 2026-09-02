@@ -21,12 +21,16 @@ Replaces the action list in-place (same `#loc-action-list` container) with:
 
 ## Camp view — `showCampView(destId, destName, partialDays)`
 
-Reached only via `stopTravel()`/`campMidTravel()` interrupting a journey (see [travel-and-map.md](travel-and-map.md)) — never reachable from a settlement. Visual side is a fixed campfire SVG (`CAMP_ART`), no tier variation since it's not a real place.
+Two ways in, distinguished by `const standalone = !destId`:
+- **Mid-journey**: `stopTravel()`/`campMidTravel()` interrupting an active trip (see [travel-and-map.md](travel-and-map.md)) pass a real `destId`/`destName`/`partialDays`.
+- **Standalone**: the "MAKE CAMP" button fixed on the map (`#camp-here-btn`, stacked above the FIND ME recenter button) calls `showCampView(null, null, 0)` directly — lets the player camp anywhere, anytime, without an active journey (including right where they're already standing in a settlement, if they'd rather sleep rough than pay for the Inn). `#camp-here-btn` hides itself automatically while `#travel-controls` is showing (`showTravelControls`/`hideTravelControls` toggle both), since interrupting an active journey already has its own Stop/Set Up Camp path.
 
-Three actions:
+Visual side is always a fixed campfire SVG (`CAMP_ART`), no tier variation since it's not a real place. Header text (`loc-sub`) and the visual tier label branch on `standalone` — "Making camp at `${here}`" vs. "On the road to `${destName}` — N days passed", where `here` is `getCurrentDisplayName()`.
+
+Actions (the "Continue" button only renders `${standalone ? '' : ...}` — omitted entirely in standalone mode, since there's nothing to resume):
 - **Rest Until Morning**: rolls `NIGHT_AMBUSH_CHANCE` (0.15) first — see [combat.md](combat.md) for why this one can trigger a fight and the Inn's rest can't. Either way, `finishRest()` (defined inline) applies the same full heal + full stamina restore as the Inn, plus `advanceDays(1)`.
-- **Continue to `${destName}`**: closes the overlay and calls `beginTravel(destId)` again — resumes the same journey from `campPos`, recomputing the route fresh (this will re-check the stamina gate; if resting hasn't topped it up, `beginTravel` blocks with a toast).
-- **Choose a Different Destination**: just closes the overlay back to the map, leaving `campPos` set — the player stays exactly where they stopped, free to tap anywhere else.
+- **Continue to `${destName}`** (mid-journey only): closes the overlay and calls `beginTravel(destId)` again — resumes the same journey from `campPos`, recomputing the route fresh (this will re-check the stamina gate; if resting hasn't topped it up enough for the *full remaining trip*, `beginTravel` blocks with a toast — see [player-state.md](player-state.md)).
+- **Choose a Different Destination** / **Back to Map** (label depends on `standalone`): just closes the overlay back to the map. `campPos` (if set) is left untouched either way — the player stays exactly where they stopped/camped, free to tap anywhere else.
 
 ## Adding a new location action
 

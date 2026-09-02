@@ -4,8 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
 <meta name="theme-color" content="#1c2a2c">
 <title>Goblin War — Character</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
@@ -15,7 +19,7 @@
   header{
     background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
     border-bottom:3px solid var(--gold);
-    padding:12px 16px; display:flex; align-items:center; justify-content:space-between;
+    padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
   }
   h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
@@ -32,34 +36,56 @@
     background:rgba(255,255,255,.4); border:1.5px solid var(--parchment-shadow); border-radius:12px;
     padding:18px; margin-bottom:16px;
   }
-  .hero-row{ display:flex; align-items:center; gap:14px; margin-bottom:4px; }
-  .hero-icon{ width:56px; height:56px; flex:none; }
+  .hero-row{ display:flex; align-items:center; gap:14px; }
+  .level-badge{
+    flex:none; width:54px; text-align:center; border:2px solid var(--gold); border-radius:10px;
+    padding:6px 4px; background:rgba(255,255,255,.3);
+  }
+  .level-num{ font-family:'Cinzel Decorative', serif; font-size:22px; color:var(--ink); line-height:1; }
+  .level-label{ font-family:'Cinzel', serif; font-size:8px; letter-spacing:1px; text-transform:uppercase; color:#6a5a3a; margin-top:2px; }
   .hero-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--ink); }
   .hero-tag{
     display:inline-block; margin-top:4px; padding:2px 9px; border-radius:20px;
     font-size:10px; letter-spacing:1px; color:#fff; background:#33502f; font-family:'Cinzel',serif;
   }
+  .xp-track{ background:rgba(0,0,0,.15); border-radius:8px; height:8px; overflow:hidden; border:1px solid var(--parchment-shadow); margin-top:12px; }
+  .xp-fill{ height:100%; background:linear-gradient(90deg,#8a6a1f,var(--gold-lt)); }
+  .xp-label{ font-size:10px; color:#8a7440; margin-top:4px; text-align:center; }
+
+  .portrait-box{
+    margin:16px 0; border:1.5px dashed var(--parchment-shadow); border-radius:12px;
+    background:rgba(255,255,255,.25);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; padding:22px 16px;
+  }
+  .portrait-box svg{ width:72px; height:72px; }
+  .portrait-note{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px; color:#8a7440; margin-top:8px; text-align:center; }
 
   .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:16px 0 6px; }
+  .stat-label:first-child{ margin-top:0; }
   .bar-track{ background:rgba(0,0,0,.15); border-radius:8px; height:16px; overflow:hidden; border:1px solid var(--parchment-shadow); }
   .bar-fill{ height:100%; background:linear-gradient(90deg,#8c3a3a,var(--hp)); border-radius:8px 0 0 8px; transition:width .3s; }
   .bar-fill.stamina{ background:linear-gradient(90deg,#3d5f7a,var(--stamina)); }
   .bar-value{ font-size:13px; color:#4d3a24; margin-top:4px; text-align:right; }
 
+  .stats-box{ background:rgba(255,255,255,.25); border:1.5px dashed var(--parchment-shadow); border-radius:10px; padding:4px 14px; }
+  .stat-line{ display:flex; justify-content:space-between; padding:7px 0; font-size:13.5px; border-bottom:1px solid rgba(0,0,0,.06); }
+  .stat-line:last-child{ border-bottom:none; }
+  .stat-line span:first-child{ color:#4d3a24; }
+  .stat-line span:last-child{ color:#8a7440; font-weight:600; }
+  .stats-note{ font-size:10.5px; color:#8a7440; text-align:center; margin-top:8px; font-style:italic; }
+
+  .slot-grid{ display:grid; gap:9px; }
+  .slot-grid.equip{ grid-template-columns:repeat(3, 1fr); }
+  .slot-grid.accessory{ grid-template-columns:repeat(4, 1fr); }
+  .equip-slot{
+    aspect-ratio:1; border:1.5px dashed var(--parchment-shadow); border-radius:8px;
+    background:rgba(255,255,255,.25); display:flex; align-items:center; justify-content:center;
+    font-family:'Cinzel', serif; font-size:7.5px; letter-spacing:.3px; text-transform:uppercase;
+    color:#8a7440; text-align:center; padding:2px;
+  }
+
   .gold-row{ display:flex; align-items:center; gap:8px; font-size:20px; font-family:'Cinzel Decorative',serif; color:#8a6a1f; }
   .gold-row svg{ width:22px; height:22px; }
-
-  .equip-doll{ display:flex; align-items:center; justify-content:center; gap:14px; padding:6px 0 4px; }
-  .equip-col{ display:flex; flex-direction:column; gap:10px; }
-  .equip-slot{ width:34px; height:34px; border:1.5px dashed var(--parchment-shadow); border-radius:8px; background:rgba(255,255,255,.25); }
-  .doll-icon{ width:60px; height:60px; flex:none; }
-  .equip-footer{ display:flex; align-items:center; gap:14px; margin-top:12px; }
-  .equip-gold{ display:flex; align-items:center; gap:6px; font-family:'Cinzel Decorative', serif; font-size:16px; color:#8a6a1f; flex:none; }
-  .equip-gold svg{ width:18px; height:18px; }
-  .level-bar-wrap{ flex:1; }
-  .level-bar-track{ background:rgba(0,0,0,.15); border-radius:8px; height:10px; overflow:hidden; border:1px solid var(--parchment-shadow); }
-  .level-bar-fill{ height:100%; background:linear-gradient(90deg,#8a6a1f,var(--gold-lt)); transition:width .3s; }
-  .level-bar-label{ font-size:10.5px; color:#8a7440; margin-top:4px; text-align:center; }
 
   .info-line{ display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(0,0,0,.08); font-size:14.5px; }
   .info-line span:first-child{ color:#6a5a3a; }
@@ -83,40 +109,23 @@
 
     <div class="card">
       <div class="hero-row">
-        <svg class="hero-icon" viewBox="0 0 24 24" fill="none" stroke="#7b2e2e" stroke-width="1.3">
-          <circle cx="12" cy="7" r="4" fill="#e9dcb8"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="#e9dcb8"/>
-        </svg>
+        <div class="level-badge">
+          <div class="level-num">1</div>
+          <div class="level-label">Level</div>
+        </div>
         <div>
           <div class="hero-name">The Traveler</div>
           <span class="hero-tag">Human</span>
         </div>
       </div>
+      <div class="xp-track"><div class="xp-fill" style="width:0%"></div></div>
+      <div class="xp-label">Progression system coming soon</div>
 
-      <div class="stat-label">Equipment</div>
-      <div class="equip-doll">
-        <div class="equip-col">
-          <div class="equip-slot" title="Head"></div>
-          <div class="equip-slot" title="Chest"></div>
-          <div class="equip-slot" title="Legs"></div>
-        </div>
-        <svg class="doll-icon" viewBox="0 0 24 24" fill="none" stroke="#7b2e2e" stroke-width="1.3">
+      <div class="portrait-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#7b2e2e" stroke-width="1.3">
           <circle cx="12" cy="7" r="4" fill="#e9dcb8"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="#e9dcb8"/>
         </svg>
-        <div class="equip-col">
-          <div class="equip-slot" title="Weapon"></div>
-          <div class="equip-slot" title="Shield"></div>
-          <div class="equip-slot" title="Trinket"></div>
-        </div>
-      </div>
-      <div class="equip-footer">
-        <div class="equip-gold">
-          <svg viewBox="0 0 24 24" fill="#c9a227"><circle cx="12" cy="12" r="9"/></svg>
-          <span id="equip-gold-value">50</span>
-        </div>
-        <div class="level-bar-wrap">
-          <div class="level-bar-track"><div class="level-bar-fill" id="level-bar" style="width:0%"></div></div>
-          <div class="level-bar-label">Level 1 &middot; progression system coming soon</div>
-        </div>
+        <div class="portrait-note">Character portrait — coming soon</div>
       </div>
 
       <div class="stat-label">Health</div>
@@ -127,6 +136,40 @@
       <div class="bar-track"><div class="bar-fill stamina" id="stamina-bar" style="width:100%"></div></div>
       <div class="bar-value" id="stamina-value">100 / 100</div>
 
+      <div class="stat-label">Character Stats</div>
+      <div class="stats-box">
+        <div class="stat-line"><span>Strength</span><span>—</span></div>
+        <div class="stat-line"><span>Agility</span><span>—</span></div>
+        <div class="stat-line"><span>Intelligence</span><span>—</span></div>
+      </div>
+      <div class="stats-note">Not tracked yet — see Skills &amp; Progression below.</div>
+    </div>
+
+    <div class="card">
+      <div class="stat-label">Equipment</div>
+      <div class="slot-grid equip">
+        <div class="equip-slot">Head</div>
+        <div class="equip-slot">Chest</div>
+        <div class="equip-slot">Legs</div>
+        <div class="equip-slot">Weapon</div>
+        <div class="equip-slot">Shield</div>
+        <div class="equip-slot">Trinket</div>
+      </div>
+
+      <div class="stat-label">Accessories</div>
+      <div class="slot-grid accessory">
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+        <div class="equip-slot"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="stat-label">Purse</div>
       <div class="gold-row">
         <svg viewBox="0 0 24 24" fill="#c9a227"><circle cx="12" cy="12" r="9"/></svg>
@@ -146,7 +189,7 @@
     <div class="stat-label">Skills &amp; Progression</div>
     <div class="coming-soon">
       <div class="icon">📜</div>
-      <p>Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state.</p>
+      <p>Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state. Equipment and Accessories above are placeholders too, not wired to your inventory yet.</p>
     </div>
   </main>
 
@@ -191,7 +234,6 @@ document.getElementById('stamina-bar').style.width = Math.round((stamina/maxStam
 document.getElementById('stamina-value').textContent = `${stamina} / ${maxStamina}`;
 document.getElementById('age-value').textContent = age;
 document.getElementById('gold-value').textContent = gold;
-document.getElementById('equip-gold-value').textContent = gold;
 document.getElementById('current-date').textContent = dateStr(day);
 document.getElementById('food-value').textContent = food ? food.qty : 0;
 document.getElementById('weight-value').textContent = `${carriedWeight} / ${CARRY_CAPACITY}`;

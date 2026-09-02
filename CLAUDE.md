@@ -9,7 +9,7 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | File | Role |
 |---|---|
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
-| [character.html](character.html) | Read-only hero sheet (HP/gold/food/weight/age/location). |
+| [character.html](character.html) | Read-only hero sheet (HP/stamina/gold/food/weight/age/location). |
 | [inventory.html](inventory.html) | Read-only bag contents, gold, and carried weight. |
 | [party.html](party.html) | Stub — no companion system yet. |
 | [settings.html](settings.html) | 3 save slots (read/write `localStorage` snapshots) and a new-game reset. |
@@ -23,7 +23,7 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 Each covers one system in depth — read the relevant one before changing that part of the game:
 
 - [context/travel-and-map.md](context/travel-and-map.md) — the map canvas, road-graph pathfinding, travel animation, camp/stop-mid-journey, calendar.
-- [context/player-state.md](context/player-state.md) — health/food/weight/gold/age/inventory: the `localStorage` keys every page shares.
+- [context/player-state.md](context/player-state.md) — health/stamina/food/weight/gold/age/inventory: the `localStorage` keys every page shares.
 - [context/combat.md](context/combat.md) — the turn-based bandit encounter system and how it's triggered.
 - [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Inn, Marketplace, etc.) and the camp screen.
 - [context/save-system.md](context/save-system.md) — save slots and new-game reset in settings.html.

@@ -4,7 +4,7 @@ Three pages reachable from index.html's toolbar nav icons, alongside settings.ht
 
 ## character.html — Hero Sheet
 
-Pure display, no mutation — reads every stat key listed in [player-state.md](player-state.md) once on load and writes the values into the DOM (`hp-bar`/`hp-value`, `age-value`, `gold-value`, `current-date`, `food-value`, `weight-value`). No live updates — if you level up or take damage while this tab is open elsewhere, it won't reflect that until reload. Food carried and carried weight are computed here the same way index.html does (parse `goblinwar_inventory`, find the `"Food"` stack, sum `weight*qty` across everything) — duplicated logic, not shared, per the no-modules convention.
+Pure display, no mutation — reads every stat key listed in [player-state.md](player-state.md) once on load and writes the values into the DOM (`hp-bar`/`hp-value`, `stamina-bar`/`stamina-value`, `age-value`, `gold-value`, `current-date`, `food-value`, `weight-value`). No live updates — if you level up, fight, or take damage while this tab is open elsewhere, it won't reflect that until reload. Food carried and carried weight are computed here the same way index.html does (parse `goblinwar_inventory`, find the `"Food"` stack, sum `weight*qty` across everything) — duplicated logic, not shared, per the no-modules convention.
 
 Two fixed display fields with no backing state at all: **Origin** is hardcoded to "Kingdom of Bary" (not derived from anything — there's currently no character-origin selection), and **Current location** is resolved by fetching `assets/travel-graph.json` just to look up `burgId`'s name (the page doesn't need the rest of the graph, just this one lookup).
 

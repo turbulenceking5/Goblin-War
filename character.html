@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --hp:#7b2e2e; }
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --hp:#7b2e2e; --stamina:#5b8fc7; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{ margin:0; padding:0; min-height:100%; background:var(--parchment); font-family:'EB Garamond', serif; color:var(--ink); }
   header{
@@ -43,6 +43,7 @@
   .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:16px 0 6px; }
   .bar-track{ background:rgba(0,0,0,.15); border-radius:8px; height:16px; overflow:hidden; border:1px solid var(--parchment-shadow); }
   .bar-fill{ height:100%; background:linear-gradient(90deg,#8c3a3a,var(--hp)); border-radius:8px 0 0 8px; transition:width .3s; }
+  .bar-fill.stamina{ background:linear-gradient(90deg,#3d5f7a,var(--stamina)); }
   .bar-value{ font-size:13px; color:#4d3a24; margin-top:4px; text-align:right; }
 
   .gold-row{ display:flex; align-items:center; gap:8px; font-size:20px; font-family:'Cinzel Decorative',serif; color:#8a6a1f; }
@@ -83,6 +84,10 @@
       <div class="bar-track"><div class="bar-fill" id="hp-bar" style="width:100%"></div></div>
       <div class="bar-value" id="hp-value">100 / 100</div>
 
+      <div class="stat-label">Stamina</div>
+      <div class="bar-track"><div class="bar-fill stamina" id="stamina-bar" style="width:100%"></div></div>
+      <div class="bar-value" id="stamina-value">100 / 100</div>
+
       <div class="stat-label">Purse</div>
       <div class="gold-row">
         <svg viewBox="0 0 24 24" fill="#c9a227"><circle cx="12" cy="12" r="9"/></svg>
@@ -109,6 +114,8 @@
 <script>
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
+const STAMINA_KEY = "goblinwar_stamina";
+const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -127,6 +134,8 @@ function dateStr(dayCount){
 
 const hp = parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10);
 const maxHp = parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10);
+const stamina = parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10);
+const maxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10);
 const age = localStorage.getItem(AGE_KEY) || "24";
 const gold = parseInt(localStorage.getItem(GOLD_KEY) || "50", 10);
 const burgId = localStorage.getItem(LOC_KEY) || "5";
@@ -139,6 +148,8 @@ const carriedWeight = inventory.reduce((sum, it) => sum + it.weight*it.qty, 0);
 
 document.getElementById('hp-bar').style.width = Math.round((hp/maxHp)*100) + '%';
 document.getElementById('hp-value').textContent = `${hp} / ${maxHp}`;
+document.getElementById('stamina-bar').style.width = Math.round((stamina/maxStamina)*100) + '%';
+document.getElementById('stamina-value').textContent = `${stamina} / ${maxStamina}`;
 document.getElementById('age-value').textContent = age;
 document.getElementById('gold-value').textContent = gold;
 document.getElementById('current-date').textContent = dateStr(day);

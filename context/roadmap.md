@@ -8,7 +8,7 @@ Every "coming soon" placeholder currently in the game, collected in one place so
 
 ## Equipment — inventory.html
 
-inventory.html's `.coming-soon` block: *"Weapons and armor aren't built yet. The Marketplace (in any settlement) currently only sells Food."* The Marketplace itself is no longer a stub — `showMarketPanel` in index.html (see [locations-and-camp.md](locations-and-camp.md)) sells Food, which is what unlocked it: Food replaced stamina as the travel resource, and needed a way to be bought (see [player-state.md](player-state.md)). What's still missing is everything else a shop could sell — weapons, armor, or any equipment slot to put them in.
+inventory.html's `.coming-soon` block: *"Weapons and armor aren't built yet. The Marketplace (in any settlement) currently only sells Food."* The Marketplace itself is no longer a stub — `showMarketPanel` in index.html (see [locations-and-camp.md](locations-and-camp.md)) sells Food, which is what unlocked it: Food replaced stamina as the travel resource, and needed a way to be bought (see [player-state.md](player-state.md)). What's still missing is everything else a shop could sell — weapons, armor, or any equipment slot to put them in. (Stamina itself came back shortly after as a separate, combat-only resource — see [combat.md](combat.md) — but it isn't sold here; resting is still the only way to refill it.)
 
 ## Talk to Townsfolk — index.html
 

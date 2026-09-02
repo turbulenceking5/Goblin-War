@@ -17,7 +17,7 @@ Reached by tapping "Enter Settlement" / "Travel Here" on a burg you're already a
 
 Replaces the action list in-place (same `#loc-action-list` container) with:
 - A random line from the `RUMOURS` array (12 flavor-text strings, no mechanical effect — pure world-building color) under "Tavern Talk".
-- **Rest for the Night**: `advanceDays(1)`, full heal (`setHealth(playerMaxHealth)`), toast, and a fresh rumour swapped in. No ambush roll here — Inns are the safe option (contrast with camping, below). Resting does **not** restore Food — see [player-state.md](player-state.md) on why that's deliberate.
+- **Rest for the Night**: `advanceDays(1)`, full heal (`setHealth(playerMaxHealth)`) and full stamina refill (`setStamina(playerMaxStamina)`), toast, and a fresh rumour swapped in. No ambush roll here — Inns are the safe option (contrast with camping, below). Resting does **not** restore Food — see [player-state.md](player-state.md) on why that's deliberate. Health and stamina are the only two things resting ever touches.
 - **Back** returns to `showLocationView(burgId)`, i.e. one level up, not the map.
 
 ### The Marketplace — `showMarketPanel(burgId)`
@@ -37,7 +37,7 @@ Two ways in, distinguished by `const standalone = !destId`:
 Visual side is always a fixed campfire SVG (`CAMP_ART`), no tier variation since it's not a real place. Header text (`loc-sub`) and the visual tier label branch on `standalone` — "Making camp at `${here}`" vs. "On the road to `${destName}` — N days passed", where `here` is `getCurrentDisplayName()`.
 
 Actions (the "Continue" button only renders `${standalone ? '' : ...}` — omitted entirely in standalone mode, since there's nothing to resume):
-- **Rest Until Morning**: rolls `NIGHT_AMBUSH_CHANCE` (0.15) first — see [combat.md](combat.md) for why this one can trigger a fight and the Inn's rest can't. Either way, `finishRest()` (defined inline) applies the same full heal as the Inn (not Food — see [player-state.md](player-state.md)), plus `advanceDays(1)`.
+- **Rest Until Morning**: rolls `NIGHT_AMBUSH_CHANCE` (0.15) first — see [combat.md](combat.md) for why this one can trigger a fight and the Inn's rest can't. Either way, `finishRest()` (defined inline) applies the same full heal and stamina refill as the Inn (not Food — see [player-state.md](player-state.md)), plus `advanceDays(1)`.
 - **Continue to `${destName}`** (mid-journey only): closes the overlay and calls `beginTravel(destId)` again — resumes the same journey from `campPos`, recomputing the route fresh (this will re-check the Food gate; since resting doesn't restock Food, this only succeeds if you already had enough for the *full remaining trip* — `beginTravel` blocks with a toast otherwise).
 - **Choose a Different Destination** / **Back to Map** (label depends on `standalone`): just closes the overlay back to the map. `campPos` (if set) is left untouched either way — the player stays exactly where they stopped/camped, free to tap anywhere else.
 

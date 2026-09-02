@@ -10,9 +10,15 @@ A minimal turn-based fight system, currently with exactly one enemy type: the Ba
 
 ## Turn loop
 
-- **Attack** (`combatAttack`): roll player damage (`randRange(playerDmgRange)`), apply to `combat.enemyHp`. If the enemy drops to 0 or below, `endCombat('victory')` immediately — the enemy doesn't get a last hit in. Otherwise the enemy immediately counter-attacks in the same call: roll enemy damage, apply to `playerHealth` via `setHealth()`. If that brings the player to 0 or below, `endCombat('defeat')`.
-- **Flee** (`combatFlee`): always succeeds, no roll — logs a line and calls `endCombat('flee')`. There's no "the bandit gets a free hit as you flee" penalty currently.
+- **Attack** (`combatAttack`): costs `STAMINA_COST_PER_ATTACK` (20) stamina, spent via `setStamina(playerStamina - STAMINA_COST_PER_ATTACK)` before the damage roll. If `playerStamina` is below that cost, the attack refuses instead — logs "You're too exhausted to attack — flee and rest up first." and does nothing else; `updateCombatUI()` also disables the Attack button proactively whenever stamina is too low, so this refusal path is a fallback guard rather than the normal way players find out. Otherwise: roll player damage (`randRange(playerDmgRange)`), apply to `combat.enemyHp`. If the enemy drops to 0 or below, `endCombat('victory')` immediately — the enemy doesn't get a last hit in. Otherwise the enemy immediately counter-attacks in the same call: roll enemy damage, apply to `playerHealth` via `setHealth()`. If that brings the player to 0 or below, `endCombat('defeat')`.
+- **Flee** (`combatFlee`): always succeeds, no roll, no stamina cost — logs a line and calls `endCombat('flee')`. There's no "the bandit gets a free hit as you flee" penalty currently. Because Flee is free, running out of stamina mid-fight can't soft-lock a player — they can always break off and go rest, same philosophy as the Food gate on travel (see [player-state.md](player-state.md)).
 - `combatLog(msg)` appends a line to the scrolling `#combat-log` div (auto-scrolls to bottom).
+
+## Stamina
+
+Stamina (`playerStamina`/`playerMaxStamina`, see [player-state.md](player-state.md)) is spent only by attacking — nothing else in the game touches it, and the enemy's counter-attack never costs the player stamina, only health. The combat overlay shows a third bar (`#combat-player-stamina-bar`/`-text`, styled `.combat-bar-fill.stamina`) alongside the enemy and player HP bars, refreshed by `updateCombatUI()` on every turn. `updateCombatUI()` also toggles `#combat-attack-btn`'s `disabled` attribute directly (`playerStamina < STAMINA_COST_PER_ATTACK`) so the button greys out and stops accepting clicks before a player can even try an attack they can't afford — the in-`combatAttack` refusal above only fires if something bypasses that (there's no other call site right now).
+
+The only way stamina goes back up is resting — `setStamina(playerMaxStamina)` in both the Inn's rest button and the camp's rest button, alongside the existing full heal (see [locations-and-camp.md](locations-and-camp.md)). There's no partial recovery anywhere else; a long run of fights without resting will eventually strand the player at low stamina, forced to flee until they can reach an Inn or make camp.
 
 ## Ending a fight
 

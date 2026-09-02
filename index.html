@@ -60,6 +60,7 @@
   }
   .stat-pill svg{ width:12px; height:12px; color:var(--gold-lt); flex:none; }
   .stat-pill.food-pill svg{ color:#c9924a; }
+  .stat-pill.stamina-pill svg{ color:#5b8fc7; }
   .stat-pill:first-child svg{ color:#c0524f; }
   .zbtn{
     width:30px; height:30px; border-radius:7px; border:1.5px solid var(--gold);
@@ -228,6 +229,7 @@
   .combat-bar-fill{ height:100%; transition:width .3s; }
   .combat-bar-fill.enemy{ background:linear-gradient(90deg,#8c3a3a,#c0524f); }
   .combat-bar-fill.player{ background:linear-gradient(90deg,#3d7a3d,#5ba05b); }
+  .combat-bar-fill.stamina{ background:linear-gradient(90deg,#3d5f7a,#5b8fc7); }
   #combat-log{
     width:100%; max-width:320px; height:100px; overflow-y:auto;
     background:rgba(0,0,0,.3); border-radius:8px; padding:10px 12px;
@@ -238,6 +240,7 @@
   .combat-btn{ flex:1; font-family:'Cinzel', serif; font-size:13.5px; letter-spacing:.5px; padding:13px; border-radius:10px; cursor:pointer; border:none; }
   .combat-btn:active{ transform:scale(.97); }
   #combat-attack-btn{ background:linear-gradient(180deg,#c0524f,#8c3a3a); color:#fff; border:1.5px solid #6e2626; font-weight:700; box-shadow:0 3px 0 #5a1f1f; }
+  #combat-attack-btn:disabled{ opacity:.4; box-shadow:none; cursor:not-allowed; }
   #combat-flee-btn{ background:transparent; color:var(--parchment); border:1.5px solid rgba(255,255,255,.3); }
 </style>
 </head>
@@ -273,6 +276,7 @@
     </div>
     <div id="player-stats">
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
+      <span class="stat-pill stamina-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg><b id="stat-stamina">100/100</b></span>
       <span class="stat-pill food-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg><b id="stat-food">10</b></span>
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
@@ -353,6 +357,10 @@
       <div class="combat-bar-row">
         <div class="combat-name"><span>You</span><span id="combat-player-hp-text">100/100</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill player" id="combat-player-hp-bar" style="width:100%"></div></div>
+      </div>
+      <div class="combat-bar-row">
+        <div class="combat-name"><span>Stamina</span><span id="combat-player-stamina-text">100/100</span></div>
+        <div class="combat-bar-track"><div class="combat-bar-fill stamina" id="combat-player-stamina-bar" style="width:100%"></div></div>
       </div>
       <div id="combat-log"></div>
     </div>
@@ -507,6 +515,8 @@ function advanceDays(n){
 // ===================== PLAYER STATE (health / gold / inventory / weight / age) =====================
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
+const STAMINA_KEY = "goblinwar_stamina";
+const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -523,6 +533,8 @@ const DEFAULT_INVENTORY = [
 function initPlayerStateIfMissing(){
   if(localStorage.getItem(MAXHEALTH_KEY) === null) localStorage.setItem(MAXHEALTH_KEY, "100");
   if(localStorage.getItem(HEALTH_KEY) === null) localStorage.setItem(HEALTH_KEY, localStorage.getItem(MAXHEALTH_KEY));
+  if(localStorage.getItem(MAXSTAMINA_KEY) === null) localStorage.setItem(MAXSTAMINA_KEY, "100");
+  if(localStorage.getItem(STAMINA_KEY) === null) localStorage.setItem(STAMINA_KEY, localStorage.getItem(MAXSTAMINA_KEY));
   if(localStorage.getItem(AGE_KEY) === null) localStorage.setItem(AGE_KEY, "24");
   if(localStorage.getItem(GOLD_KEY) === null) localStorage.setItem(GOLD_KEY, "50");
   if(localStorage.getItem(INV_KEY) === null) localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
@@ -531,6 +543,8 @@ initPlayerStateIfMissing();
 
 let playerHealth = parseInt(localStorage.getItem(HEALTH_KEY), 10);
 let playerMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY), 10);
+let playerStamina = parseInt(localStorage.getItem(STAMINA_KEY), 10);
+let playerMaxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY), 10);
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
 let playerInventory = [];
 try{ playerInventory = JSON.parse(localStorage.getItem(INV_KEY)) || []; }catch(e){ playerInventory = []; }
@@ -568,6 +582,11 @@ function setHealth(v){
   localStorage.setItem(HEALTH_KEY, String(playerHealth));
   refreshPlayerStatUI();
 }
+function setStamina(v){
+  playerStamina = Math.max(0, Math.min(playerMaxStamina, v));
+  localStorage.setItem(STAMINA_KEY, String(playerStamina));
+  refreshPlayerStatUI();
+}
 function setGold(v){
   playerGold = Math.max(0, v);
   localStorage.setItem(GOLD_KEY, String(playerGold));
@@ -575,14 +594,17 @@ function setGold(v){
 }
 function refreshPlayerStatUI(){
   const hp = document.getElementById('stat-hp');
+  const sp = document.getElementById('stat-stamina');
   const fp = document.getElementById('stat-food');
   const gp = document.getElementById('stat-gold');
   if(hp) hp.textContent = `${playerHealth}/${playerMaxHealth}`;
+  if(sp) sp.textContent = `${playerStamina}/${playerMaxStamina}`;
   if(fp) fp.textContent = getFoodQty();
   if(gp) gp.textContent = playerGold;
 }
 // ===================== COMBAT (minimal turn-based, one enemy type) =====================
 let combat = null; // {enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd}
+const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest refills it
 
 function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min; }
 
@@ -601,6 +623,9 @@ function updateCombatUI(){
   document.getElementById('combat-enemy-hp-text').textContent = `${Math.max(0,combat.enemyHp)}/${combat.enemyMaxHp}`;
   document.getElementById('combat-player-hp-bar').style.width = Math.max(0, Math.round((playerHealth/playerMaxHealth)*100)) + '%';
   document.getElementById('combat-player-hp-text').textContent = `${playerHealth}/${playerMaxHealth}`;
+  document.getElementById('combat-player-stamina-bar').style.width = Math.max(0, Math.round((playerStamina/playerMaxStamina)*100)) + '%';
+  document.getElementById('combat-player-stamina-text').textContent = `${playerStamina}/${playerMaxStamina}`;
+  document.getElementById('combat-attack-btn').disabled = playerStamina < STAMINA_COST_PER_ATTACK;
 }
 
 function combatLog(msg){
@@ -613,6 +638,12 @@ function combatLog(msg){
 
 function combatAttack(){
   if(!combat) return;
+  if(playerStamina < STAMINA_COST_PER_ATTACK){
+    combatLog(`You're too exhausted to attack — flee and rest up first.`);
+    updateCombatUI();
+    return;
+  }
+  setStamina(playerStamina - STAMINA_COST_PER_ATTACK);
   const dmg = randRange(combat.playerDmgRange);
   combat.enemyHp -= dmg;
   combatLog(`You hit the ${combat.enemyName} for ${dmg} damage.`);
@@ -1216,7 +1247,7 @@ function showCampView(destId, destName, partialDays){
   list.innerHTML = `
     <button class="loc-action" id="camp-rest-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
-      <span class="li-text"><b>Rest Until Morning</b><span>Restores health &middot; Passes 1 day</span></span>
+      <span class="li-text"><b>Rest Until Morning</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
     </button>
     ${standalone ? '' : `
     <button class="loc-action" id="camp-continue-btn">
@@ -1232,8 +1263,10 @@ function showCampView(destId, destName, partialDays){
     function finishRest(){
       advanceDays(1);
       const healed = playerMaxHealth - playerHealth;
+      const staminaBack = playerMaxStamina - playerStamina;
       setHealth(playerMaxHealth);
-      showToast(healed > 0 ? `You rest and recover ${healed} health.` : "You rest. Already at full health.");
+      setStamina(playerMaxStamina);
+      showToast((healed > 0 || staminaBack > 0) ? `You rest and recover your health and stamina.` : "You rest. Already fully rested.");
       document.getElementById('loc-sub').textContent = standalone
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
@@ -1305,15 +1338,17 @@ function showInnPanel(burgId){
     </div>
     <button class="loc-action" id="inn-rest-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
-      <span class="li-text"><b>Rest for the Night</b><span>Restores health &middot; Passes 1 day</span></span>
+      <span class="li-text"><b>Rest for the Night</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
     </button>
   `;
   document.getElementById('inn-back-btn').addEventListener('click', ()=> showLocationView(burgId));
   document.getElementById('inn-rest-btn').addEventListener('click', ()=>{
     advanceDays(1);
     const healed = playerMaxHealth - playerHealth;
+    const staminaBack = playerMaxStamina - playerStamina;
     setHealth(playerMaxHealth);
-    showToast(healed > 0 ? `You rest for the night and recover ${healed} health.` : "You rest for the night. Already at full health.");
+    setStamina(playerMaxStamina);
+    showToast((healed > 0 || staminaBack > 0) ? `You rest for the night and recover your health and stamina.` : "You rest for the night. Already fully rested.");
     document.getElementById('inn-rumour').textContent = `"${RUMOURS[Math.floor(Math.random()*RUMOURS.length)]}"`;
   });
 }

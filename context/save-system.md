@@ -10,6 +10,7 @@ Three fixed save slots plus a hard reset, both operating on the same `localStora
 {
   burgId, day, heading,
   health, maxHealth,
+  stamina, maxStamina,
   age, gold,
   inventory,   // JSON string, not parsed — copied as-is from goblinwar_inventory (carries Food + weights)
   savedAt      // localized date string, display only
@@ -17,7 +18,7 @@ Three fixed save slots plus a hard reset, both operating on the same `localStora
 ```
 
 - **Save Here** (`data-save` buttons in `renderSlots()`): reads every live key, builds the object above, `JSON.stringify`s it into the slot key, re-renders. Overwrites without confirmation — there's no "are you sure" on save, only on load/reset.
-- **Load** (`data-load` buttons): `confirm()`s first ("current unsaved progress will be overwritten"), then writes every field from the slot back onto the live keys and redirects to `index.html`. Each field is written only `if(data.field !== undefined)` — this is defensive against loading a slot saved by an older version of the game that predates a given field (e.g. a slot saved before Food/weight existed has no `weight` on its inventory items, or a slot saved before Food replaced stamina still carries now-ignored `stamina`/`maxStamina` fields — harmless, just unread).
+- **Load** (`data-load` buttons): `confirm()`s first ("current unsaved progress will be overwritten"), then writes every field from the slot back onto the live keys and redirects to `index.html`. Each field is written only `if(data.field !== undefined)` — this is defensive against loading a slot saved by an older version of the game that predates a given field (e.g. a slot saved before Food/weight existed has no `weight` on its inventory items). Stamina had a brief detour here: it existed as a travel-pacing stat, got replaced by Food and dropped from the slot shape entirely, then came back scoped to combat only — a slot saved during that in-between window simply has no `stamina`/`maxStamina` fields and loads with whatever `initPlayerStateIfMissing()`'s defaults left on the live keys, same as any other missing field.
 - A slot with no saved data shows "Empty" and a disabled Load button; `renderSlots()` fully rebuilds the three slot cards from scratch on every call rather than diffing.
 
 ## New Game
@@ -26,7 +27,7 @@ The `#new-game-btn` handler `confirm()`s, then writes fresh defaults directly fo
 
 ## Display-only header
 
-`renderCurrent()` at the top of the page (current location, date, HP, gold) reads live keys but writes nothing — purely informational, refreshed by the same `renderCurrent()`/`renderSlots()` pair called once on load after `travel-graph.json` resolves (needed only to turn `burgId` into a display name via `locationName()`).
+`renderCurrent()` at the top of the page (current location, date, HP, stamina, gold) reads live keys but writes nothing — purely informational, refreshed by the same `renderCurrent()`/`renderSlots()` pair called once on load after `travel-graph.json` resolves (needed only to turn `burgId` into a display name via `locationName()`).
 
 ## Gotcha: keys added after a slot format existed
 

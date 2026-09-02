@@ -8,6 +8,8 @@ There is no player-state module — every page reads and writes the same `localS
 |---|---|---|---|
 | `goblinwar_health` | Current HP | = max health | index.html, character.html, settings.html |
 | `goblinwar_maxHealth` | Max HP | `100` | index.html, character.html, settings.html |
+| `goblinwar_stamina` | Current stamina | = max stamina | index.html, character.html, settings.html |
+| `goblinwar_maxStamina` | Max stamina | `100` | index.html, character.html, settings.html |
 | `goblinwar_age` | Hero's age (string) | `"24"` | character.html, settings.html |
 | `goblinwar_gold` | Gold carried | `50` | index.html, character.html, inventory.html, settings.html |
 | `goblinwar_inventory` | JSON array of `{name, qty, weight}` | see `DEFAULT_INVENTORY` below | index.html, character.html, inventory.html, settings.html |
@@ -16,7 +18,7 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |
 | `goblinwar_slot_1/2/3` | Full save-slot snapshots | unset | settings.html only — see [save-system.md](save-system.md) |
 
-There is no stamina stat — travel is paced by Food instead (see below). A returning save from before Food existed won't have a `"Food"` entry in its inventory, but that's not a soft-lock: entering a settlement you're already standing in never costs anything, so the player can always reach a Marketplace to buy some.
+Stamina exists again as of this pass, but scoped only to combat — see "Stamina: a combat-only resource" below. It has nothing to do with travel, which is paced by Food instead (see below). A returning save from before Food existed won't have a `"Food"` entry in its inventory, but that's not a soft-lock: entering a settlement you're already standing in never costs anything, so the player can always reach a Marketplace to buy some. Likewise, a save from before stamina was reintroduced will get `100`/`100` seeded in by `initPlayerStateIfMissing()` the next time index.html loads.
 
 `DEFAULT_INVENTORY` is:
 ```js
@@ -35,7 +37,7 @@ Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every ke
 
 ## Mutators (index.html only)
 
-`setHealth(v)` and `setGold(v)` clamp to a valid range (`0..max` for health, `0..∞` for gold), persist to `localStorage`, and call `refreshPlayerStatUI()`. Inventory has its own pair instead of a single setter, because items are a list, not a scalar:
+`setHealth(v)`, `setStamina(v)`, and `setGold(v)` clamp to a valid range (`0..max` for health/stamina, `0..∞` for gold), persist to `localStorage`, and call `refreshPlayerStatUI()`. Inventory has its own pair instead of a single setter, because items are a list, not a scalar:
 
 - `addItem(name, qty, weightEach)` — creates the stack (or adds to an existing one), *unless* doing so would push total carried weight over `CARRY_CAPACITY` (`40`), in which case it changes nothing and returns `false`. Every call site (currently just the Marketplace, see [locations-and-camp.md](locations-and-camp.md)) must check that return value.
 - `consumeItem(name, qty)` — subtracts, clamped at 0, and drops the stack entirely once it hits empty. Used for Food during travel; nothing currently removes non-Food items.
@@ -57,6 +59,12 @@ Unlike the old stamina system, **resting does not refill Food** — the Inn and 
 
 `CARRY_CAPACITY` (`40`) is a fixed constant, not a stat tied to anything else yet (no strength/character-build system exists — see [roadmap.md](roadmap.md)). `getCarriedWeight()` sums `weight * qty` across every item in the inventory array; `addItem` is the only enforcement point — buying more Food than you have room for fails with a toast rather than partially succeeding. There's no weight penalty to travel speed or anything else — exceeding capacity currently can't happen at all, since the only way to add weight (buying Food) is blocked at the limit.
 
-## Health vs. Food in combat
+## Stamina: a combat-only resource
 
-Combat (see [combat.md](combat.md)) only ever touches `playerHealth` — a bandit fight can knock you down to 10 HP on defeat, but doesn't cost you Food or gold beyond a victory reward.
+Stamina is spent by attacking in combat and nothing else — travel, camping, and the Marketplace never touch it (that's Food's job, above). `combatAttack()` deducts `STAMINA_COST_PER_ATTACK` (20, defined in index.html near the combat code) via `setStamina()` before each attack roll, and refuses the attack instead if the player can't afford it — see [combat.md](combat.md) for the full turn-by-turn detail and the UI that disables the Attack button before that refusal is ever needed.
+
+Unlike Food, stamina **is** restored by resting: both the Inn's "Rest for the Night" and the camp's "Rest Until Morning" call `setStamina(playerMaxStamina)` alongside the existing full heal. That's currently the *only* way stamina goes back up — there's no potion, no passive regen, and the Marketplace doesn't sell anything for it (contrast with Food, which is bought, never rested back).
+
+## Health vs. Food vs. Stamina in combat
+
+Combat (see [combat.md](combat.md)) touches `playerHealth` (the enemy's counter-attack) and `playerStamina` (the player's own attacks) — a bandit fight can knock you down to 10 HP on defeat and leave you too winded to keep swinging, but it never costs Food or gold beyond a victory reward.

@@ -1059,7 +1059,7 @@ function buildHitzones(){
   }
 }
 
-// ---- small skyline glyph marking City/Capital-tier settlements, offset well above the
+// ---- bold skyline glyph marking City/Capital-tier settlements, offset just above the
 // settlement's own point, so major cities read at a glance while zoomed out without
 // covering the settlement's name. It can't truly draw *behind* the name — the map's
 // labels are baked into world-raster.jpg, a flat image with no separate DOM layer to
@@ -1073,7 +1073,7 @@ function buildHitzones(){
 // would land within MIN_CLEARANCE of one — better to omit an icon in a crowded area than
 // to cover a name.
 const CITY_ICON_PATH = "M-6,2 L-6,-2 L-3,-2 L-3,2 Z M-2,2 L-2,-5 L1.5,-5 L1.5,2 Z M2.5,2 L2.5,-3 L6,-3 L6,2 Z";
-const CITY_ICON_OFFSET_Y = -16; // logical units above the point, clearing that settlement's own centered label
+const CITY_ICON_OFFSET_Y = -11; // logical units above the point — close enough to read as "attached" while still clearing that settlement's own centered label
 const CITY_ICON_MIN_CLEARANCE = 12; // logical units — skip if this close to any settlement's point
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
@@ -1086,14 +1086,13 @@ function buildCityIcons(){
     const iconY = b.y + CITY_ICON_OFFSET_Y;
     const tooClose = allBurgs.some(other => other !== b && Math.hypot(other.x-b.x, other.y-iconY) < CITY_ICON_MIN_CLEARANCE);
     if(tooClose) continue;
-    const scale = b.tier === 'capital' ? 1.1 : 0.8;
+    const scale = b.tier === 'capital' ? 1.6 : 1.2;
     const icon = document.createElementNS(ns, "path");
     icon.setAttribute("d", CITY_ICON_PATH);
     icon.setAttribute("transform", `translate(${b.x},${iconY}) scale(${scale})`);
-    icon.setAttribute("fill", b.tier === 'capital' ? '#d1a445' : '#8a6a3a');
-    icon.setAttribute("stroke", "#2a1d10");
-    icon.setAttribute("stroke-width", "0.5");
-    icon.setAttribute("opacity", "0.9");
+    icon.setAttribute("fill", b.tier === 'capital' ? '#e8b84b' : '#a5652e');
+    icon.setAttribute("stroke", "#150a02");
+    icon.setAttribute("stroke-width", "0.9");
     g.appendChild(icon);
   }
 }

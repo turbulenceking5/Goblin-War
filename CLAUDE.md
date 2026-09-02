@@ -9,8 +9,8 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | File | Role |
 |---|---|
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
-| [character.html](character.html) | Read-only hero sheet (HP/stamina/gold/food/weight/age/location). |
-| [inventory.html](inventory.html) | Read-only bag contents, gold, and carried weight. |
+| [character.html](character.html) | Hero sheet (HP/stamina/gold/food/weight/age/location) — mostly read-only, but Equipment can be unequipped from here. |
+| [inventory.html](inventory.html) | Bag contents, gold, and carried weight — and where equippable items get equipped (see [context/player-state.md](context/player-state.md)). |
 | [party.html](party.html) | Stub — no companion system yet. |
 | [settings.html](settings.html) | 3 save slots (read/write `localStorage` snapshots) and a new-game reset. |
 | [game-map.html](game-map.html) | Legacy prototype map (scroll-based, pre-dates index.html's pan/zoom canvas). Not linked from anywhere — dead code, kept for reference only. |

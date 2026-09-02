@@ -558,16 +558,47 @@ const DEFAULT_INVENTORY = [
   { name:"Waterskin", qty:1, weight:2, value:3 },
   { name:"Bedroll", qty:1, weight:3, value:5 },
 ];
-// Everything the Marketplace stocks beyond Food (see showMarketPanel) — weapons/armor
-// aren't equippable yet (see roadmap.md), these just sit in the bag like Waterskin/Bedroll.
+// Everything the Marketplace stocks beyond Food (see showMarketPanel). Items with a `slot`
+// are equippable (see EQUIP_SLOTS below) and carry a combat `dmg`/`def` bonus applied while
+// equipped — see getEquipDamageBonus()/getEquipDefenseBonus() near the combat code. Non-slot
+// items (Healing Potion, Books, Firewood) just sit in the bag, same as Waterskin/Bedroll.
 const MARKET_ITEMS = [
   { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Keeps you fed on the road" },
-  { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade" },
+  { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4 },
+  { name:"Shield", price:25, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3 },
+  { name:"Leather Cap", price:8, weight:1, desc:"Simple boiled-leather headgear", slot:"head", def:1 },
+  { name:"Leather Armour", price:15, weight:4, desc:"A padded leather jerkin", slot:"chest", def:2 },
+  { name:"Leather Boots", price:6, weight:2, desc:"Sturdy travelling boots", slot:"legs", def:1 },
+  { name:"Lucky Charm", price:10, weight:0, desc:"Said to favour the wearer in a fight", slot:"trinket", dmg:1 },
   { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
   { name:"Books", price:7, weight:2, desc:"Lore and local history" },
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
-  { name:"Shield", price:25, weight:8, desc:"Extra protection in a fight" },
 ];
+// name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
+const ITEM_STATS = {};
+MARKET_ITEMS.forEach(mi => { if(mi.slot) ITEM_STATS[mi.name] = { slot:mi.slot, dmg:mi.dmg||0, def:mi.def||0 }; });
+const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
+const EQUIPPED_KEY = "goblinwar_equipped";
+function getEquipped(){ try{ return JSON.parse(localStorage.getItem(EQUIPPED_KEY)) || {}; }catch(e){ return {}; } }
+function setEquippedSlot(slot, itemName){
+  const eq = getEquipped();
+  eq[slot] = itemName;
+  localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
+}
+function getEquipDamageBonus(){
+  const eq = getEquipped();
+  return EQUIP_SLOTS.reduce((sum, slot) => {
+    const stats = eq[slot] && ITEM_STATS[eq[slot]];
+    return sum + (stats ? stats.dmg : 0);
+  }, 0);
+}
+function getEquipDefenseBonus(){
+  const eq = getEquipped();
+  return EQUIP_SLOTS.reduce((sum, slot) => {
+    const stats = eq[slot] && ITEM_STATS[eq[slot]];
+    return sum + (stats ? stats.def : 0);
+  }, 0);
+}
 
 function initPlayerStateIfMissing(){
   if(localStorage.getItem(MAXHEALTH_KEY) === null) localStorage.setItem(MAXHEALTH_KEY, "100");
@@ -577,6 +608,7 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(AGE_KEY) === null) localStorage.setItem(AGE_KEY, "24");
   if(localStorage.getItem(GOLD_KEY) === null) localStorage.setItem(GOLD_KEY, "50");
   if(localStorage.getItem(INV_KEY) === null) localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
+  if(localStorage.getItem(EQUIPPED_KEY) === null) localStorage.setItem(EQUIPPED_KEY, JSON.stringify({}));
 }
 initPlayerStateIfMissing();
 
@@ -684,7 +716,7 @@ function combatAttack(){
     return;
   }
   setStamina(playerStamina - STAMINA_COST_PER_ATTACK);
-  const dmg = randRange(combat.playerDmgRange);
+  const dmg = randRange(combat.playerDmgRange) + getEquipDamageBonus();
   combat.enemyHp -= dmg;
   combatLog(`You hit the ${combat.enemyName} for ${dmg} damage.`);
   if(combat.enemyHp <= 0){
@@ -692,7 +724,7 @@ function combatAttack(){
     endCombat('victory');
     return;
   }
-  const edmg = randRange(combat.enemyDmgRange);
+  const edmg = Math.max(1, randRange(combat.enemyDmgRange) - getEquipDefenseBonus());
   setHealth(playerHealth - edmg);
   combatLog(`The ${combat.enemyName} hits you for ${edmg} damage.`);
   updateCombatUI();

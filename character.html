@@ -79,10 +79,25 @@
   .slot-grid.accessory{ grid-template-columns:repeat(4, 1fr); }
   .equip-slot{
     aspect-ratio:1; border:1.5px dashed var(--parchment-shadow); border-radius:8px;
-    background:rgba(255,255,255,.25); display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.25); display:flex; flex-direction:column; align-items:center; justify-content:center;
     font-family:'Cinzel', serif; font-size:7.5px; letter-spacing:.3px; text-transform:uppercase;
     color:#8a7440; text-align:center; padding:2px;
   }
+  .equip-slot.filled{ border-style:solid; border-color:var(--gold); background:rgba(209,164,69,.2); color:var(--ink); cursor:pointer; }
+  .equip-slot .slot-label{ font-size:6.5px; opacity:.7; margin-bottom:2px; }
+  .equip-slot .slot-item{ font-size:8.5px; font-weight:700; line-height:1.15; }
+  .combat-bonus{ text-align:center; font-size:12px; color:#4d3a24; margin-top:12px; }
+  .combat-bonus b{ color:#33502f; }
+
+  #toast{
+    position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+    max-width:80vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   .gold-row{ display:flex; align-items:center; gap:8px; font-size:20px; font-family:'Cinzel Decorative',serif; color:#8a6a1f; }
   .gold-row svg{ width:22px; height:22px; }
@@ -147,14 +162,8 @@
 
     <div class="card">
       <div class="stat-label">Equipment</div>
-      <div class="slot-grid equip">
-        <div class="equip-slot">Head</div>
-        <div class="equip-slot">Chest</div>
-        <div class="equip-slot">Legs</div>
-        <div class="equip-slot">Weapon</div>
-        <div class="equip-slot">Shield</div>
-        <div class="equip-slot">Trinket</div>
-      </div>
+      <div class="slot-grid equip" id="equip-grid"></div>
+      <div class="combat-bonus" id="combat-bonus"></div>
 
       <div class="stat-label">Accessories</div>
       <div class="slot-grid accessory">
@@ -189,9 +198,10 @@
     <div class="stat-label">Skills &amp; Progression</div>
     <div class="coming-soon">
       <div class="icon">📜</div>
-      <p>Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state. Equipment and Accessories above are placeholders too, not wired to your inventory yet.</p>
+      <p>Skills, combat stats, and a proper progression system aren't built yet — this is the next thing after player state. Equipment now affects combat (see Inventory to equip gear); Accessories above are still a placeholder.</p>
     </div>
   </main>
+  <div id="toast"></div>
 
 <script>
 const HEALTH_KEY = "goblinwar_health";
@@ -201,11 +211,68 @@ const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
+const EQUIPPED_KEY = "goblinwar_equipped";
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 const FOOD_NAME = "Food";
 const CARRY_CAPACITY = 40;
+const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
+const SLOT_LABEL = { head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket" };
+// Mirrors index.html's MARKET_ITEMS slot/dmg/def data — duplicated per the no-modules convention.
+const ITEM_STATS = {
+  "Sword": { slot:"weapon", dmg:4, def:0 },
+  "Shield": { slot:"shield", dmg:0, def:3 },
+  "Leather Cap": { slot:"head", dmg:0, def:1 },
+  "Leather Armour": { slot:"chest", dmg:0, def:2 },
+  "Leather Boots": { slot:"legs", dmg:0, def:1 },
+  "Lucky Charm": { slot:"trinket", dmg:1, def:0 },
+};
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+function getEquipped(){ try{ return JSON.parse(localStorage.getItem(EQUIPPED_KEY)) || {}; }catch(e){ return {}; } }
+function setEquippedSlot(slot, itemName){
+  const eq = getEquipped();
+  eq[slot] = itemName;
+  localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
+}
+
+function renderEquipment(){
+  const equipped = getEquipped();
+  const grid = document.getElementById('equip-grid');
+  grid.innerHTML = EQUIP_SLOTS.map(slot => {
+    const itemName = equipped[slot];
+    return `
+      <div class="equip-slot ${itemName ? 'filled' : ''}" data-slot="${slot}">
+        <div class="slot-label">${SLOT_LABEL[slot]}</div>
+        ${itemName ? `<div class="slot-item">${itemName}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+  grid.querySelectorAll('.equip-slot.filled').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const slot = el.dataset.slot;
+      const name = getEquipped()[slot];
+      setEquippedSlot(slot, null);
+      showToast(`Unequipped ${name}.`);
+      renderEquipment();
+    });
+  });
+  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0);
+  const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0);
+  document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
+    ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`
+    : `No combat bonus equipped yet — equip gear from the Inventory screen.`;
+}
+renderEquipment();
 
 function dateStr(dayCount){
   const day = (dayCount % DAYS_PER_MONTH) + 1;

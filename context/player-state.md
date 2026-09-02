@@ -13,6 +13,7 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_age` | Hero's age (string) | `"24"` | character.html, settings.html |
 | `goblinwar_gold` | Gold carried | `50` | index.html, character.html, inventory.html, settings.html |
 | `goblinwar_inventory` | JSON array of `{name, qty, weight}` | see `DEFAULT_INVENTORY` below | index.html, character.html, inventory.html, settings.html |
+| `goblinwar_equipped` | JSON object `{slot: itemName \| null}` | `{}` | index.html, character.html, inventory.html, settings.html |
 | `goblinwar_currentBurg` | Burg id (string) of last-arrived settlement | `"5"` (Bary) | index.html, character.html, settings.html |
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |
@@ -29,7 +30,26 @@ Stamina exists again as of this pass, but scoped only to combat — see "Stamina
 ]
 ```
 
-`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). `value` is also per single unit, gold, display-only right now (shown in inventory.html as "Ng each") — there's no sell-back mechanic, so it doesn't do anything mechanical yet, it's just what the item would cost to (re-)buy. Only Food is actually consumed or restocked by anything in the game right now; Waterskin, Bedroll, and everything else the Marketplace now sells (see [locations-and-camp.md](locations-and-camp.md)) just sit in the bag as flavor/weight/value.
+`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). `value` is also per single unit, gold, display-only right now (shown in inventory.html as "Ng each") — there's no sell-back mechanic, so it doesn't do anything mechanical yet, it's just what the item would cost to (re-)buy. Food is consumed by travel; Waterskin and Bedroll are pure flavor/weight; everything else the Marketplace sells (see [locations-and-camp.md](locations-and-camp.md)) is either equippable (see "Equipment" below) or, like Healing Potion/Books/Firewood, still just sits in the bag.
+
+## Equipment
+
+`goblinwar_equipped` is a flat `{slot: itemName}` map, one entry per slot in `EQUIP_SLOTS` (`head`, `chest`, `legs`, `weapon`, `shield`, `trinket` — duplicated as a constant in index.html, character.html, and inventory.html). It only ever points at an item already in `playerInventory` by name; equipping doesn't move, duplicate, or remove anything from the inventory array, so an equipped item's weight and quantity are unaffected and it still shows up as a normal row in inventory.html.
+
+Which items are equippable, and what they do, lives on `MARKET_ITEMS` in index.html — an item with a `slot` field is equippable, and its `dmg`/`def` fields (default `0`) are the combat bonus while equipped (see [combat.md](combat.md)):
+
+| Item | Slot | Bonus |
+|---|---|---|
+| Sword | weapon | +4 damage dealt |
+| Shield | shield | -3 damage taken |
+| Leather Cap | head | -1 damage taken |
+| Leather Armour | chest | -2 damage taken |
+| Leather Boots | legs | -1 damage taken |
+| Lucky Charm | trinket | +1 damage dealt |
+
+index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARKET_ITEMS` once at load; character.html and inventory.html each hardcode their own copy of the same table (no way to equip a *new* item type without also adding it there — three places, not one, per the no-modules convention). `getEquipDamageBonus()`/`getEquipDefenseBonus()` (index.html) sum every equipped slot's `dmg`/`def` — see [combat.md](combat.md) for where they're applied.
+
+**Where equipping happens:** inventory.html is the only place to *equip* something — every equippable item row gets an Equip/Unequip button that toggles `goblinwar_equipped[slot]` between that item's name and `null`. character.html's Equipment grid is read-only for equipping but supports *un*-equipping by tapping a filled slot (both pages re-render immediately after any change, no reload needed — see [secondary-pages.md](secondary-pages.md)). The Accessories grid (8 slots, character.html only) is a separate, still-entirely-cosmetic block — no accessory-type items exist yet, see [roadmap.md](roadmap.md).
 
 ## Initialization
 
@@ -67,4 +87,4 @@ Unlike Food, stamina **is** restored by resting: both the Inn's "Rest for the Ni
 
 ## Health vs. Food vs. Stamina in combat
 
-Combat (see [combat.md](combat.md)) touches `playerHealth` (the enemy's counter-attack) and `playerStamina` (the player's own attacks) — a bandit fight can knock you down to 10 HP on defeat and leave you too winded to keep swinging, but it never costs Food or gold beyond a victory reward.
+Combat (see [combat.md](combat.md)) touches `playerHealth` (the enemy's counter-attack, reduced by equipped defense) and `playerStamina` (the player's own attacks) — a bandit fight can knock you down to 10 HP on defeat and leave you too winded to keep swinging, but it never costs Food or gold beyond a victory reward. Equipment (above) affects how much damage each attack deals/takes, but never costs stamina itself — only the Attack action does.

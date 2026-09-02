@@ -13,6 +13,7 @@ Three fixed save slots plus a hard reset, both operating on the same `localStora
   stamina, maxStamina,
   age, gold,
   inventory,   // JSON string, not parsed — copied as-is from goblinwar_inventory (carries Food + weights)
+  equipped,    // JSON string, not parsed — copied as-is from goblinwar_equipped ({slot: itemName})
   savedAt      // localized date string, display only
 }
 ```

@@ -38,24 +38,24 @@
     position:relative; z-index:19;
     background:#1b1208;
     border-bottom:2px solid rgba(169,122,31,.5);
-    padding:6px 10px; display:flex; align-items:center; justify-content:space-between;
+    padding:6px 10px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; row-gap:6px;
   }
-  #nav-icons{ display:flex; gap:6px; }
+  #nav-icons{ display:flex; gap:2px; order:1; }
   .nav-btn{
     display:flex; flex-direction:column; align-items:center; gap:2px;
     background:transparent; border:none; color:var(--gold-lt);
-    font-family:'Cinzel', serif; font-size:8px; letter-spacing:.5px; text-transform:uppercase;
-    padding:4px 7px; border-radius:6px;
+    font-family:'Cinzel', serif; font-size:7.5px; letter-spacing:.3px; text-transform:uppercase;
+    padding:4px 5px; border-radius:6px; white-space:nowrap;
   }
   .nav-btn:active{ background:rgba(255,255,255,.08); }
   .nav-btn svg{ width:18px; height:18px; }
-  #zoom-controls{ display:flex; gap:6px; }
-  #player-stats{ display:flex; gap:6px; }
+  #zoom-controls{ display:flex; gap:6px; order:2; }
+  #player-stats{ display:flex; flex-wrap:wrap; gap:5px; order:3; flex:1 1 100%; justify-content:center; }
   .stat-pill{
     display:flex; align-items:center; gap:4px;
     background:rgba(255,255,255,.06); border:1px solid rgba(209,164,69,.4);
-    border-radius:20px; padding:4px 9px;
-    font-family:'Cinzel', serif; font-size:11px; color:var(--parchment);
+    border-radius:20px; padding:3px 8px;
+    font-family:'Cinzel', serif; font-size:10.5px; color:var(--parchment);
   }
   .stat-pill svg{ width:12px; height:12px; color:var(--gold-lt); flex:none; }
   .stat-pill.food-pill svg{ color:#c9924a; }
@@ -177,22 +177,28 @@
   #loading.hide{ display:none; }
 
   #location-view{ position:fixed; inset:0; z-index:60; display:none; background:var(--water-dk); }
-  #location-view.show{ display:flex; }
+  #location-view.show{ display:block; }
   #loc-actions{
-    width:52%; height:100%; overflow-y:auto;
+    box-sizing:border-box; width:100%; max-width:560px; height:100%; margin:0 auto; overflow-y:auto;
     background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
-    padding:16px 14px calc(16px + env(safe-area-inset-bottom));
+    padding:16px 14px calc(150px + env(safe-area-inset-bottom));
     display:flex; flex-direction:column;
   }
+  /* Reserved corner for per-location art, once it exists — pinned in place (not part of
+     the scrolling action list) so it stays visible; the extra bottom padding on
+     #loc-actions above keeps the last action button from hiding behind it. */
   #loc-visual{
-    width:48%; height:100%;
+    position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:61;
+    width:112px; height:130px;
     background:linear-gradient(180deg,#2c3f45,#1c2a2c);
+    border:2px solid var(--gold); border-radius:12px;
+    box-shadow:0 4px 14px rgba(0,0,0,.5);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:14px; text-align:center;
+    padding:8px; text-align:center;
   }
-  #loc-visual svg{ width:78%; max-width:220px; }
-  #loc-visual-name{ font-family:'Cinzel Decorative', serif; color:var(--gold-lt); font-size:16px; margin-top:10px; text-shadow:0 2px 3px rgba(0,0,0,.6); }
-  #loc-visual-tier{ font-family:'Cinzel', serif; color:#a9926a; font-size:9px; letter-spacing:2px; text-transform:uppercase; margin-top:3px; }
+  #loc-visual svg{ width:68%; max-width:70px; }
+  #loc-visual-name{ font-family:'Cinzel Decorative', serif; color:var(--gold-lt); font-size:10.5px; margin-top:6px; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.2; }
+  #loc-visual-tier{ font-family:'Cinzel', serif; color:#a9926a; font-size:7px; letter-spacing:1.5px; text-transform:uppercase; margin-top:2px; }
   #loc-back{
     align-self:flex-start;
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
@@ -209,6 +215,8 @@
     text-align:left; width:100%; font-family:'EB Garamond', serif;
   }
   .loc-action:active{ transform:scale(.98); background:rgba(255,255,255,.55); }
+  .loc-action:disabled{ opacity:.5; cursor:not-allowed; }
+  .loc-action:disabled:active{ transform:none; background:rgba(255,255,255,.35); }
   .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
   .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--ink); }
   .loc-action .li-text span{ font-size:12.5px; color:#6a5a3a; }
@@ -1029,9 +1037,14 @@ function buildHitzones(){
   }
 }
 
-// ---- small crenellated-tower glyph marking City/Capital-tier settlements, drawn
-// above the map's own native labels so major cities read at a glance while zoomed out ----
-const CITY_ICON_PATH = "M-5,4 L-5,-2 L-3,-2 L-3,-4 L-1,-4 L-1,-2 L1,-2 L1,-4 L3,-4 L3,-2 L5,-2 L5,4 Z";
+// ---- small skyline glyph marking City/Capital-tier settlements, centered right on the
+// settlement's own point (not offset above it) so major cities read at a glance while
+// zoomed out. It can't truly draw *behind* a settlement's name — the map's labels are
+// baked into world-raster.jpg, a flat image with no separate DOM layer to z-order against
+// (see labelElByBurg's comment) — so instead it's kept small, mostly rising above the
+// point rather than below (Azgaar's own label placement is normally below/beside the
+// point), and semi-transparent, to stay out of the label's way in practice.
+const CITY_ICON_PATH = "M-6,2 L-6,-2 L-3,-2 L-3,2 Z M-2,2 L-2,-5 L1.5,-5 L1.5,2 Z M2.5,2 L2.5,-3 L6,-3 L6,2 Z";
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
   g.innerHTML = '';
@@ -1039,13 +1052,14 @@ function buildCityIcons(){
   for(const id in graph.burgs){
     const b = graph.burgs[id];
     if(b.tier !== 'city' && b.tier !== 'capital') continue;
-    const scale = b.tier === 'capital' ? 1.5 : 1;
+    const scale = b.tier === 'capital' ? 1.3 : 0.9;
     const icon = document.createElementNS(ns, "path");
     icon.setAttribute("d", CITY_ICON_PATH);
-    icon.setAttribute("transform", `translate(${b.x},${b.y - HIT_R[b.tier] - 2}) scale(${scale})`);
+    icon.setAttribute("transform", `translate(${b.x},${b.y}) scale(${scale})`);
     icon.setAttribute("fill", b.tier === 'capital' ? '#d1a445' : '#8a6a3a');
     icon.setAttribute("stroke", "#2a1d10");
-    icon.setAttribute("stroke-width", "0.6");
+    icon.setAttribute("stroke-width", "0.5");
+    icon.setAttribute("opacity", "0.85");
     g.appendChild(icon);
   }
 }
@@ -1131,7 +1145,7 @@ function beginTravel(destId){
   // cap, no easing curve, so it reads as steady progress rather than a quick dart.
   // A long journey genuinely takes longer to watch; Stop / Set Up Camp exist so
   // you're never stuck sitting through one.
-  const duration = Math.max(2000, 1000 + t.miles*8);
+  const duration = Math.max(4000, 2000 + t.miles*20);
   const controller = animateTravel(fromPos, destId, t.edges, destName, duration, ()=>{
     hideTravelControls();
     activeTravel = null;
@@ -1343,15 +1357,16 @@ function showLocationView(burgId){
   document.getElementById('loc-visual-name').textContent = b.name;
   document.getElementById('loc-visual-tier').textContent = TIER_LABEL[b.tier]||b.tier;
 
+  const workedToday = hasWorkedToday(burgId);
   const actions = [
     { icon:`<circle cx="12" cy="12" r="9"/><path d="M9 10h6M9 14h4"/>`, title:"The Inn", desc:"Rest up and hear local rumours", action:'inn' },
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market' },
-    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc:"Take on odd jobs for a few hours' pay", action:'work' },
+    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : "Take on odd jobs for a few hours' pay", action:'work', disabled:workedToday },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'stub' },
   ];
   const list = document.getElementById('loc-action-list');
   list.innerHTML = actions.map(a => `
-    <button class="loc-action" data-action="${a.action}">
+    <button class="loc-action" data-action="${a.action}" ${a.disabled ? 'disabled' : ''}>
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${a.icon}</svg>
       <span class="li-text"><b>${a.title}</b><span>${a.desc}</span></span>
     </button>
@@ -1360,12 +1375,25 @@ function showLocationView(burgId){
     btn.addEventListener('click', ()=>{
       if(btn.dataset.action === 'inn') showInnPanel(burgId);
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
-      else if(btn.dataset.action === 'work') doWork();
+      else if(btn.dataset.action === 'work') doWork(burgId);
       else showToast("Not built yet — coming in a future update.");
     });
   });
 
   document.getElementById('location-view').classList.add('show');
+}
+
+// Work is on cooldown per-settlement, once per calendar day — resets whenever gameDay
+// advances (travelling far enough or resting), not on a real-world timer.
+const WORK_COOLDOWN_KEY = "goblinwar_workCooldowns";
+function getWorkCooldowns(){
+  try{ return JSON.parse(localStorage.getItem(WORK_COOLDOWN_KEY)) || {}; }catch(e){ return {}; }
+}
+function hasWorkedToday(burgId){ return getWorkCooldowns()[burgId] === gameDay; }
+function recordWorked(burgId){
+  const cd = getWorkCooldowns();
+  cd[burgId] = gameDay;
+  localStorage.setItem(WORK_COOLDOWN_KEY, JSON.stringify(cd));
 }
 
 const WORK_LINES = [
@@ -1375,11 +1403,17 @@ const WORK_LINES = [
   "You do a few hours of odd jobs for the innkeeper.",
   "You help a merchant unload a cart of goods.",
 ];
-function doWork(){
+function doWork(burgId){
+  if(hasWorkedToday(burgId)){
+    showToast("Already worked here today — come back tomorrow.");
+    return;
+  }
   const earned = randRange([3,15]);
   setGold(playerGold + earned);
+  recordWorked(burgId);
   const line = WORK_LINES[Math.floor(Math.random()*WORK_LINES.length)];
   showToast(`${line} You earn ${earned} gold.`);
+  showLocationView(burgId);
 }
 
 function showInnPanel(burgId){

@@ -1,6 +1,6 @@
 # Locations & Camp (index.html)
 
-Two full-screen overlays (`#location-view`, shared markup, z-index 60) that show up in different contexts: arriving at (or re-entering) a settlement, versus stopping mid-journey. Both use the same split-screen shell — `#loc-actions` (left, a scrollable list of action buttons) and `#loc-visual` (right, an SVG illustration + name/tier label) — just populated differently.
+Two full-screen overlays (`#location-view`, shared markup, z-index 60) that show up in different contexts: arriving at (or re-entering) a settlement, versus stopping mid-journey. Both use the same shell — `#loc-actions` (a full-width, full-height scrollable list of action buttons) with `#loc-visual` pinned as a small `position:fixed` box in the bottom-right corner (112×130px, `z-index:61`, so it stays on top of the scrolling list rather than scrolling with it) showing an SVG illustration + name/tier label — just populated differently. That corner box is a placeholder reserved for real per-settlement art later; `#loc-actions`' bottom padding (`150px`) exists specifically so the last action button never ends up hidden behind it.
 
 ## Settlement view — `showLocationView(burgId)`
 
@@ -21,9 +21,11 @@ Replaces the action list in-place (same `#loc-action-list` container) with, in t
 - A random line from the `RUMOURS` array (12 flavor-text strings, no mechanical effect — pure world-building color) under "Tavern Talk", below the Rest button — deliberately ordered so the action you're most likely here for isn't buried under flavor text.
 - **Back** returns to `showLocationView(burgId)`, i.e. one level up, not the map.
 
-### Work — `doWork()`
+### Work — `doWork(burgId)`
 
-The simplest action in the game: no sub-panel, just an immediate result straight from the settlement action list. Picks a random gold amount in `[3,15]` (`randRange`, same helper combat uses), adds it via `setGold(playerGold + earned)`, and shows a toast built from a random line in `WORK_LINES` (5 flavor strings) plus the amount earned. No time cost — `gameDay` isn't touched — and no stamina cost either (stamina is combat-only, see [player-state.md](player-state.md)/[combat.md](combat.md)). No cooldown or once-per-day limit exists, so it's repeatable on demand.
+No sub-panel, just an immediate result straight from the settlement action list — but gated by a per-settlement, once-per-day cooldown. `hasWorkedToday(burgId)` checks `goblinwar_workCooldowns` (a `{burgId: gameDay}` JSON map, read/written via `getWorkCooldowns()`/`recordWorked()`) against the current `gameDay`; `showLocationView` calls it while building the action list, so a settlement already worked today renders its Work button `disabled` with the description swapped to "Already worked here today — come back tomorrow" (native `disabled` buttons don't fire `click` at all, so `doWork`'s own cooldown check at the top is a fallback, not the primary gate — same belt-and-suspenders pattern as combat's Attack button). Because the cooldown key is `gameDay`, not a real-world timer, it clears whenever the calendar actually advances — resting at an Inn/camp (always +1 day) or a long enough journey (see [travel-and-map.md](travel-and-map.md)) — not by waiting in real time.
+
+When it's available: picks a random gold amount in `[3,15]` (`randRange`, same helper combat uses), adds it via `setGold(playerGold + earned)`, calls `recordWorked(burgId)`, shows a toast built from a random line in `WORK_LINES` (5 flavor strings) plus the amount earned, and re-renders the panel with `showLocationView(burgId)` so the now-disabled Work button and its cooldown message show up immediately rather than only after leaving and re-entering. No time cost — `gameDay` isn't touched by working itself — and no stamina cost either (stamina is combat-only, see [player-state.md](player-state.md)/[combat.md](combat.md)).
 
 ### The Marketplace — `showMarketPanel(burgId)`
 

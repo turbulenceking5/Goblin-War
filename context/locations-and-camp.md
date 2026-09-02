@@ -17,7 +17,7 @@ Reached by tapping "Enter Settlement" / "Travel Here" on a burg you're already a
   - **Temple** (`action:'temple'`, City + Capital) and **Guard House** (`action:'guardhouse'`, City + Capital) → `showFlavorPanel(burgId, title, LINES)`.
   - **The Palace** (`action:'palace'`, Capital only) → same, one tier further.
 
-  All three route through one shared `showFlavorPanel(burgId, title, lines)` rather than three near-copies of `showInnPanel` — it picks a random line from whichever pool is passed in (`TEMPLE_LINES`/`GUARDHOUSE_LINES`/`PALACE_LINES`, 5 lines each, same flavor-only pattern as `RUMOURS`) and renders one Back button + one quote box. No mechanical effect, same as Talk to Townsfolk's eventual replacement is likely to be — see [roadmap.md](roadmap.md).
+  All three route through one shared `showFlavorPanel(burgId, title, lines, extraHTML)` rather than three near-copies of `showInnPanel` — it picks a random line from whichever pool is passed in (`TEMPLE_LINES`/`GUARDHOUSE_LINES`/`PALACE_LINES`, 5 lines each, same flavor-only pattern as `RUMOURS`) and renders one Back button + one quote box, plus whatever `extraHTML` is passed. Temple and The Palace pass nothing extra and stay pure flavor with no mechanical effect (same as Talk to Townsfolk's eventual replacement is likely to be — see [roadmap.md](roadmap.md)); Guard House is the exception — its call site passes `buildGuardHouseStats(burgId)`, which renders that settlement's real population and its current controller's total mustered strength (both population-derived — see [factions-and-territory.md](factions-and-territory.md)) below the flavor line.
 - `loc-back` (the `&larr; Back to Map` button) just hides the overlay — no state changes.
 
 ### The Inn — `showInnPanel(burgId)`

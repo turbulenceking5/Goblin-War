@@ -558,8 +558,8 @@ const WAR_TICK_INTERVAL_DAYS = 7;   // faction AI only rolls once per in-game we
 const WAR_DECLARE_CHANCE = 0.06;    // per kingdom, per tick, while at peace
 const WAR_PEACE_CHANCE = 0.15;      // per kingdom, per tick, while at war — sues for peace
 const RAID_CHANCE = 0.35;           // per kingdom, per tick, while at war — attempts a raid
-const RAID_SUCCESS_CHANCE = 0.5;    // per raid attempted
 const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered per raid
+const RAID_SUCCESS_MIN = 0.2, RAID_SUCCESS_MAX = 0.8; // raid success is population-driven (see attemptRaid) but always stays uncertain
 
 let KINGDOM_RACE = {};  // kingdom name -> race, derived from graph.burgs once loaded
 let ALL_KINGDOMS = [];
@@ -596,6 +596,70 @@ function isAtWarAt(burgId){
   return b && b.state ? getWarState(b.state) === 'war' : false;
 }
 
+// Population, in the same "thousands of people" unit travel-graph.json already uses
+// (Bary is 12.93, i.e. ~12,930) — a settlement's population.field is its starting figure,
+// forever; goblinwar_population is the same sparse-override pattern as territory control,
+// only present once a settlement's population has actually moved. War shrinks it (some die,
+// the rest flee as refugees to the nearest settlement currently at peace, growing it there
+// instead of just vanishing), and total controlled population is what an attacking kingdom's
+// raid odds are actually built from — see attemptRaid below.
+const POPULATION_KEY = "goblinwar_population";
+const WAR_ATTRITION_RATE = 0.02;    // weekly population loss, every settlement of a kingdom at war
+const RAID_DAMAGE_RATE = 0.08;      // additional loss for the specific settlement raided this tick
+const REFUGEE_DEATH_SHARE = 0.4;    // of population lost to war, this fraction dies...
+const REFUGEE_FLEE_SHARE = 0.6;     // ...and this fraction flees to the nearest peaceful settlement
+const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could field as soldiers
+
+function getPopulationOverrides(){ try{ return JSON.parse(localStorage.getItem(POPULATION_KEY)) || {}; }catch(e){ return {}; } }
+function getPopulation(burgId){
+  const overrides = getPopulationOverrides();
+  if(overrides[burgId] !== undefined) return overrides[burgId];
+  const b = graph.burgs[burgId];
+  return (b && b.population) ? b.population : 0;
+}
+function setPopulation(burgId, pop){
+  const overrides = getPopulationOverrides();
+  overrides[burgId] = Math.max(0, Math.round(pop*1000)/1000); // keep to the nearest real person, not the nearest whole "thousands" unit
+  localStorage.setItem(POPULATION_KEY, JSON.stringify(overrides));
+}
+function formatPopulation(pop){ return Math.round(pop*1000).toLocaleString(); }
+
+// Total population a race currently controls, times MILITARY_FRACTION — what attemptRaid
+// compares attacker vs. defender with. Deliberately not capped to any one settlement's local
+// garrison; a kingdom's whole territory backs up any single raid.
+function getArmyStrength(race){
+  return Object.keys(graph.burgs).reduce((sum,id)=> getController(id)===race ? sum+getPopulation(id) : sum, 0) * MILITARY_FRACTION;
+}
+
+// Closest settlement whose kingdom is currently at peace — where a burg's refugees go.
+function findNearestPeacefulSettlement(fromBurgId){
+  const from = graph.burgs[fromBurgId];
+  if(!from) return null;
+  let best = null, bestDist = Infinity;
+  Object.values(graph.burgs).forEach(b=>{
+    if(b.id === fromBurgId || isAtWarAt(b.id)) return;
+    const d = Math.hypot(b.x-from.x, b.y-from.y);
+    if(d < bestDist){ bestDist = d; best = b; }
+  });
+  return best;
+}
+
+// Applies a fractional population loss to one settlement: REFUGEE_DEATH_SHARE of it is gone
+// for good, REFUGEE_FLEE_SHARE relocates to the nearest peaceful settlement (added to that
+// settlement's population, not lost) rather than the whole loss simply vanishing.
+function applyWarLoss(burgId, rate){
+  const pop = getPopulation(burgId);
+  const loss = pop * rate;
+  if(loss <= 0) return;
+  const died = loss * REFUGEE_DEATH_SHARE;
+  const fled = loss * REFUGEE_FLEE_SHARE;
+  setPopulation(burgId, pop - died - fled);
+  if(fled > 0){
+    const haven = findNearestPeacefulSettlement(burgId);
+    if(haven) setPopulation(haven.id, getPopulation(haven.id) + fled);
+  }
+}
+
 // War-driven Marketplace pricing (see showMarketPanel): a kingdom at war is short on
 // supply, so buying costs more everywhere; but weapons/armour/firewood are in high demand
 // there too, so *selling* those specific goods pays a premium instead of the usual cut price.
@@ -628,9 +692,19 @@ function attemptRaid(attackerKingdom){
   enemyBurgs.sort((a,b)=> Math.hypot(a.x-cx,a.y-cy) - Math.hypot(b.x-cx,b.y-cy));
   const candidates = enemyBurgs.slice(0, RAID_CANDIDATE_POOL);
   const target = candidates[Math.floor(Math.random()*candidates.length)];
-  const success = Math.random() < RAID_SUCCESS_CHANCE;
+  const targetRace = getController(target.id);
+
+  // Raid odds come from each side's real (population-derived) military strength, not a flat
+  // coin flip — but still clamped so no kingdom is ever a guaranteed win or loss.
+  const attackerStrength = getArmyStrength(attackerRace);
+  const defenderStrength = getArmyStrength(targetRace);
+  const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
+  const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
+  const success = Math.random() < successChance;
+
+  applyWarLoss(target.id, RAID_DAMAGE_RATE); // a raid costs the target lives either way
   if(success) setController(target.id, attackerRace);
-  return { success, target, attackerKingdom, attackerRace };
+  return { success, target, attackerKingdom, attackerRace, successChance };
 }
 
 // Runs the whole weekly tick across every kingdom and returns a short list of {text} events
@@ -643,6 +717,9 @@ function runFactionAITick(){
     if(state === 'peace'){
       if(Math.random() < WAR_DECLARE_CHANCE) setWarState(kingdom, 'war');
     } else {
+      // Every settlement that originally belongs to this kingdom bleeds a little population
+      // just from being at war, regardless of whether it's the one being raided this tick.
+      Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
       if(Math.random() < RAID_CHANCE){
         const result = attemptRaid(kingdom);
         if(result && result.success){
@@ -738,6 +815,7 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(TERRITORY_KEY) === null) localStorage.setItem(TERRITORY_KEY, JSON.stringify({}));
   if(localStorage.getItem(WARSTATE_KEY) === null) localStorage.setItem(WARSTATE_KEY, JSON.stringify({}));
   if(localStorage.getItem(LASTWARTICK_KEY) === null) localStorage.setItem(LASTWARTICK_KEY, "0");
+  if(localStorage.getItem(POPULATION_KEY) === null) localStorage.setItem(POPULATION_KEY, JSON.stringify({}));
 }
 initPlayerStateIfMissing();
 
@@ -1279,7 +1357,8 @@ function onMapTap(burgId){
     ? `<span class="tag ${controller}">${RACE_LABEL[controller]}</span>` : '';
   const stateTag = burg.state ? `<span style="color:#8a7440;">${burg.state}</span>` : '';
   const capturedNote = (controller !== burg.race) ? ` <span style="color:#8c3a3a; font-weight:700;">(captured)</span>` : '';
-  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[burg.tier]||burg.tier}</span>${stateTag ? ' — '+stateTag : ''}${capturedNote}`;
+  const popLine = `<br><span style="font-size:11px; color:#8a7440;">Population ${formatPopulation(getPopulation(burgId))}</span>`;
+  document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[burg.tier]||burg.tier}</span>${stateTag ? ' — '+stateTag : ''}${capturedNote}${popLine}`;
 
   const travelDiv = document.getElementById('info-travel');
   const travelBtn = document.getElementById('btn-travel');
@@ -1587,7 +1666,7 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
-      else if(btn.dataset.action === 'guardhouse') showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES);
+      else if(btn.dataset.action === 'guardhouse') showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId));
       else if(btn.dataset.action === 'palace') showFlavorPanel(burgId, 'The Palace', PALACE_LINES);
       else showToast("Not built yet — coming in a future update.");
     });
@@ -1653,7 +1732,7 @@ const PALACE_LINES = [
   "Guards in ceremonial armour stand motionless beside the throne.",
   "Word in the court is that the war is weighing heavily on the ruler's mind.",
 ];
-function showFlavorPanel(burgId, title, lines){
+function showFlavorPanel(burgId, title, lines, extraHTML){
   const b = graph.burgs[burgId];
   const line = lines[Math.floor(Math.random()*lines.length)];
   const list = document.getElementById('loc-action-list');
@@ -1666,8 +1745,23 @@ function showFlavorPanel(burgId, title, lines){
       <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:8px;">${title}</div>
       <div style="font-size:14.5px; line-height:1.55; color:#4d3a24; font-style:italic;">"${line}"</div>
     </div>
+    ${extraHTML || ''}
   `;
   document.getElementById('flavor-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+}
+
+// Guard House shows real numbers alongside its flavor line — local population and the
+// current controller's total mustered strength, both population-derived (see attemptRaid).
+function buildGuardHouseStats(burgId){
+  const controller = getController(burgId);
+  const pop = getPopulation(burgId);
+  const army = getArmyStrength(controller);
+  return `
+    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; font-size:13.5px; color:#4d3a24;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
+      <div style="display:flex; justify-content:space-between;"><span>${RACE_LABEL[controller]||'Unknown'} forces (kingdom-wide)</span><b>${formatPopulation(army)}</b></div>
+    </div>
+  `;
 }
 
 function showInnPanel(burgId){

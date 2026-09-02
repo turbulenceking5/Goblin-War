@@ -1059,7 +1059,7 @@ function buildHitzones(){
   }
 }
 
-// ---- bold skyline glyph marking City/Capital-tier settlements, offset just above the
+// ---- castle-medallion image marking City/Capital-tier settlements, offset just above the
 // settlement's own point, so major cities read at a glance while zoomed out without
 // covering the settlement's name. It can't truly draw *behind* the name — the map's
 // labels are baked into world-raster.jpg, a flat image with no separate DOM layer to
@@ -1072,7 +1072,8 @@ function buildHitzones(){
 // every settlement's point (not just City/Capital ones) and simply skips drawing it if it
 // would land within MIN_CLEARANCE of one — better to omit an icon in a crowded area than
 // to cover a name.
-const CITY_ICON_PATH = "M-6,2 L-6,-2 L-3,-2 L-3,2 Z M-2,2 L-2,-5 L1.5,-5 L1.5,2 Z M2.5,2 L2.5,-3 L6,-3 L6,2 Z";
+const CITY_ICON_HREF = "assets/icons/Map/Cities.png"; // 1024x848, transparent outside the coin
+const CITY_ICON_ASPECT = 848/1024;
 const CITY_ICON_OFFSET_Y = -11; // logical units above the point — close enough to read as "attached" while still clearing that settlement's own centered label
 const CITY_ICON_MIN_CLEARANCE = 12; // logical units — skip if this close to any settlement's point
 function buildCityIcons(){
@@ -1086,13 +1087,15 @@ function buildCityIcons(){
     const iconY = b.y + CITY_ICON_OFFSET_Y;
     const tooClose = allBurgs.some(other => other !== b && Math.hypot(other.x-b.x, other.y-iconY) < CITY_ICON_MIN_CLEARANCE);
     if(tooClose) continue;
-    const scale = b.tier === 'capital' ? 1.6 : 1.2;
-    const icon = document.createElementNS(ns, "path");
-    icon.setAttribute("d", CITY_ICON_PATH);
-    icon.setAttribute("transform", `translate(${b.x},${iconY}) scale(${scale})`);
-    icon.setAttribute("fill", b.tier === 'capital' ? '#e8b84b' : '#a5652e');
-    icon.setAttribute("stroke", "#150a02");
-    icon.setAttribute("stroke-width", "0.9");
+    const w = b.tier === 'capital' ? 20 : 14;
+    const h = w * CITY_ICON_ASPECT;
+    const icon = document.createElementNS(ns, "image");
+    icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", CITY_ICON_HREF);
+    icon.setAttribute("href", CITY_ICON_HREF);
+    icon.setAttribute("x", b.x - w/2);
+    icon.setAttribute("y", iconY - h/2);
+    icon.setAttribute("width", w);
+    icon.setAttribute("height", h);
     g.appendChild(icon);
   }
 }

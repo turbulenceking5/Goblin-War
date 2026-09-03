@@ -124,7 +124,7 @@
 
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
-    background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
+    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
     border-top:3px solid var(--gold); border-radius:14px 14px 0 0;
     box-shadow:0 -8px 24px rgba(0,0,0,.45);
     padding:16px 18px calc(18px + env(safe-area-inset-bottom));
@@ -132,15 +132,15 @@
   }
   #info-card.open{ transform:translateY(0); }
   #info-card .handle{ width:38px; height:4px; border-radius:3px; background:var(--parchment-shadow); margin:0 auto 10px; }
-  #info-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--ink); margin:0 0 2px; }
-  #info-meta{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:0 0 10px; }
-  #info-travel{ font-size:15px; color:#4d3a24; margin:0 0 14px; line-height:1.5; }
-  #info-travel b{ color:var(--ink); }
+  #info-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--parchment); margin:0 0 2px; }
+  #info-meta{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:0 0 10px; }
+  #info-travel{ font-size:15px; color:var(--parchment); margin:0 0 14px; line-height:1.5; }
+  #info-travel b{ color:var(--gold-lt); }
   #info-actions{ display:flex; gap:10px; }
   .btn{ font-family:'Cinzel', serif; font-size:13px; letter-spacing:1px; border:none; border-radius:8px; padding:11px 16px; cursor:pointer; flex:1; }
   .btn:active{ transform:scale(.97); }
   .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
-  .btn-secondary{ background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow); }
+  .btn-secondary{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
 
   #travel-controls{
     position:fixed; left:12px; right:12px; top:calc(160px + env(safe-area-inset-top,0px)); z-index:35;
@@ -179,6 +179,18 @@
   }
   #loading.hide{ display:none; }
 
+  #update-banner{
+    position:fixed; top:0; left:0; right:0; z-index:95;
+    background:linear-gradient(180deg, var(--gold-lt), var(--gold));
+    color:#241705; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; font-weight:700;
+    text-align:center; cursor:pointer;
+    padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
+    transform:translateY(-100%); transition:transform .3s cubic-bezier(.3,.9,.4,1);
+    box-shadow:0 4px 14px rgba(0,0,0,.4);
+  }
+  #update-banner.show{ transform:translateY(0); }
+  #update-banner:active{ filter:brightness(.95); }
+
   #whats-new-modal{
     position:fixed; inset:0; z-index:90; display:none;
     background:rgba(10,7,3,.75);
@@ -187,24 +199,24 @@
   #whats-new-modal.show{ display:flex; }
   #whats-new-card{
     max-width:380px; width:100%; max-height:80vh; overflow-y:auto;
-    background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
+    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
     border:2px solid var(--gold); border-radius:14px;
     padding:20px 20px calc(20px + env(safe-area-inset-bottom));
     box-shadow:0 12px 30px rgba(0,0,0,.6);
   }
-  #whats-new-title{ font-family:'Cinzel Decorative', serif; font-size:19px; color:var(--ink); margin:0 0 14px; text-align:center; text-shadow:none; }
+  #whats-new-title{ font-family:'Cinzel Decorative', serif; font-size:19px; color:var(--gold-lt); margin:0 0 14px; text-align:center; text-shadow:none; }
   .whats-new-entry{ margin-bottom:16px; }
   .whats-new-entry:last-child{ margin-bottom:0; }
-  .whats-new-date{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:6px; }
+  .whats-new-date{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:6px; }
   .whats-new-entry ul{ margin:0; padding-left:18px; }
-  .whats-new-entry li{ font-size:14px; color:#4d3a24; margin-bottom:4px; line-height:1.4; }
+  .whats-new-entry li{ font-size:14px; color:var(--parchment); margin-bottom:4px; line-height:1.4; }
   #whats-new-dismiss{ width:100%; margin-top:6px; }
 
   #location-view{ position:fixed; inset:0; z-index:60; display:none; background:var(--water-dk); }
   #location-view.show{ display:block; }
   #loc-actions{
     box-sizing:border-box; width:100%; max-width:560px; height:100%; margin:0 auto; overflow-y:auto;
-    background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
+    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
     padding:calc(16px + env(safe-area-inset-top)) 14px calc(150px + env(safe-area-inset-bottom));
     display:flex; flex-direction:column;
   }
@@ -226,21 +238,21 @@
   #loc-back{
     align-self:flex-start;
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
-    background:transparent; color:#4d3a24; border:1.5px solid var(--parchment-shadow);
+    background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4);
     border-radius:6px; padding:7px 12px; margin-bottom:14px; cursor:pointer;
   }
   #loc-back:active{ transform:scale(.96); }
-  #loc-heading{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--ink); margin:0 0 2px; }
-  #loc-sub{ font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin:0 0 16px; }
+  #loc-heading{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--parchment); margin:0 0 2px; }
+  #loc-sub{ font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:0 0 16px; }
   .loc-action{
     display:flex; align-items:center; gap:12px;
-    background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow);
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35);
     border-radius:10px; padding:12px 14px; margin-bottom:10px; cursor:pointer;
     text-align:left; width:100%; font-family:'EB Garamond', serif;
   }
-  .loc-action:active{ transform:scale(.98); background:rgba(255,255,255,.55); }
+  .loc-action:active{ transform:scale(.98); background:rgba(255,255,255,.12); }
   .loc-action:disabled{ opacity:.5; cursor:not-allowed; }
-  .loc-action:disabled:active{ transform:none; background:rgba(255,255,255,.35); }
+  .loc-action:disabled:active{ transform:none; background:rgba(255,255,255,.06); }
 
   .buy-row{ display:flex; align-items:center; gap:10px; margin:-4px 0 14px; }
   .qty-slider{
@@ -257,12 +269,12 @@
   }
   .qty-readout{
     flex:none; min-width:64px; text-align:center; font-family:'Cinzel', serif; font-size:11.5px;
-    color:#4d3a24; background:rgba(0,0,0,.06); border-radius:8px; padding:6px 4px;
+    color:var(--parchment); background:rgba(255,255,255,.08); border-radius:8px; padding:6px 4px;
   }
   .buy-row .btn{ flex:none; padding:10px 16px; }
-  .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--ink); }
-  .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--ink); }
-  .loc-action .li-text span{ font-size:12.5px; color:#6a5a3a; }
+  .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--parchment); }
+  .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--parchment); }
+  .loc-action .li-text span{ font-size:12.5px; color:#a9926a; }
 
   #combat-view{
     position:fixed; inset:0; z-index:70; display:none; flex-direction:column;
@@ -296,6 +308,8 @@
 </head>
 <body>
 <div id="app">
+
+  <div id="update-banner">&#8635; Update available — tap to refresh</div>
 
   <header>
     <div>
@@ -581,6 +595,10 @@ const CHANGELOG = [
   { id:1, date:"2026-09-03", changes:[
     "Added a Change Log to Settings, and this \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
   ]},
+  { id:2, date:"2026-09-03", changes:[
+    "Switched the whole game to a dark theme.",
+    "Added an \"Update available\" banner that drops down from the top of the map when a new version has shipped — tap it to refresh."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -607,6 +625,29 @@ document.getElementById('whats-new-dismiss').addEventListener('click', ()=>{
   localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
   document.getElementById('whats-new-modal').classList.remove('show');
 });
+
+// ===================== UPDATE CHECK =====================
+// No service worker or build step — "there's an update" just means the live version.json
+// on the server reports a newer changelogId than the CHANGELOG already baked into this
+// loaded page. Bump version.json (see CLAUDE.md) whenever CHANGELOG grows, or returning
+// players already on an old tab will never see this banner. Tapping it force-reloads with
+// a cache-busting query string so the browser can't just re-serve the stale cached page.
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+function checkForUpdate(){
+  fetch(`version.json?t=${Date.now()}`, {cache:'no-store'})
+    .then(r=>r.json())
+    .then(data=>{
+      const currentLatest = CHANGELOG[CHANGELOG.length-1].id;
+      if(data.changelogId > currentLatest) document.getElementById('update-banner').classList.add('show');
+    })
+    .catch(()=>{}); // offline or unreachable — silently retry on the next interval
+}
+document.getElementById('update-banner').addEventListener('click', ()=>{
+  location.href = location.pathname + '?_=' + Date.now();
+});
+setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') checkForUpdate(); });
+checkForUpdate();
 
 // ===================== TERRITORY CONTROL & FACTION AI =====================
 // A settlement's *historical* kingdom/race (graph.burgs[id].state/.race, from the Azgaar
@@ -1464,9 +1505,9 @@ function onMapTap(burgId){
   const controller = getController(burgId);
   const raceTag = controller && controller !== 'neutral'
     ? `<span class="tag ${controller}">${RACE_LABEL[controller]}</span>` : '';
-  const stateTag = burg.state ? `<span style="color:#8a7440;">${burg.state}</span>` : '';
-  const capturedNote = (controller !== burg.race) ? ` <span style="color:#8c3a3a; font-weight:700;">(captured)</span>` : '';
-  const popLine = `<br><span style="font-size:11px; color:#8a7440;">Population ${formatPopulation(getPopulation(burgId))}</span>`;
+  const stateTag = burg.state ? `<span style="color:#a9926a;">${burg.state}</span>` : '';
+  const capturedNote = (controller !== burg.race) ? ` <span style="color:#e2857f; font-weight:700;">(captured)</span>` : '';
+  const popLine = `<br><span style="font-size:11px; color:#a9926a;">Population ${formatPopulation(getPopulation(burgId))}</span>`;
   document.getElementById('info-meta').innerHTML = `${raceTag}<span>${TIER_LABEL[burg.tier]||burg.tier}</span>${stateTag ? ' — '+stateTag : ''}${capturedNote}${popLine}`;
 
   const travelDiv = document.getElementById('info-travel');
@@ -1486,7 +1527,7 @@ function onMapTap(burgId){
       travelDiv.innerHTML = (t.viaRoad
         ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`
         : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`)
-        + `<br><span style="color:#8c3a3a;">Not enough food to make it there (need ${t.foodCost}, have ${getFoodQty()}). Buy more at a Marketplace first.</span>`;
+        + `<br><span style="color:#e2857f;">Not enough food to make it there (need ${t.foodCost}, have ${getFoodQty()}). Buy more at a Marketplace first.</span>`;
       travelBtn.style.display = 'none';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
     } else {
@@ -1848,9 +1889,9 @@ function showFlavorPanel(burgId, title, lines, extraHTML){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
       <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
     </button>
-    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0;">
-      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:8px;">${title}</div>
-      <div style="font-size:14.5px; line-height:1.55; color:#4d3a24; font-style:italic;">"${line}"</div>
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0;">
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:8px;">${title}</div>
+      <div style="font-size:14.5px; line-height:1.55; color:var(--parchment); font-style:italic;">"${line}"</div>
     </div>
     ${extraHTML || ''}
   `;
@@ -1864,7 +1905,7 @@ function buildGuardHouseStats(burgId){
   const pop = getPopulation(burgId);
   const army = getArmyStrength(controller);
   return `
-    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; font-size:13.5px; color:#4d3a24;">
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
       <div style="display:flex; justify-content:space-between;"><span>${RACE_LABEL[controller]||'Unknown'} forces (kingdom-wide)</span><b>${formatPopulation(army)}</b></div>
     </div>
@@ -1884,9 +1925,9 @@ function showInnPanel(burgId){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
       <span class="li-text"><b>Rest for the Night</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
     </button>
-    <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0;">
-      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:8px;">Tavern Talk</div>
-      <div id="inn-rumour" style="font-size:14.5px; line-height:1.55; color:#4d3a24; font-style:italic;">"${rumour}"</div>
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0;">
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:8px;">Tavern Talk</div>
+      <div id="inn-rumour" style="font-size:14.5px; line-height:1.55; color:var(--parchment); font-style:italic;">"${rumour}"</div>
     </div>
   `;
   document.getElementById('inn-back-btn').addEventListener('click', ()=> showLocationView(burgId));
@@ -1915,7 +1956,7 @@ function showMarketPanel(burgId){
       const affordableQty = buyPrice > 0 ? Math.floor(playerGold / buyPrice) : MAX_SLIDER_QTY;
       const capacityQty = mi.weight > 0 ? Math.floor((CARRY_CAPACITY - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
       const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
-      const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#7a3a1f;">wartime demand</span>' : '';
+      const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#d9a15a;">wartime demand</span>' : '';
       return `
       <div class="loc-action" style="cursor:default;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
@@ -1928,7 +1969,7 @@ function showMarketPanel(burgId){
       </div>
       ${carried && carried.qty > 0 ? `
       <div class="buy-row" style="margin-top:-8px;">
-        <span style="flex:1; font-size:11.5px; color:#6a5a3a;">Sell 1 for ${sellPrice}g${sellNote}</span>
+        <span style="flex:1; font-size:11.5px; color:#a9926a;">Sell 1 for ${sellPrice}g${sellNote}</span>
         <button class="btn btn-secondary" data-sell="${i}">Sell</button>
       </div>` : ''}
       `;
@@ -1938,10 +1979,10 @@ function showMarketPanel(burgId){
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
         <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
       </button>
-      <div style="background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px; padding:14px; margin:14px 0; font-size:13.5px; color:#4d3a24;">
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0; font-size:13.5px; color:var(--parchment);">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${CARRY_CAPACITY}</b></div>
-        <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#8c3a3a':'#33502f'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
+        <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
       </div>
       ${itemRows}
     `;

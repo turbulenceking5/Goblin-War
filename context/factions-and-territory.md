@@ -48,6 +48,7 @@ Population is the resource everything else in this file ultimately spends. `trav
 - **`showLocationView`**'s subtitle: same idea, `"{tier} · {Race}-controlled"` appended only when the controller differs from the original.
 - **Guard House** (`buildGuardHouseStats`, City/Capital-only — see [locations-and-camp.md](locations-and-camp.md)): the one place a kingdom's total mustered strength is actually shown to the player, alongside its usual random flavor line. `showFlavorPanel` grew an optional 5th `extraHTML` parameter just for this — Temple and The Palace still call it with nothing extra and stay pure flavor.
 - **`showMarketPanel`**: see below — this is where war state actually has a mechanical effect, not just a label.
+- **Combat**: `pickAmbushEnemy` (index.html, see [combat.md](combat.md)) reads `isAtWarAt(burgId)` directly — a Good-alliance settlement whose kingdom is at war has a chance of spawning a themed Goblin/Ork Raiders fight instead of a plain Bandit. This is the one place war state changes something other than a number or a label; it changes which enemy you're actually fighting.
 
 ## War-driven Marketplace pricing
 

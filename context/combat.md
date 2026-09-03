@@ -1,12 +1,22 @@
 # Combat (index.html)
 
-A minimal turn-based fight system, currently with exactly one enemy type: the Bandit. Lives entirely in index.html — there's no separate combat page, it's an overlay (`#combat-view`, z-index 70) drawn on top of whatever screen was showing.
+A minimal turn-based fight system, now with three enemy types: Bandit, Goblin Raiders, and Ork Raiders. Lives entirely in index.html — there's no separate combat page, it's an overlay (`#combat-view`, z-index 70) drawn on top of whatever screen was showing.
 
 ## Starting a fight
 
-`triggerBanditFight(onEnd)` is the one entry point — it calls `startCombat('Bandit', 30, [5,12], [8,15], onEnd)`, i.e. 30 HP, deals 5–12 damage to the enemy per player hit, takes 8–15 damage from the enemy per round. `onEnd` is a callback invoked after the fight resolves (victory/defeat/flee), so combat can be dropped into any flow and hand control back afterward — see the two call sites below.
+`startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, iconKey, goldRewardRange)` is the low-level entry point everything else wraps. Three ready-made wrappers call it with real numbers:
 
-`combat` is a single module-level object (`{enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd}`) — the game only ever supports one fight at a time, no queue or nesting.
+- `triggerBanditFight(onEnd)` — `startCombat('Bandit', 30, [5,12], [8,15], onEnd, 'bandit', [8,20])`: 30 HP, deals 5–12 to the enemy, takes 8–15 per round, 8–20 gold on victory.
+- `triggerRaidersFight(race, onEnd)` — tougher, war-flavored alternatives: `race:'goblin'` is 35 HP / takes 7–14 / pays 10–22 gold; `race:'ork'` is 55 HP / takes 11–20 / pays 15–30 gold. Both still deal the same 5–12 player damage range as a Bandit fight — the *enemy's* stats scale with difficulty, not the player's own weapon.
+- `triggerAmbushFight(burgId, onEnd, context)` — the one the two ambush call sites below actually use. Picks which of the three enemies to spawn (`pickAmbushEnemy`, see "Which enemy shows up" below), shows a toast worded for `context` (`'road'` vs `'camp'`), and calls the matching trigger function above.
+
+`iconKey` selects which hand-drawn SVG replaces `#combat-enemy-icon`'s contents (`ENEMY_ICONS.bandit/goblin/ork` — same circle-head/cape-body/weapon composition, recolored and reshaped per race: goblins get pointed ears and a leaner build, orks get tusks and a bulkier frame) and `goldRewardRange` is what `endCombat` rolls from on victory (see below) — both are stored on the `combat` object alongside everything else, so a harder fight visibly looks harder and pays out more, not just a renamed Bandit with bigger numbers.
+
+`combat` is a single module-level object (`{enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange}`) — the game only ever supports one fight at a time, no queue or nesting.
+
+## Which enemy shows up
+
+`pickAmbushEnemy(burgId)` is what actually decides Bandit vs. Goblin Raiders vs. Ork Raiders for a given ambush: if `burgId`'s original kingdom is Good-alliance (human/dwarf — see [factions-and-territory.md](factions-and-territory.md)) *and* that kingdom is currently at war, there's a `RAID_AMBUSH_CHANCE` (50%) chance of a themed raiding party (coin-flip between goblin/ork) instead of a plain Bandit. A Bad-alliance settlement (ork/goblin territory) never spawns a themed raid, at war or not — the game doesn't cast Human/Dwarf as ambush enemies, so an ambush there is always just a Bandit. This is the direct payoff of the faction AI system: fighting through a warzone now actually feels different from a peaceful road.
 
 ## Turn loop
 
@@ -24,7 +34,7 @@ The only way stamina goes back up is resting — `setStamina(playerMaxStamina)` 
 
 `endCombat(result)` hides `#combat-view`, shows one toast, and calls the stored `onEnd(result)` — with a short delay (700ms) only for victory/defeat, so the last HP-bar update is visible before the overlay closes; flee closes instantly.
 
-- `victory` → random gold reward (8–20), toast "Victory! ...".
+- `victory` → random gold reward from the fight's own `goldRewardRange` (8–20 for a Bandit, more for a raiding party — see "Starting a fight" above), toast "Victory! ...".
 - `defeat` → `setHealth(10)` (never actually kills the player — this is the game's only failure-recovery mechanic right now), toast about barely escaping.
 - `flee` → no state change beyond whatever happened during the rounds already fought, toast "You flee from the fight."
 
@@ -32,11 +42,11 @@ The only way stamina goes back up is resting — `setStamina(playerMaxStamina)` 
 
 There is no random-encounter-while-walking system — ambushes only roll at two fixed moments, both gated by chance constants defined near `computeTravel` in index.html:
 
-- **On arrival** (`AMBUSH_CHANCE_PER_DAY = 0.12`): after a completed journey, `rollAmbush(days)` computes `1 - (1-0.12)^days` — so a 1-day trip has a 12% ambush chance, a 5-day trip has a much higher cumulative chance. If it hits, `triggerBanditFight(() => showLocationView(currentBurg))` runs before the settlement's location view opens; if not, the location view opens immediately.
-- **Camping overnight** (`NIGHT_AMBUSH_CHANCE = 0.15`, flat, no day-scaling): only on the camp screen's "Rest Until Morning" button (`showCampView`), not the Inn's — the fiction is that an Inn is a guarded settlement, camping on the open road is not. If the roll hits, the fight runs first and rest (healing) is applied afterward via the `finishRest` callback either way.
+- **On arrival** (`AMBUSH_CHANCE_PER_DAY = 0.12`): after a completed journey, `rollAmbush(days)` computes `1 - (1-0.12)^days` — so a 1-day trip has a 12% ambush chance, a 5-day trip has a much higher cumulative chance. If it hits, `triggerAmbushFight(currentBurg, () => showLocationView(currentBurg), 'road')` runs before the settlement's location view opens; if not, the location view opens immediately.
+- **Camping overnight** (`NIGHT_AMBUSH_CHANCE = 0.15`, flat, no day-scaling): only on the camp screen's "Rest Until Morning" button (`showCampView`), not the Inn's — the fiction is that an Inn is a guarded settlement, camping on the open road is not. If the roll hits, `triggerAmbushFight(currentBurg, finishRest, 'camp')` runs first and rest (healing) is applied afterward via the `finishRest` callback either way. Note both sites pass `currentBurg`, not a destination-in-progress or `campPos` — there's no clean "which kingdom is this camp near" concept for a mid-journey camp, so the player's last-arrived settlement is used as a reasonable stand-in for "what territory is this."
 
 Both call sites are examples of the `onEnd` pattern above: the fight is spliced into an existing flow and the flow's normal continuation (open location view / apply rest) becomes the combat callback.
 
 ## Adding a new enemy type
 
-`startCombat` already takes enemy name/HP/damage ranges as parameters — a second enemy would mean a second wrapper function like `triggerBanditFight` (e.g. `triggerWolfFight`) with its own numbers, plus wiring it into wherever it should trigger. The combat UI itself (`#combat-enemy-icon`, `#combat-title`) is generic enough not to need changes for a reskin, though the SVG icon in the HTML is currently hand-drawn to look like a bandit specifically.
+`startCombat` already takes enemy name/HP/damage ranges/icon/reward-range as parameters, and `ENEMY_ICONS` is just a lookup object — a fourth enemy means a new `ENEMY_ICONS` entry (same circle-head/cape-body/weapon composition as the existing three, just recolored/reshaped), a new wrapper function alongside `triggerBanditFight`/`triggerRaidersFight`, and wiring it into wherever it should trigger (most likely inside `pickAmbushEnemy`, if it's another ambush-style enemy, rather than a whole new trigger site).

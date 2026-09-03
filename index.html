@@ -887,11 +887,21 @@ const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest
 
 function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min; }
 
-function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd){
-  combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd };
+// Swappable enemy art for #combat-enemy-icon — same hand-drawn circle-head/cape-body/weapon
+// composition as the original Bandit, just recolored/reshaped per race so a Goblin or Ork
+// raiding party reads as visually distinct at a glance, not just a renamed Bandit.
+const ENEMY_ICONS = {
+  bandit: `<circle cx="50" cy="34" r="16" fill="#5c4a30" stroke="#2a1d10" stroke-width="2"/><path d="M28 90c0-16 10-28 22-28s22 12 22 28z" fill="#4a3a24" stroke="#2a1d10" stroke-width="2"/><path d="M40 30h20M36 40l6 4M64 40l-6 4" stroke="#2a1d10" stroke-width="2"/><path d="M65 55l20-14-4 10 10-2-22 18z" fill="#7d7d82" stroke="#2a1d10" stroke-width="1.5"/>`,
+  goblin: `<circle cx="50" cy="34" r="14" fill="#5a7a3a" stroke="#2a3a18" stroke-width="2"/><path d="M36 24l-8-10 4 14z" fill="#5a7a3a" stroke="#2a3a18" stroke-width="1.5"/><path d="M64 24l8-10-4 14z" fill="#5a7a3a" stroke="#2a3a18" stroke-width="1.5"/><path d="M30 90c0-15 9-26 20-26s20 11 20 26z" fill="#3a4a28" stroke="#2a3a18" stroke-width="2"/><path d="M42 32h4M54 32h4" stroke="#2a3a18" stroke-width="2"/><path d="M68 50l16-6-2 8 8 2-18 10z" fill="#8a8a8a" stroke="#2a3a18" stroke-width="1.5"/>`,
+  ork: `<circle cx="50" cy="32" r="18" fill="#5a6a4a" stroke="#1e2a18" stroke-width="2.5"/><path d="M40 40l-4 8 6-2z" fill="#e8e0c8" stroke="#1e2a18" stroke-width="1"/><path d="M60 40l4 8-6-2z" fill="#e8e0c8" stroke="#1e2a18" stroke-width="1"/><path d="M24 92c0-18 12-30 26-30s26 12 26 30z" fill="#3a4632" stroke="#1e2a18" stroke-width="2.5"/><path d="M38 28h8M54 28h8" stroke="#1e2a18" stroke-width="2.5"/><path d="M66 52l24-10-3 12 12-1-26 20z" fill="#8a8a8a" stroke="#1e2a18" stroke-width="1.5"/>`,
+};
+
+function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, iconKey, goldRewardRange){
+  combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange: goldRewardRange || [8,20] };
   document.getElementById('combat-title').textContent = `${enemyName} Ambush!`;
   document.getElementById('combat-enemy-name').textContent = enemyName;
-  document.getElementById('combat-log').innerHTML = `<div>A ${enemyName} blocks your path!</div>`;
+  document.getElementById('combat-enemy-icon').innerHTML = ENEMY_ICONS[iconKey] || ENEMY_ICONS.bandit;
+  document.getElementById('combat-log').innerHTML = `<div>${enemyName} block${enemyName.endsWith('s')?'':'s'} your path!</div>`;
   updateCombatUI();
   document.getElementById('combat-view').classList.add('show');
 }
@@ -947,10 +957,11 @@ function combatFlee(){
 function endCombat(result){
   const enemyName = combat ? combat.enemyName : 'enemy';
   const onEnd = combat ? combat.onEnd : null;
+  const goldRewardRange = combat ? combat.goldRewardRange : [8,20];
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
     if(result === 'victory'){
-      const reward = randRange([8,20]);
+      const reward = randRange(goldRewardRange);
       setGold(playerGold + reward);
       showToast(`Victory! You defeated the ${enemyName} and found ${reward} gold.`);
     } else if(result === 'defeat'){
@@ -968,7 +979,40 @@ document.getElementById('combat-attack-btn').addEventListener('click', combatAtt
 document.getElementById('combat-flee-btn').addEventListener('click', combatFlee);
 
 function triggerBanditFight(onEnd){
-  startCombat('Bandit', 30, [5,12], [8,15], onEnd || (()=>{}));
+  startCombat('Bandit', 30, [5,12], [8,15], onEnd || (()=>{}), 'bandit', [8,20]);
+}
+// Tougher, war-flavored alternative to a plain Bandit — see pickAmbushEnemy/triggerAmbushFight
+// below for when one of these shows up instead. Ork Raiders hit harder and pay out more than
+// Goblin Raiders, who in turn are a step up from a lone Bandit — three difficulty rungs, not two.
+function triggerRaidersFight(race, onEnd){
+  if(race === 'ork'){
+    startCombat('Ork Raiders', 55, [5,12], [11,20], onEnd || (()=>{}), 'ork', [15,30]);
+  } else {
+    startCombat('Goblin Raiders', 35, [5,12], [7,14], onEnd || (()=>{}), 'goblin', [10,22]);
+  }
+}
+const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
+// Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement
+// belongs to a Good-alliance kingdom currently at war (orks/goblins pressing into human/dwarf
+// land — the game's own "Goblin War" premise), a plain Bandit otherwise. Bad-alliance
+// territory never spawns a themed raid — the game doesn't cast Human/Dwarf as ambush enemies.
+function pickAmbushEnemy(burgId){
+  const b = graph.burgs[burgId];
+  if(b && b.race && ALLIANCE[b.race] === 'Good' && isAtWarAt(burgId) && Math.random() < RAID_AMBUSH_CHANCE){
+    return Math.random() < 0.5 ? 'ork' : 'goblin';
+  }
+  return 'bandit';
+}
+function triggerAmbushFight(burgId, onEnd, context){
+  const enemy = pickAmbushEnemy(burgId);
+  const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
+  if(enemy === 'bandit'){
+    showToast(`Bandits ${scene}!`);
+    triggerBanditFight(onEnd);
+  } else {
+    showToast(`${enemy === 'ork' ? 'Ork' : 'Goblin'} raiders ${scene}!`);
+    triggerRaidersFight(enemy, onEnd);
+  }
 }
 
 // ===================== TRAVEL GRAPH =====================
@@ -1434,8 +1478,7 @@ function beginTravel(destId){
     consumeItem(FOOD_NAME, t.foodCost);
     refreshReachability();
     if(rollAmbush(t.hours)){
-      showToast("Bandits ambush you on the road!");
-      triggerBanditFight(()=> showLocationView(currentBurg));
+      triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
     } else {
       showLocationView(currentBurg);
     }
@@ -1607,8 +1650,7 @@ function showCampView(destId, destName, partialHours){
         : `On the road to ${destName} — resting`;
     }
     if(Math.random() < NIGHT_AMBUSH_CHANCE){
-      showToast("Bandits creep into your camp in the night!");
-      triggerBanditFight(finishRest);
+      triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();
     }

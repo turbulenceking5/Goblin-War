@@ -284,7 +284,8 @@
   #combat-header{ padding:calc(18px + env(safe-area-inset-top)) 16px 8px; text-align:center; }
   #combat-title{ font-family:'Cinzel Decorative', serif; font-size:22px; color:#e2857f; text-shadow:0 2px 4px rgba(0,0,0,.6); }
   #combat-stage{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 20px; gap:14px; }
-  #combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); }
+  #combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); display:flex; align-items:center; justify-content:center; }
+  #combat-enemy-icon img{ display:block; width:auto; height:auto; max-width:190px; max-height:210px; object-fit:contain; }
   .combat-bar-row{ width:100%; max-width:320px; }
   .combat-name{ font-family:'Cinzel', serif; font-size:12px; color:var(--parchment); margin-bottom:4px; display:flex; justify-content:space-between; letter-spacing:.5px; }
   .combat-bar-track{ background:rgba(0,0,0,.35); border-radius:8px; height:14px; overflow:hidden; border:1px solid rgba(255,255,255,.15); }
@@ -420,12 +421,7 @@
         <div class="combat-name"><span id="combat-enemy-name">Bandit</span><span id="combat-enemy-hp-text">30/30</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill enemy" id="combat-enemy-hp-bar" style="width:100%"></div></div>
       </div>
-      <svg id="combat-enemy-icon" viewBox="0 0 100 100" width="90" height="90" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="50" cy="34" r="16" fill="#5c4a30" stroke="#2a1d10" stroke-width="2"/>
-        <path d="M28 90c0-16 10-28 22-28s22 12 22 28z" fill="#4a3a24" stroke="#2a1d10" stroke-width="2"/>
-        <path d="M40 30h20M36 40l6 4M64 40l-6 4" stroke="#2a1d10" stroke-width="2"/>
-        <path d="M65 55l20-14-4 10 10-2-22 18z" fill="#7d7d82" stroke="#2a1d10" stroke-width="1.5"/>
-      </svg>
+      <div id="combat-enemy-icon"></div>
       <div class="combat-bar-row">
         <div class="combat-name"><span>You</span><span id="combat-player-hp-text">100/100</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill player" id="combat-player-hp-bar" style="width:100%"></div></div>
@@ -598,6 +594,10 @@ const CHANGELOG = [
   { id:2, date:"2026-09-03", changes:[
     "Switched the whole game to a dark theme.",
     "Added an \"Update available\" banner that drops down from the top of the map when a new version has shipped — tap it to refresh."
+  ]},
+  { id:3, date:"2026-09-03", changes:[
+    "Goblin and Ork raiders now show real portrait art in combat instead of a hand-drawn icon.",
+    "Goblin raiding parties now come in four distinct varieties — Raider, Shieldbearer, Skirmisher, and Archer — each with its own toughness and bite, not just a reskinned fight."
   ]},
 ];
 
@@ -993,20 +993,39 @@ const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest
 
 function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min; }
 
-// Swappable enemy art for #combat-enemy-icon — same hand-drawn circle-head/cape-body/weapon
-// composition as the original Bandit, just recolored/reshaped per race so a Goblin or Ork
-// raiding party reads as visually distinct at a glance, not just a renamed Bandit.
+// Legacy hand-drawn fallback for #combat-enemy-icon — kept only for Bandit (no human art yet).
+// Goblin/Ork now use real pixel-art portraits instead (see ENEMY_VARIANTS below); once human
+// art exists, Bandit should move to the same ENEMY_VARIANTS shape and this can go.
 const ENEMY_ICONS = {
   bandit: `<circle cx="50" cy="34" r="16" fill="#5c4a30" stroke="#2a1d10" stroke-width="2"/><path d="M28 90c0-16 10-28 22-28s22 12 22 28z" fill="#4a3a24" stroke="#2a1d10" stroke-width="2"/><path d="M40 30h20M36 40l6 4M64 40l-6 4" stroke="#2a1d10" stroke-width="2"/><path d="M65 55l20-14-4 10 10-2-22 18z" fill="#7d7d82" stroke="#2a1d10" stroke-width="1.5"/>`,
-  goblin: `<circle cx="50" cy="34" r="14" fill="#5a7a3a" stroke="#2a3a18" stroke-width="2"/><path d="M36 24l-8-10 4 14z" fill="#5a7a3a" stroke="#2a3a18" stroke-width="1.5"/><path d="M64 24l8-10-4 14z" fill="#5a7a3a" stroke="#2a3a18" stroke-width="1.5"/><path d="M30 90c0-15 9-26 20-26s20 11 20 26z" fill="#3a4a28" stroke="#2a3a18" stroke-width="2"/><path d="M42 32h4M54 32h4" stroke="#2a3a18" stroke-width="2"/><path d="M68 50l16-6-2 8 8 2-18 10z" fill="#8a8a8a" stroke="#2a3a18" stroke-width="1.5"/>`,
-  ork: `<circle cx="50" cy="32" r="18" fill="#5a6a4a" stroke="#1e2a18" stroke-width="2.5"/><path d="M40 40l-4 8 6-2z" fill="#e8e0c8" stroke="#1e2a18" stroke-width="1"/><path d="M60 40l4 8-6-2z" fill="#e8e0c8" stroke="#1e2a18" stroke-width="1"/><path d="M24 92c0-18 12-30 26-30s26 12 26 30z" fill="#3a4632" stroke="#1e2a18" stroke-width="2.5"/><path d="M38 28h8M54 28h8" stroke="#1e2a18" stroke-width="2.5"/><path d="M66 52l24-10-3 12 12-1-26 20z" fill="#8a8a8a" stroke="#1e2a18" stroke-width="1.5"/>`,
 };
 
-function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, iconKey, goldRewardRange){
+// Real portraits per specific raiding-party variant (see assets/enemies/) — several distinct
+// looks per race instead of one reskinned Bandit. Each variant carries its own hp/enemyDmgRange
+// (damage it deals to the player)/goldRange so a Shieldbearer's shield or a Skirmisher's dual
+// blades show up as different fights, not just different art. playerDmgRange (what the player
+// deals back) intentionally does NOT vary by variant — same weapon regardless of foe, matching
+// Bandit's own [8,15] — see triggerRaidersFight. Only one Ork variant exists so far; more of
+// either race append here as new art arrives, no other code needs to change.
+const ENEMY_VARIANTS = {
+  goblin: [
+    { name:"Goblin Raider",       hp:35, enemyDmgRange:[7,14],  goldRange:[10,22], art:"assets/enemies/goblin-raider.png" },
+    { name:"Goblin Shieldbearer", hp:45, enemyDmgRange:[6,12],  goldRange:[10,22], art:"assets/enemies/goblin-shieldbearer.png" },
+    { name:"Goblin Skirmisher",   hp:30, enemyDmgRange:[9,16],  goldRange:[12,24], art:"assets/enemies/goblin-skirmisher.png" },
+    { name:"Goblin Archer",       hp:25, enemyDmgRange:[7,13],  goldRange:[8,18],  art:"assets/enemies/goblin-archer.png" },
+  ],
+  ork: [
+    { name:"Ork Raider", hp:55, enemyDmgRange:[11,20], goldRange:[15,30], art:"assets/enemies/ork-raider.png" },
+  ],
+};
+
+function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, iconKey, goldRewardRange, artPath){
   combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange: goldRewardRange || [8,20] };
   document.getElementById('combat-title').textContent = `${enemyName} Ambush!`;
   document.getElementById('combat-enemy-name').textContent = enemyName;
-  document.getElementById('combat-enemy-icon').innerHTML = ENEMY_ICONS[iconKey] || ENEMY_ICONS.bandit;
+  document.getElementById('combat-enemy-icon').innerHTML = artPath
+    ? `<img src="${artPath}" alt="${enemyName}">`
+    : `<svg viewBox="0 0 100 100" width="90" height="90" fill="none" xmlns="http://www.w3.org/2000/svg">${ENEMY_ICONS[iconKey] || ENEMY_ICONS.bandit}</svg>`;
   document.getElementById('combat-log').innerHTML = `<div>${enemyName} block${enemyName.endsWith('s')?'':'s'} your path!</div>`;
   updateCombatUI();
   document.getElementById('combat-view').classList.add('show');
@@ -1064,6 +1083,12 @@ function endCombat(result){
   const enemyName = combat ? combat.enemyName : 'enemy';
   const onEnd = combat ? combat.onEnd : null;
   const goldRewardRange = combat ? combat.goldRewardRange : [8,20];
+  // Nulled synchronously (not inside the setTimeout below) so a click during the
+  // victory/defeat delay hits combatAttack/combatFlee's `if(!combat) return;` guard
+  // instead of re-entering — without this, mashing Attack right as the killing blow
+  // lands could re-trigger endCombat('victory') again before enemyHp's negative value
+  // stopped combat.enemyHp<=0 from re-passing, stacking duplicate gold rewards and onEnd calls.
+  combat = null;
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
     if(result === 'victory'){
@@ -1076,7 +1101,6 @@ function endCombat(result){
     } else {
       showToast(`You flee from the fight.`);
     }
-    combat = null;
     if(onEnd) onEnd(result);
   }, result === 'victory' || result === 'defeat' ? 700 : 0);
 }
@@ -1084,18 +1108,18 @@ function endCombat(result){
 document.getElementById('combat-attack-btn').addEventListener('click', combatAttack);
 document.getElementById('combat-flee-btn').addEventListener('click', combatFlee);
 
+const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed regardless of who they're fighting
 function triggerBanditFight(onEnd){
-  startCombat('Bandit', 30, [5,12], [8,15], onEnd || (()=>{}), 'bandit', [8,20]);
+  startCombat('Bandit', 30, [5,12], PLAYER_DMG_RANGE, onEnd || (()=>{}), 'bandit', [8,20]);
 }
 // Tougher, war-flavored alternative to a plain Bandit — see pickAmbushEnemy/triggerAmbushFight
-// below for when one of these shows up instead. Ork Raiders hit harder and pay out more than
-// Goblin Raiders, who in turn are a step up from a lone Bandit — three difficulty rungs, not two.
+// below for when one of these shows up instead. Picks a random variant from ENEMY_VARIANTS for
+// the given race so e.g. a Goblin ambush isn't always the same Goblin Raider — see the comment
+// on ENEMY_VARIANTS above for how each variant's own difficulty is expressed.
 function triggerRaidersFight(race, onEnd){
-  if(race === 'ork'){
-    startCombat('Ork Raiders', 55, [5,12], [11,20], onEnd || (()=>{}), 'ork', [15,30]);
-  } else {
-    startCombat('Goblin Raiders', 35, [5,12], [7,14], onEnd || (()=>{}), 'goblin', [10,22]);
-  }
+  const variants = ENEMY_VARIANTS[race] || ENEMY_VARIANTS.goblin;
+  const v = variants[Math.floor(Math.random()*variants.length)];
+  startCombat(v.name, v.hp, v.enemyDmgRange, PLAYER_DMG_RANGE, onEnd || (()=>{}), null, v.goldRange, v.art);
 }
 const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
 // Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement

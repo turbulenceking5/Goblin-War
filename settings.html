@@ -62,6 +62,13 @@
     padding:11px 14px; width:100%; cursor:pointer; margin-top:8px;
   }
   .btn-danger:active{ transform:scale(.98); }
+  .changelog-entry{
+    background:rgba(255,255,255,.35); border:1.5px solid var(--parchment-shadow); border-radius:10px;
+    padding:12px 14px; margin-bottom:10px;
+  }
+  .changelog-date{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:6px; }
+  .changelog-entry ul{ margin:0; padding-left:18px; }
+  .changelog-entry li{ font-size:14.5px; color:#4d3a24; margin-bottom:4px; line-height:1.4; }
   #toast{
     position:fixed; top:66px; left:50%; transform:translate(-50%,-14px);
     background:rgba(20,14,6,.94); color:var(--parchment);
@@ -88,6 +95,9 @@
     <div class="section-label">Save Slots</div>
     <div id="slots"></div>
 
+    <div class="section-label">Change Log</div>
+    <div id="changelog-list"></div>
+
     <button class="btn-danger" id="new-game-btn">Start New Game (reset progress)</button>
   </main>
 
@@ -112,6 +122,16 @@ const DEFAULT_INVENTORY = [
 ];
 const SLOT_KEYS = ["goblinwar_slot_1","goblinwar_slot_2","goblinwar_slot_3"];
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+
+// Kept identical to the CHANGELOG array in index.html (see CLAUDE.md's no-modules
+// convention) — update both whenever a change ships, or this page and the "What's New"
+// popup on the map will disagree.
+const CHANGELOG_SEEN_KEY = "goblinwar_lastSeenChangelog";
+const CHANGELOG = [
+  { id:1, date:"2026-09-03", changes:[
+    "Added a Change Log to Settings, and a \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
+  ]},
+];
 
 let burgNames = {}; // id -> name, for display only
 
@@ -235,6 +255,20 @@ document.getElementById('new-game-btn').addEventListener('click', ()=>{
   localStorage.setItem(EQUIPPED_KEY, "{}");
   location.href = 'index.html';
 });
+
+function renderChangelog(){
+  const container = document.getElementById('changelog-list');
+  const newestFirst = CHANGELOG.slice().reverse();
+  container.innerHTML = newestFirst.map(entry => `
+    <div class="changelog-entry">
+      <div class="changelog-date">${entry.date}</div>
+      <ul>${entry.changes.map(c=>`<li>${c}</li>`).join('')}</ul>
+    </div>
+  `).join('');
+  // Reading the full log here counts as "seen" — no need for the map's popup to repeat it.
+  localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
+}
+renderChangelog();
 
 fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
   Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);

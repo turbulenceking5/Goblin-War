@@ -179,6 +179,27 @@
   }
   #loading.hide{ display:none; }
 
+  #whats-new-modal{
+    position:fixed; inset:0; z-index:90; display:none;
+    background:rgba(10,7,3,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #whats-new-modal.show{ display:flex; }
+  #whats-new-card{
+    max-width:380px; width:100%; max-height:80vh; overflow-y:auto;
+    background:linear-gradient(180deg,#efe2bd 0%, #e2d1a2 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #whats-new-title{ font-family:'Cinzel Decorative', serif; font-size:19px; color:var(--ink); margin:0 0 14px; text-align:center; text-shadow:none; }
+  .whats-new-entry{ margin-bottom:16px; }
+  .whats-new-entry:last-child{ margin-bottom:0; }
+  .whats-new-date{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#6a5a3a; margin-bottom:6px; }
+  .whats-new-entry ul{ margin:0; padding-left:18px; }
+  .whats-new-entry li{ font-size:14px; color:#4d3a24; margin-bottom:4px; line-height:1.4; }
+  #whats-new-dismiss{ width:100%; margin-top:6px; }
+
   #location-view{ position:fixed; inset:0; z-index:60; display:none; background:var(--water-dk); }
   #location-view.show{ display:block; }
   #loc-actions{
@@ -353,6 +374,14 @@
   </div>
 
   <div id="loading">LOADING THE MAP…</div>
+
+  <div id="whats-new-modal">
+    <div id="whats-new-card">
+      <h2 id="whats-new-title">What's New</h2>
+      <div id="whats-new-list"></div>
+      <button class="btn btn-primary" id="whats-new-dismiss">Got it</button>
+    </div>
+  </div>
 
   <div id="location-view">
     <div id="loc-actions">
@@ -542,6 +571,42 @@ function advanceDays(n){
   refreshCalendarUI();
   maybeRunFactionAI();
 }
+
+// ===================== CHANGE LOG / WHAT'S NEW =====================
+// One entry per shipped update, oldest first (ids only ever go up). This exact array is
+// duplicated in settings.html (see CLAUDE.md's no-modules convention) — add a new entry to
+// both whenever a change ships, or the Settings Change Log and this popup will disagree.
+const CHANGELOG_SEEN_KEY = "goblinwar_lastSeenChangelog";
+const CHANGELOG = [
+  { id:1, date:"2026-09-03", changes:[
+    "Added a Change Log to Settings, and this \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
+  ]},
+];
+
+// Silent on a brand-new game (nothing to compare against yet); otherwise shows every
+// entry newer than the last one this player has dismissed, newest first.
+function checkForWhatsNew(){
+  const latestId = CHANGELOG[CHANGELOG.length-1].id;
+  const seenRaw = localStorage.getItem(CHANGELOG_SEEN_KEY);
+  if(seenRaw === null){
+    localStorage.setItem(CHANGELOG_SEEN_KEY, String(latestId));
+    return;
+  }
+  const seenId = parseInt(seenRaw, 10);
+  if(seenId >= latestId) return;
+  const unseen = CHANGELOG.filter(entry => entry.id > seenId).slice().reverse();
+  document.getElementById('whats-new-list').innerHTML = unseen.map(entry => `
+    <div class="whats-new-entry">
+      <div class="whats-new-date">${entry.date}</div>
+      <ul>${entry.changes.map(c=>`<li>${c}</li>`).join('')}</ul>
+    </div>
+  `).join('');
+  document.getElementById('whats-new-modal').classList.add('show');
+}
+document.getElementById('whats-new-dismiss').addEventListener('click', ()=>{
+  localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
+  document.getElementById('whats-new-modal').classList.remove('show');
+});
 
 // ===================== TERRITORY CONTROL & FACTION AI =====================
 // A settlement's *historical* kingdom/race (graph.burgs[id].state/.race, from the Azgaar
@@ -1964,6 +2029,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
       centerOnLogical(b.x, b.y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
     }
     document.getElementById('loading').classList.add('hide');
+    checkForWhatsNew();
   };
   if(img.complete) finishLoad();
   else img.addEventListener('load', finishLoad);

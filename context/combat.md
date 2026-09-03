@@ -1,18 +1,17 @@
 # Combat (index.html)
 
-A minimal turn-based fight system with three enemy races — Bandit, Goblin, and Ork — the latter two now with several real-art *variants* each rather than one reskinned Bandit apiece. Lives entirely in index.html — there's no separate combat page, it's an overlay (`#combat-view`, z-index 70) drawn on top of whatever screen was showing.
+A minimal turn-based fight system with three enemy races — Bandit, Goblin, and Ork — each with several real-art *variants* rather than one look apiece. Lives entirely in index.html — there's no separate combat page, it's an overlay (`#combat-view`, z-index 70) drawn on top of whatever screen was showing.
 
 ## Starting a fight
 
-`startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, iconKey, goldRewardRange, artPath)` is the low-level entry point everything else wraps. `enemyDmgRange` is what the enemy deals to the player per round; `playerDmgRange` is what the player deals back — two ready-made wrappers call it with real numbers:
+`startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, artPath, goldRewardRange)` is the low-level entry point everything else wraps. `enemyDmgRange` is what the enemy deals to the player per round; `playerDmgRange` is what the player deals back; `artPath` renders as an `<img>` inside `#combat-enemy-icon`.
 
-- `triggerBanditFight(onEnd)` — `startCombat('Bandit', 30, [5,12], PLAYER_DMG_RANGE, onEnd, 'bandit', [8,20])`: 30 HP, hits the player for 5–12, 8–20 gold on victory. Still uses the old hand-drawn SVG (`iconKey:'bandit'`) since there's no human portrait art yet.
-- `triggerRaidersFight(race, onEnd)` — picks a random entry from `ENEMY_VARIANTS[race]` (see below) and starts a fight with that variant's own `hp`/`enemyDmgRange`/`goldRange`/`art`.
-- `triggerAmbushFight(burgId, onEnd, context)` — the one the two ambush call sites below actually use. Picks which race ambushes (`pickAmbushEnemy`, see "Which enemy shows up" below), shows a toast worded for `context` (`'road'` vs `'camp'`), and calls `triggerBanditFight`/`triggerRaidersFight`.
+- `triggerEnemyFight(race, onEnd)` — picks a random entry from `ENEMY_VARIANTS[race]` (see below) and starts a fight with that variant's own `hp`/`enemyDmgRange`/`goldRange`/`art`. The one function every race uses now that all three have real art.
+- `triggerAmbushFight(burgId, onEnd, context)` — the one the two ambush call sites below actually use. Picks which race ambushes (`pickAmbushEnemy`, see "Which race shows up" below), shows a toast worded for `context` (`'road'` vs `'camp'`), and calls `triggerEnemyFight`.
 
-`PLAYER_DMG_RANGE` (`[8,15]`) is a single shared constant — the player's own weapon damage never changes based on who they're fighting; only the *enemy's* side (`enemyDmgRange`, `hp`, `goldRange`) scales with difficulty. (Earlier code had this backwards — `triggerRaidersFight`'s two calls passed their difficulty numbers into the *player's* damage slot instead of the enemy's, so fighting an Ork Raider let the player hit harder than fighting a Bandit while the enemy's own damage output stayed flat. Fixed when `ENEMY_VARIANTS` was introduced.)
+`PLAYER_DMG_RANGE` (`[8,15]`) is a single shared constant — the player's own weapon damage never changes based on who they're fighting; only the *enemy's* side (`enemyDmgRange`, `hp`, `goldRange`) scales with difficulty. (Earlier code had this backwards — two hardcoded fight-starting calls passed their difficulty numbers into the *player's* damage slot instead of the enemy's, so fighting an Ork Raider let the player hit harder than fighting a Bandit while the enemy's own damage output stayed flat. Fixed when `ENEMY_VARIANTS` was introduced.)
 
-`artPath`, when given, renders as an `<img>` inside `#combat-enemy-icon`; otherwise `iconKey` selects a hand-drawn SVG from `ENEMY_ICONS` (currently just `bandit` — same circle-head/cape-body/weapon composition as always). `goldRewardRange` is what `endCombat` rolls from on victory (see below). Both are stored on the `combat` object alongside everything else, so a harder fight visibly looks harder and pays out more, not just a renamed Bandit with bigger numbers.
+`goldRewardRange` is what `endCombat` rolls from on victory (see below) — stored on the `combat` object alongside everything else, so a harder fight visibly looks harder and pays out more, not just a renamed Bandit with bigger numbers.
 
 `combat` is a single module-level object (`{enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange}`) — the game only ever supports one fight at a time, no queue or nesting.
 
@@ -20,15 +19,15 @@ A minimal turn-based fight system with three enemy races — Bandit, Goblin, and
 
 `ENEMY_VARIANTS` (index.html) is `{ race: [{name, hp, enemyDmgRange, goldRange, art}, ...] }`. Real portraits live in `assets/enemies/*.png` (transparent background, downscaled to a 600px longest edge — see `#combat-enemy-icon img`'s `max-width:190px`/`max-height:210px` for how they're actually displayed). Currently:
 
-- **Goblin** (4 variants, one picked at random per fight): Goblin Raider (35 HP, spear+sword, the baseline — same numbers the single "Goblin Raiders" type used before variants existed), Goblin Shieldbearer (45 HP, spear+shield — tankiest, hits softest at 6–12), Goblin Skirmisher (30 HP, dual curved blades — squishiest melee goblin but hits hardest at 9–16, best goblin payout), Goblin Archer (25 HP, bow — lowest HP, moderate 7–13 damage, lowest goblin payout).
-- **Ork** (1 variant so far): Ork Raider (55 HP, dual axe/cleaver, hits for 11–20 — the toughest fight in the game, best payout).
-- **Bandit**: still the single hand-drawn SVG type, no variants — human art hasn't been supplied yet. When it is, Bandit should move into this same `ENEMY_VARIANTS` shape.
+- **Bandit** (1 variant so far): Bandit (30 HP, hooded human archer, hits for 5–12 — the easiest fight in the game).
+- **Goblin** (4 variants): Goblin Raider (35 HP, spear+sword, the baseline), Goblin Shieldbearer (45 HP, spear+shield — tankiest goblin, hits softest at 6–12), Goblin Skirmisher (30 HP, dual curved blades — squishiest melee goblin but hits hardest at 9–16, best goblin payout), Goblin Archer (25 HP, bow — lowest HP, moderate 7–13 damage, lowest goblin payout).
+- **Ork** (3 variants): Ork Raider (55 HP, dual axe/cleaver, hits for 11–20 — the original baseline), Ork Berserker (45 HP, bare-chested dual hand-axes, no armor — squishiest ork but hits just as hard as a Raider at 12–22), Ork Warlord (70 HP, heavily armored with bone trophies and a single heavy cleaver, hits for 13–22 — the toughest fight in the game, best payout).
 
-Adding another variant to an existing race (more goblin or ork art) is just one more array entry — `triggerRaidersFight` already picks uniformly at random from whatever's in the list, no other code changes. Adding a new race (human/dwarf bandit variants) means giving `pickAmbushEnemy` a way to return that race and adding its own `ENEMY_VARIANTS` entry.
+A race with only one variant so far (Bandit) picks that same variant every time — nothing special about it, `triggerEnemyFight` just has a one-element array to choose from. Adding another variant to any race is one more array entry plus its PNG in `assets/enemies/` — `triggerEnemyFight` already picks uniformly at random from whatever's in the list, no other code changes. A whole new race (Dwarf, if it ever becomes an ambusher) means giving `ENEMY_VARIANTS` a new key and teaching `pickAmbushEnemy` to return it for the right settlements.
 
 ## Which race shows up
 
-`pickAmbushEnemy(burgId)` is what actually decides Bandit vs. Goblin vs. Ork for a given ambush (variant selection within a race happens afterward, inside `triggerRaidersFight`): if `burgId`'s original kingdom is Good-alliance (human/dwarf — see [factions-and-territory.md](factions-and-territory.md)) *and* that kingdom is currently at war, there's a `RAID_AMBUSH_CHANCE` (50%) chance of a themed raiding party (coin-flip between goblin/ork) instead of a plain Bandit. A Bad-alliance settlement (ork/goblin territory) never spawns a themed raid, at war or not — the game doesn't cast Human/Dwarf as ambush enemies, so an ambush there is always just a Bandit. This is the direct payoff of the faction AI system: fighting through a warzone now actually feels different from a peaceful road.
+`pickAmbushEnemy(burgId)` is what actually decides Bandit vs. Goblin vs. Ork for a given ambush (variant selection within a race happens afterward, inside `triggerEnemyFight`): if `burgId`'s original kingdom is Good-alliance (human/dwarf — see [factions-and-territory.md](factions-and-territory.md)) *and* that kingdom is currently at war, there's a `RAID_AMBUSH_CHANCE` (50%) chance of a themed raiding party (coin-flip between goblin/ork) instead of a plain Bandit. A Bad-alliance settlement (ork/goblin territory) never spawns a themed raid, at war or not — the game doesn't cast Human/Dwarf as ambush enemies, so an ambush there is always just a Bandit. This is the direct payoff of the faction AI system: fighting through a warzone now actually feels different from a peaceful road.
 
 ## Turn loop
 
@@ -61,6 +60,6 @@ Both call sites are examples of the `onEnd` pattern above: the fight is spliced 
 
 ## Adding a new enemy variant or race
 
-More goblin or ork art: drop the PNG in `assets/enemies/`, add one entry to `ENEMY_VARIANTS.goblin`/`.ork` with its own `hp`/`enemyDmgRange`/`goldRange`/`art` — nothing else needs to change, `triggerRaidersFight` already picks uniformly at random from the array.
+More art for an existing race: drop the PNG in `assets/enemies/`, add one entry to `ENEMY_VARIANTS.bandit`/`.goblin`/`.ork` with its own `hp`/`enemyDmgRange`/`goldRange`/`art` — nothing else needs to change, `triggerEnemyFight` already picks uniformly at random from the array.
 
-A whole new race (human/dwarf, once that art exists): give `ENEMY_VARIANTS` a new race key with its own variant array, then change `pickAmbushEnemy` so it can actually return that race for the right settlements, and update `triggerAmbushFight`'s toast wording to cover it.
+A whole new race (Dwarf, if it becomes an ambusher): give `ENEMY_VARIANTS` a new race key with its own variant array, then change `pickAmbushEnemy` so it can actually return that race for the right settlements, and update `triggerAmbushFight`'s toast wording to cover it.

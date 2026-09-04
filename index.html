@@ -693,6 +693,9 @@ const CHANGELOG = [
   { id:18, date:"2026-09-04", changes:[
     "Enemies can now drop loot on defeat — Healing Potions, gear pieces, and a couple of race-flavored extras, on top of the usual gold and XP."
   ]},
+  { id:19, date:"2026-09-04", changes:[
+    "Talk to Townsfolk is now a real action — settlement gossip that reacts to whether the place is at war, its size, and whether it's changed hands recently."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -2567,7 +2570,7 @@ function showLocationView(burgId){
     { icon:`<circle cx="12" cy="12" r="9"/><path d="M9 10h6M9 14h4"/>`, title:"The Inn", desc:"Rest up and hear local rumours", action:'inn' },
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market' },
     { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : "Take on odd jobs for a few hours' pay", action:'work', disabled:workedToday },
-    { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'stub' },
+    { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'talk' },
     { icon:`<path d="M6 3h12v4H6z"/><path d="M9 7v14M9 9h6M9 12h6M9 15h4"/>`, title:"Quest Board", desc:"See what work needs doing", action:'questboard' },
   ];
   // City/Capital settlements get extra actions on top of the base five, so a big
@@ -2607,6 +2610,7 @@ function showLocationView(burgId){
         if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
+      else if(btn.dataset.action === 'talk') showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId));
       else showToast("Not built yet — coming in a future update.");
     });
   });
@@ -2671,6 +2675,57 @@ const PALACE_LINES = [
   "Guards in ceremonial armour stand motionless beside the throne.",
   "Word in the court is that the war is weighing heavily on the ruler's mind.",
 ];
+
+// Talk to Townsfolk — settlement-flavored counterpart to the Inn's RUMOURS: reacts to this
+// settlement's own war state, tier, and whether it's changed hands, rather than universal
+// world gossip. getTownsfolkLines() assembles the eligible pool per visit from whichever of
+// these apply, then showFlavorPanel picks one line at random — same flat-array-of-strings
+// shape as RUMOURS/TEMPLE_LINES, just several pools combined instead of always one.
+const TOWNSFOLK_LINES_PEACE = [
+  "Life carries on here well enough — good harvests, fewer bandits on the roads than folk feared.",
+  "An old woman by the well says these are the quietest seasons she can remember.",
+  "Children are chasing each other through the square like there isn't a war within a hundred miles.",
+  "A baker complains loudly about the price of flour, and no one seems to mind listening.",
+  "Someone's arranging a wedding for next month — half the settlement's already arguing about the feast.",
+  "A dog naps in the shade of the well, entirely unbothered by anything you might ask about.",
+];
+const TOWNSFOLK_LINES_WAR = [
+  "Everyone's got an opinion on the war — who's winning, who's losing, who's next.",
+  "A mother keeps glancing down the road, waiting on word from the front.",
+  "The blacksmith hasn't stopped hammering out spearheads in weeks.",
+  "Someone's posted a list of names on the notice board. Nobody wants to read it aloud.",
+  "A young man boasts he'll join the levies as soon as they're called. His mother looks like she wants to disagree.",
+  "Talk turns quiet whenever a stranger walks past — everyone's on edge these days.",
+];
+const TOWNSFOLK_LINES_CAPTURED = [
+  "Some here still whisper the old banners' colors when they think no one's listening.",
+  "A shopkeeper mutters that trade was better under the old lords.",
+  "An old man refuses to call the square by its new name.",
+  "Life's gone on much the same since new banners went up over the gate — for better or worse, depending who you ask.",
+  "Someone spits at the mention of the old rulers, and someone else at the mention of the new ones.",
+];
+const TOWNSFOLK_LINES_VILLAGE = [
+  "A farmer complains the goats got into the vegetable patch again.",
+  "Two neighbours are arguing over whose fence line is whose — again.",
+  "Someone's cow went missing three days ago and half the village is still looking for it.",
+  "A traveling peddler's set up near the well, and everyone's pretending they don't want anything he's selling.",
+  "The miller's daughter is getting married, and apparently the whole village has opinions about the groom.",
+  "Someone swears the well water's tasted different since last week. Nobody else seems to notice.",
+];
+const TOWNSFOLK_LINES_CITY = [
+  "Merchants argue loudly over tariffs outside the guildhall, as they do most days.",
+  "A minor noble's carriage rattles past, and half the street stops to gawk.",
+  "There's talk of a new tax on the docks — nobody's happy about it, as usual.",
+  "A scribe hurries past with a satchel of sealed letters, too important to stop and chat.",
+  "Someone's spreading a rumour about the court that's probably half true and entirely exaggerated.",
+  "A street performer draws a small crowd, juggling knives with more confidence than skill.",
+];
+function getTownsfolkLines(burgId){
+  const b = graph.burgs[burgId];
+  const pool = (isAtWarAt(burgId) ? TOWNSFOLK_LINES_WAR : TOWNSFOLK_LINES_PEACE)
+    .concat(b.tier === 'village' || b.tier === 'town' ? TOWNSFOLK_LINES_VILLAGE : TOWNSFOLK_LINES_CITY);
+  return getController(burgId) !== b.race ? pool.concat(TOWNSFOLK_LINES_CAPTURED) : pool;
+}
 function showFlavorPanel(burgId, title, lines, extraHTML){
   const b = graph.burgs[burgId];
   const line = lines[Math.floor(Math.random()*lines.length)];

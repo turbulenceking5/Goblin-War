@@ -591,11 +591,13 @@ function advanceDays(n){
 // duplicated in settings.html (see CLAUDE.md's no-modules convention) — add a new entry to
 // both whenever a change ships, or the Settings Change Log and this popup will disagree.
 // Namespaced per logged-in account (not a single shared key) so that on a shared device,
-// or across CHANGELOG.length-1 devices for the same player, each account gets its own
-// "have I seen this" state — one player dismissing it never marks it seen for anyone else,
-// and a player who logs in on a second device still sees whatever they haven't yet. Resolved
-// once authGateReady settles; see assets/auth-client.js.
+// or across multiple devices for the same player, each account gets its own "have I seen
+// this" state — one player dismissing it never marks it seen for anyone else, and a player
+// who logs in on a second device still sees whatever they haven't yet. Resolved once
+// authGateReady settles; see assets/auth-client.js.
 let CHANGELOG_SEEN_KEY = null;
+// The pre-accounts flat key, checked once as a migration fallback — see checkForWhatsNew().
+const LEGACY_CHANGELOG_SEEN_KEY = "goblinwar_lastSeenChangelog";
 const CHANGELOG = [
   { id:1, date:"2026-09-03", changes:[
     "Added a Change Log to Settings, and this \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
@@ -626,13 +628,25 @@ const CHANGELOG = [
 function checkForWhatsNew(){
   if(!CHANGELOG_SEEN_KEY) return;
   const latestId = CHANGELOG[CHANGELOG.length-1].id;
-  const seenRaw = localStorage.getItem(CHANGELOG_SEEN_KEY);
+  let seenRaw = localStorage.getItem(CHANGELOG_SEEN_KEY);
   if(seenRaw === null){
+    // First time this account's own key has been touched. Migrate from the old flat,
+    // pre-accounts key if this browser has one (a player who was already playing before
+    // login existed) so their real progress isn't lost — without this, every account's
+    // first-ever login reads as "brand new game, nothing to compare against yet" and goes
+    // silent even though there are changes they haven't actually seen. A browser with
+    // neither key (a truly first-ever player) still falls through to that silent case.
+    seenRaw = localStorage.getItem(LEGACY_CHANGELOG_SEEN_KEY);
+    if(seenRaw === null){
+      localStorage.setItem(CHANGELOG_SEEN_KEY, String(latestId));
+      return;
+    }
+  }
+  const seenId = parseInt(seenRaw, 10);
+  if(seenId >= latestId){
     localStorage.setItem(CHANGELOG_SEEN_KEY, String(latestId));
     return;
   }
-  const seenId = parseInt(seenRaw, 10);
-  if(seenId >= latestId) return;
   const unseen = CHANGELOG.filter(entry => entry.id > seenId).slice().reverse();
   document.getElementById('whats-new-list').innerHTML = unseen.map(entry => `
     <div class="whats-new-entry">

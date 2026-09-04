@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#e2857f; }
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#e2857f; --good:#8fbf7a; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
   body{ display:flex; align-items:center; justify-content:center; padding:24px calc(20px + env(safe-area-inset-right)) 24px calc(20px + env(safe-area-inset-left)); }
@@ -25,6 +25,11 @@
     background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:12px;
     padding:20px; display:flex; flex-direction:column; gap:10px;
   }
+  .view{ display:none; flex-direction:column; gap:10px; }
+  .view.show{ display:flex; }
+  .card-title{ font-family:'Cinzel Decorative', serif; font-size:17px; color:var(--gold-lt); margin:0 0 2px; text-align:center; }
+  .card-body{ font-size:14.5px; line-height:1.55; color:var(--parchment); text-align:center; }
+  .card-body b{ color:var(--gold-lt); }
   .field-label{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:4px 0 -2px; }
   input{
     font-family:'EB Garamond', serif; font-size:15px; color:var(--parchment);
@@ -33,16 +38,23 @@
   }
   input::placeholder{ color:#7a6b4d; }
   .error{ font-size:13px; color:var(--bad); min-height:0; }
-  .notice{ font-size:13px; color:var(--gold-lt); min-height:0; }
-  .btn-row{ display:flex; gap:10px; margin-top:6px; }
   .btn{
     font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
-    border:none; border-radius:8px; padding:12px 14px; cursor:pointer; flex:1;
+    border:none; border-radius:8px; padding:12px 14px; cursor:pointer; width:100%;
   }
   .btn:active{ transform:scale(.97); }
-  .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
-  .btn-secondary{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
-  .hint{ font-size:12px; color:#a9926a; text-align:center; margin-top:14px; line-height:1.5; }
+  .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; margin-top:6px; }
+  .switch-link{
+    background:transparent; border:none; color:var(--gold-lt); font-family:'EB Garamond', serif;
+    font-size:13.5px; text-decoration:underline; cursor:pointer; padding:6px 0; text-align:center;
+  }
+  .spinner{
+    width:26px; height:26px; margin:4px auto 2px; border-radius:50%;
+    border:3px solid rgba(209,164,69,.3); border-top-color:var(--gold-lt);
+    animation:spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .check-icon{ font-size:34px; text-align:center; margin-bottom:2px; }
 </style>
 </head>
 <body>
@@ -51,19 +63,45 @@
     <h1>THE GOBLIN WAR</h1>
     <div class="subtitle">An account is required to play</div>
   </div>
+
   <div class="card">
-    <div class="field-label">Email</div>
-    <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
-    <div class="field-label">Password</div>
-    <input id="password" type="password" placeholder="6+ characters" autocomplete="current-password">
-    <div class="error" id="error"></div>
-    <div class="notice" id="notice"></div>
-    <div class="btn-row">
-      <button class="btn btn-secondary" id="signup-btn">Sign Up</button>
+    <!-- Log In -->
+    <div class="view show" id="view-login">
+      <div class="field-label">Email</div>
+      <input id="login-email" type="email" placeholder="you@example.com" autocomplete="email">
+      <div class="field-label">Password</div>
+      <input id="login-password" type="password" placeholder="Your password" autocomplete="current-password">
+      <div class="error" id="login-error"></div>
       <button class="btn btn-primary" id="login-btn">Log In</button>
+      <button class="switch-link" id="go-to-signup">New here? Create an account</button>
+    </div>
+
+    <!-- Sign Up -->
+    <div class="view" id="view-signup">
+      <div class="field-label">Email</div>
+      <input id="signup-email" type="email" placeholder="you@example.com" autocomplete="email">
+      <div class="field-label">Password</div>
+      <input id="signup-password" type="password" placeholder="6+ characters" autocomplete="new-password">
+      <div class="error" id="signup-error"></div>
+      <button class="btn btn-primary" id="signup-btn">Create Account</button>
+      <button class="switch-link" id="go-to-login">Already have an account? Log in</button>
+    </div>
+
+    <!-- Check your email -->
+    <div class="view" id="view-check-email">
+      <div class="check-icon">✉️</div>
+      <div class="card-title">Check your email</div>
+      <div class="card-body">We sent a confirmation link to <b id="check-email-address"></b>. Open it on this device, then come back here and log in.</div>
+      <button class="btn btn-primary" id="back-to-login-btn">Back to Log In</button>
+    </div>
+
+    <!-- Authenticated (landed here already logged in, or just confirmed via email) -->
+    <div class="view" id="view-authenticated">
+      <div class="spinner"></div>
+      <div class="card-title">You're in!</div>
+      <div class="card-body">Logged in as <b id="authed-email"></b>. Taking you into the realm&hellip;</div>
     </div>
   </div>
-  <div class="hint">New here? Sign up with an email and password, then confirm your email if asked before logging in.</div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -77,37 +115,59 @@ function targetPage(){
   return (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect)) ? redirect : 'index.html';
 }
 
-// Already logged in (e.g. followed a stale link, or came back after confirming email in
-// another tab) — skip the form entirely.
-sb.auth.getSession().then(({ data: { session } })=>{
-  if(session) location.replace(targetPage());
-});
+function showView(id){
+  document.querySelectorAll('.view').forEach(v=> v.classList.toggle('show', v.id === id));
+}
 
-const emailEl = document.getElementById('email');
-const passwordEl = document.getElementById('password');
-const errorEl = document.getElementById('error');
-const noticeEl = document.getElementById('notice');
+document.getElementById('go-to-signup').addEventListener('click', ()=> showView('view-signup'));
+document.getElementById('go-to-login').addEventListener('click', ()=> showView('view-login'));
+document.getElementById('back-to-login-btn').addEventListener('click', ()=> showView('view-login'));
 
-function setError(msg){ errorEl.textContent = msg || ''; noticeEl.textContent = ''; }
-function setNotice(msg){ noticeEl.textContent = msg || ''; errorEl.textContent = ''; }
-
-document.getElementById('signup-btn').addEventListener('click', async ()=>{
-  const email = emailEl.value.trim();
-  const password = passwordEl.value;
-  if(!email || password.length < 6){ setError('Enter an email and a password of 6+ characters.'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password });
-  if(error){ setError(error.message); return; }
-  if(data.session){ location.replace(targetPage()); return; }
-  setNotice('Account created — check your email to confirm it, then log in below.');
-});
+const loginEmailEl = document.getElementById('login-email');
+const loginPasswordEl = document.getElementById('login-password');
+const loginErrorEl = document.getElementById('login-error');
+const signupEmailEl = document.getElementById('signup-email');
+const signupPasswordEl = document.getElementById('signup-password');
+const signupErrorEl = document.getElementById('signup-error');
 
 document.getElementById('login-btn').addEventListener('click', async ()=>{
-  const email = emailEl.value.trim();
-  const password = passwordEl.value;
-  if(!email || !password){ setError('Enter your email and password.'); return; }
+  const email = loginEmailEl.value.trim();
+  const password = loginPasswordEl.value;
+  loginErrorEl.textContent = '';
+  if(!email || !password){ loginErrorEl.textContent = 'Enter your email and password.'; return; }
   const { error } = await sb.auth.signInWithPassword({ email, password });
-  if(error){ setError(error.message); return; }
+  if(error){ loginErrorEl.textContent = error.message; return; }
   location.replace(targetPage());
+});
+
+document.getElementById('signup-btn').addEventListener('click', async ()=>{
+  const email = signupEmailEl.value.trim();
+  const password = signupPasswordEl.value;
+  signupErrorEl.textContent = '';
+  if(!email || password.length < 6){ signupErrorEl.textContent = 'Enter an email and a password of 6+ characters.'; return; }
+  // Where the confirmation email's link should send them back to — this page, wherever it's
+  // actually hosted (location.origin + location.pathname, since we're already on login.html).
+  // Supabase only honors this if the exact URL is allow-listed in the dashboard under
+  // Authentication -> URL Configuration -> Redirect URLs; otherwise it silently falls back to
+  // the project's Site URL instead, which is what was producing a 404 before this existed.
+  const { data, error } = await sb.auth.signUp({
+    email, password,
+    options: { emailRedirectTo: location.origin + location.pathname }
+  });
+  if(error){ signupErrorEl.textContent = error.message; return; }
+  if(data.session){ location.replace(targetPage()); return; }
+  document.getElementById('check-email-address').textContent = email;
+  showView('view-check-email');
+});
+
+// Landed here already logged in — either a stale link to login.html, or (more likely) the
+// confirmation email's link just handed supabase-js a session via the URL hash. Either way,
+// say so before redirecting rather than silently jumping straight into the game.
+sb.auth.getSession().then(({ data: { session } })=>{
+  if(!session) return;
+  document.getElementById('authed-email').textContent = session.user.email;
+  showView('view-authenticated');
+  setTimeout(()=> location.replace(targetPage()), 900);
 });
 </script>
 </body>

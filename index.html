@@ -314,6 +314,7 @@
     font-family:'EB Garamond', serif; font-size:13.5px; color:#e9dcb8; line-height:1.5;
   }
   #combat-log div{ margin-bottom:4px; }
+  #combat-log .combat-intro-line{ font-style:italic; color:#a9926a; border-bottom:1px solid rgba(209,164,69,.25); padding-bottom:6px; margin-bottom:8px; }
   #combat-actions{ display:flex; gap:10px; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); }
   .combat-btn{ flex:1; font-family:'Cinzel', serif; font-size:13.5px; letter-spacing:.5px; padding:13px; border-radius:10px; cursor:pointer; border:none; }
   .combat-btn:active{ transform:scale(.97); }
@@ -1500,6 +1501,21 @@ function rollLoot(race){
   return null;
 }
 
+// A small narrative beat shown as the very first combat-log line, ahead of the mechanical
+// "X blocks your path!" message — meant to make a fight feel like a moment in the player's own
+// story rather than just a stat check, regardless of what triggered it (ambush, siege defense,
+// or anything added later). Deliberately generic/scene-agnostic rather than per-race or
+// per-location, so one small pool covers every combat entry point; picked fresh every fight.
+const COMBAT_INTRO_LINES = [
+  "Your heart pounds as steel rasps free of its sheath.",
+  "There's no turning back now — only forward, or not at all.",
+  "The world narrows to a single, sharpening point: survive this.",
+  "Every old fight taught you something. You're about to find out if it was enough.",
+  "Fear is just another weight to carry, and you've carried worse.",
+  "The road remembers every traveler who never made it home. Not you — not today.",
+  "Whatever comes next, you'll face it standing.",
+  "One breath in, one breath out. Then the world turns to violence.",
+];
 // enemySpecs: array of {name, hp, dmgRange, goldRange, xpRange, art} — 1 entry for a Bandit
 // ambush, 2-3 for a Goblin/Ork raiding party (see triggerEnemyFight below).
 function startCombat(enemySpecs, playerDmgRange, onEnd, race){
@@ -1513,9 +1529,11 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race){
   };
   const multi = combat.enemies.length > 1;
   document.getElementById('combat-title').textContent = multi ? 'Ambush!' : `${combat.enemies[0].name} Ambush!`;
-  document.getElementById('combat-log').innerHTML = multi
-    ? `<div>${combat.enemies.length} enemies block your path!</div>`
-    : `<div>${combat.enemies[0].name} block${combat.enemies[0].name.endsWith('s')?'':'s'} your path!</div>`;
+  const intro = COMBAT_INTRO_LINES[Math.floor(Math.random()*COMBAT_INTRO_LINES.length)];
+  const blocksLine = multi
+    ? `${combat.enemies.length} enemies block your path!`
+    : `${combat.enemies[0].name} block${combat.enemies[0].name.endsWith('s')?'':'s'} your path!`;
+  document.getElementById('combat-log').innerHTML = `<div class="combat-intro-line">${intro}</div><div>${blocksLine}</div>`;
   document.getElementById('combat-specials-panel').classList.remove('show');
   document.getElementById('combat-special-btn').classList.remove('active');
   updateCombatUI();
@@ -3218,7 +3236,13 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
   startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace);
   document.getElementById('combat-title').textContent = 'Defend the Walls!';
-  document.getElementById('combat-log').innerHTML = `<div>${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!</div>`;
+  // Appended, not overwritten — startCombat already seeded the log with a random
+  // COMBAT_INTRO_LINES beat plus its own "N enemies block your path!" line; this replaces
+  // only that second, ambush-flavored line with siege-appropriate wording instead of
+  // discarding the story beat above it.
+  const log = document.getElementById('combat-log');
+  log.innerHTML = log.querySelector('.combat-intro-line').outerHTML
+    + `<div>${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!</div>`;
 }
 // Combat's onEnd hook, per-siege: victory knocks a meaningful chunk off progress (not an
 // instant win) plus a reward; defeat/flee simply leaves the siege to advance normally on the

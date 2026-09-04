@@ -690,6 +690,9 @@ const CHANGELOG = [
     "Goblin and Ork raiding parties can now ambush you with 2-3 enemies at once instead of just one — pick your target, watch each enemy's own health bar, and everyone still standing swings back each round.",
     "Cleave now actually hits every enemy in the fight, and War Cry now weakens all of them at once — both moves were previously written for this but had nothing to loop over."
   ]},
+  { id:18, date:"2026-09-04", changes:[
+    "Enemies can now drop loot on defeat — Healing Potions, gear pieces, and a couple of race-flavored extras, on top of the usual gold and XP."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1248,6 +1251,29 @@ const ENEMY_VARIANTS = {
   ],
 };
 
+// Loot drops — each defeated enemy independently rolls LOOT_CHANCE for whether it drops
+// anything at all; if it does, a weighted pick from that race's LOOT_TABLES entry decides
+// which single item. Items are referenced by name from MARKET_ITEMS above rather than
+// duplicating weight/price here — addItem() reads those straight off that entry.
+const LOOT_CHANCE = 0.25; // per enemy, not per fight — a 3-enemy raid gets more rolls, not a bigger one
+const LOOT_TABLES = {
+  bandit: [ { name:"Healing Potion", weight:5 }, { name:"Books", weight:2 }, { name:"Lucky Charm", weight:1 } ],
+  goblin: [ { name:"Healing Potion", weight:5 }, { name:"Leather Cap", weight:2 }, { name:"Leather Boots", weight:2 }, { name:"Sword", weight:1 } ],
+  ork:    [ { name:"Healing Potion", weight:4 }, { name:"Leather Armour", weight:2 }, { name:"Shield", weight:2 }, { name:"Sword", weight:2 }, { name:"Lucky Charm", weight:1 } ],
+};
+// Returns a MARKET_ITEMS entry, or null if this enemy drops nothing.
+function rollLoot(race){
+  const table = LOOT_TABLES[race];
+  if(!table || Math.random() >= LOOT_CHANCE) return null;
+  const totalWeight = table.reduce((sum, e) => sum + e.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for(const entry of table){
+    if(roll < entry.weight) return MARKET_ITEMS.find(mi => mi.name === entry.name);
+    roll -= entry.weight;
+  }
+  return null;
+}
+
 // enemySpecs: array of {name, hp, dmgRange, goldRange, xpRange, art} — 1 entry for a Bandit
 // ambush, 2-3 for a Goblin/Ork raiding party (see triggerEnemyFight below).
 function startCombat(enemySpecs, playerDmgRange, onEnd, race){
@@ -1506,7 +1532,16 @@ function endCombat(result){
     document.getElementById('combat-view').classList.remove('show');
     if(result === 'victory'){
       let goldTotal = 0, xpTotal = 0;
-      enemies.forEach(e => { goldTotal += randRange(e.goldRange); xpTotal += randRange(e.xpRange); });
+      const lootFound = [], lootLeftBehind = [];
+      enemies.forEach(e => {
+        goldTotal += randRange(e.goldRange);
+        xpTotal += randRange(e.xpRange);
+        const drop = rollLoot(enemyRace);
+        if(drop){
+          if(addItem(drop.name, 1, drop.weight, drop.price)) lootFound.push(drop.name);
+          else lootLeftBehind.push(drop.name);
+        }
+      });
       if(hasPerk('scavenger')) goldTotal = Math.round(goldTotal * 1.2);
       setGold(playerGold + goldTotal);
       let anyLevelUp = addXp(xpTotal);
@@ -1516,6 +1551,8 @@ function endCombat(result){
       enemies.forEach(e => { counts[e.name] = (counts[e.name]||0) + 1; });
       const names = Object.keys(counts).map(n => counts[n] > 1 ? `${counts[n]}x ${n}` : n).join(', ');
       let msg = `Victory! You defeated ${names}, found ${goldTotal} gold, and gained ${xpTotal} XP.`;
+      if(lootFound.length) msg += ` Looted: ${lootFound.join(', ')}.`;
+      if(lootLeftBehind.length) msg += ` (Too heavy to carry, left behind: ${lootLeftBehind.join(', ')}.)`;
 
       // Notable Figure kill-quests complete on the next matching victory anywhere — Kill
       // Bandits wants a Bandit, Drive Off the Raiders wants a Goblin or Ork (see

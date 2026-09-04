@@ -116,7 +116,6 @@ The rest of this file tracks placeholders already visible in the code. Everythin
 ### Combat
 
 - **Status effects** — bleed, stun, or fatigue as modifiers layered on top of the existing turn-based Attack/Specials/Flee loop (see [combat.md](combat.md)).
-- **Enemy loot drops** — victories currently only pay gold (plus XP, see the Skills & Progression section above); no enemy drops an item.
 
 ### Open design question worth flagging
 

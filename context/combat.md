@@ -67,6 +67,14 @@ The only way stamina goes back up is resting — `setStamina(playerMaxStamina)` 
 - `defeat` → `setHealth(10)` (never actually kills the player — this is the game's only failure-recovery mechanic right now), toast about barely escaping.
 - `flee` → no state change beyond whatever happened during the rounds already fought, toast "You flee from the fight."
 
+## Loot drops
+
+Each defeated enemy independently rolls `LOOT_CHANCE` (25%, per-enemy not per-fight — so a 3-enemy raid gets three rolls, not one bigger one) for whether it drops anything, via `rollLoot(race)`. On a hit, a weighted pick from that race's `LOOT_TABLES` entry (a small array of `{name, weight}`, one set per race with a race-flavored mix of consumables/gear) decides which single item — items are referenced by name off the existing `MARKET_ITEMS` array (see "Adding a new enemy variant or race" below for the parallel with `ENEMY_VARIANTS`) rather than duplicating weight/price data. This is the first weighted-random construct in the codebase; every other random pick elsewhere is uniform.
+
+The pick is added via the same `addItem(name, qty, weightEach, valueEach)` the Marketplace uses (see [player-state.md](player-state.md)) — if it would push the player over `getCarryCapacity()`, `addItem` refuses and the item is listed in the victory toast as "too heavy to carry, left behind" instead of silently vanishing. `endCombat`'s loot rolls happen inside the same per-enemy loop that sums gold/XP, using `combat.race` (one race for the whole encounter, unchanged from before multi-enemy existed) for every roll regardless of which specific enemy variant died.
+
+`LOOT_CHANCE`/`LOOT_TABLES` are a first-pass balance point, easy to retune later — same as other numeric constants in this codebase (`RAID_AMBUSH_CHANCE`, `AMBUSH_CHANCE_PER_DAY`, etc.).
+
 ## Where fights are triggered
 
 There is no random-encounter-while-walking system — ambushes only roll at two fixed moments, both gated by chance constants defined near `computeTravel` in index.html:

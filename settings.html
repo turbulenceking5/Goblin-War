@@ -94,7 +94,7 @@
 <body>
   <header>
     <h1>SETTINGS</h1>
-    <button id="back-btn" onclick="location.href='index.html'">&larr; Back to Map</button>
+    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()">&larr; Back to Map</button>
   </header>
   <main>
     <div class="subtitle">Game Options</div>
@@ -120,7 +120,7 @@
     <div class="section-label">Save Slots</div>
     <div id="slots"></div>
 
-    <div class="menu-item" onclick="location.href='changelog.html'">
+    <div class="menu-item" onclick="location.href='changelog.html?_='+Date.now()">
       <span>Change Log</span>
       <span class="chevron">&rsaquo;</span>
     </div>
@@ -230,7 +230,7 @@ function renderSlots(){
       const data = JSON.parse(localStorage.getItem(SLOT_KEYS[i]));
       if(!confirm(`Load Slot ${i+1}? Your current unsaved progress will be overwritten.`)) return;
       applyLoadedState(data);
-      location.href = 'index.html';
+      location.href = 'index.html?_=' + Date.now();
     });
   });
 }
@@ -311,7 +311,7 @@ authGateReady.then(session=>{
     if(!row){ showToast('No cloud save found yet.'); return; }
     if(!confirm('Load your cloud save? Your current unsaved progress will be overwritten.')) return;
     applyLoadedState(row.data);
-    location.href = 'index.html';
+    location.href = 'index.html?_=' + Date.now();
   });
 });
 
@@ -333,7 +333,7 @@ document.getElementById('new-game-btn').addEventListener('click', ()=>{
   localStorage.setItem(GOLD_KEY, "50");
   localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
   localStorage.setItem(EQUIPPED_KEY, "{}");
-  location.href = 'index.html';
+  location.href = 'index.html?_=' + Date.now();
 });
 
 fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{

@@ -16,6 +16,8 @@
   const hasToken = ref && !!localStorage.getItem(`sb-${ref}-auth-token`);
   if(!hasToken){
     const redirect = encodeURIComponent(location.pathname.split('/').pop() || 'index.html');
-    location.replace(`login.html?redirect=${redirect}`);
+    // Cache-bust login.html itself too — see the matching comment in login.html's
+    // targetPage(), same reasoning.
+    location.replace(`login.html?redirect=${redirect}&_=${Date.now()}`);
   }
 })();

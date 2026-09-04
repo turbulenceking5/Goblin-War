@@ -112,7 +112,11 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 function targetPage(){
   const params = new URLSearchParams(location.search);
   const redirect = params.get('redirect');
-  return (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect)) ? redirect : 'index.html';
+  const page = (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect)) ? redirect : 'index.html';
+  // Cache-bust so the destination page's own HTML is always fetched fresh rather than a
+  // stale cached copy from before the last deploy — see assets/auth-gate-sync.js's matching
+  // comment for why every internal navigation in the app does this.
+  return page + '?_=' + Date.now();
 }
 
 function showView(id){

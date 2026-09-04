@@ -12,7 +12,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 function redirectToLogin(){
   const redirect = encodeURIComponent(location.pathname.split('/').pop() || 'index.html');
-  location.replace(`login.html?redirect=${redirect}`);
+  // Cache-bust login.html itself too — see the matching comment in login.html's
+  // targetPage(), same reasoning.
+  location.replace(`login.html?redirect=${redirect}&_=${Date.now()}`);
 }
 
 const authGateReady = sb.auth.getSession().then(({ data: { session } })=>{

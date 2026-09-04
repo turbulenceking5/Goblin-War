@@ -131,7 +131,7 @@
           <div class="level-label">Level</div>
         </div>
         <div>
-          <div class="hero-name">The Traveler</div>
+          <div class="hero-name" id="hero-name">The Traveler</div>
           <span class="hero-tag">Human</span>
         </div>
       </div>
@@ -208,6 +208,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
 <script>
+const NAME_KEY = "goblinwar_characterName";
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
 const STAMINA_KEY = "goblinwar_stamina";
@@ -299,6 +300,7 @@ try{ inventory = JSON.parse(localStorage.getItem(INV_KEY) || "[]"); }catch(e){ i
 const food = inventory.find(it => it.name === FOOD_NAME);
 const carriedWeight = inventory.reduce((sum, it) => sum + it.weight*it.qty, 0);
 
+document.getElementById('hero-name').textContent = localStorage.getItem(NAME_KEY) || "Unnamed Hero";
 document.getElementById('hp-bar').style.width = Math.round((hp/maxHp)*100) + '%';
 document.getElementById('hp-value').textContent = `${hp} / ${maxHp}`;
 document.getElementById('stamina-bar').style.width = Math.round((stamina/maxStamina)*100) + '%';

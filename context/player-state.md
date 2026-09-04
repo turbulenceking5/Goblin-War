@@ -6,6 +6,7 @@ There is no player-state module — every page reads and writes the same `localS
 
 | Key | Meaning | Default | Used by |
 |---|---|---|---|
+| `goblinwar_characterName` | The active character's name, set once at creation and never changed | none — always set before index.html ever loads, see [characters.md](characters.md) | index.html, character.html, settings.html, characters.html |
 | `goblinwar_health` | Current HP | = max health | index.html, character.html, settings.html |
 | `goblinwar_maxHealth` | Max HP | `100` | index.html, character.html, settings.html |
 | `goblinwar_stamina` | Current stamina | = max stamina | index.html, character.html, settings.html |
@@ -21,9 +22,10 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_warState` | JSON object `{kingdomName: "war"\|"peace"}` — sparse, missing = peace | `{}` | index.html only |
 | `goblinwar_lastWarTick` | `gameDay` the faction AI last ran | `0` | index.html only |
 | `goblinwar_population` | JSON object `{burgId: population}` — sparse, in thousands (Azgaar's unit); missing = `graph.burgs[id].population` | `{}` | index.html only |
-| `goblinwar_slot_1/2/3` | Full save-slot snapshots | unset | settings.html only — see [save-system.md](save-system.md) |
 
-The last four are world state, not player state — they don't currently round-trip through save slots or reset on New Game (see [save-system.md](save-system.md)) and aren't read by character.html/inventory.html/settings.html at all yet. Full mechanics in [factions-and-territory.md](factions-and-territory.md).
+The last four are world state, not player state in the usual sense, but they're still part of every character's save (see [characters.md](characters.md)) — each character runs its own independent copy of the world's faction/war state. They aren't read by character.html/inventory.html/settings.html's UI at all, only carried along by settings.html's Save Now and index.html's autosave so they survive alongside everything else. Full mechanics in [factions-and-territory.md](factions-and-territory.md).
+
+There's no `goblinwar_slot_1/2/3` anymore — the three local save slots were replaced by one save per character, held in Supabase rather than `localStorage`. See [characters.md](characters.md).
 
 Stamina exists again as of this pass, but scoped only to combat — see "Stamina: a combat-only resource" below. It has nothing to do with travel, which is paced by Food instead (see below). A returning save from before Food existed won't have a `"Food"` entry in its inventory, but that's not a soft-lock: entering a settlement you're already standing in never costs anything, so the player can always reach a Marketplace to buy some. Likewise, a save from before stamina was reintroduced will get `100`/`100` seeded in by `initPlayerStateIfMissing()` the next time index.html loads.
 
@@ -59,7 +61,7 @@ index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARK
 
 ## Initialization
 
-Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every key above (except save slots) with its default *if and only if that key doesn't already exist*. character.html, inventory.html, and settings.html never write defaults — they read with a `|| "fallback"` inline instead (e.g. `localStorage.getItem(HEALTH_KEY) || "100"`), which means if you ever open one of those pages before index.html has run once, the fallback is only a *display* value — it never gets persisted.
+Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every key above (except `goblinwar_characterName`, which characters.html always sets before index.html can load at all — see [characters.md](characters.md)) with its default *if and only if that key doesn't already exist*. In practice this rarely does anything now, since characters.html's create/play flow already writes every one of these keys explicitly — it exists mainly as a defensive fallback for a key added after some characters already have a save that predates it, same reasoning as the old save-slot system's guarded loads used to have. character.html, inventory.html, and settings.html never write defaults — they read with a `|| "fallback"` inline instead (e.g. `localStorage.getItem(HEALTH_KEY) || "100"`), which means if you ever open one of those pages before index.html has run once, the fallback is only a *display* value — it never gets persisted.
 
 ## Mutators (index.html only)
 

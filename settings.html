@@ -42,14 +42,6 @@
   .current-card b{ font-family:'Cinzel Decorative', serif; font-size:16px; color:var(--gold-lt); }
   .current-card div{ font-size:13px; color:#a9926a; margin-top:4px; }
 
-  .slot{
-    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
-    padding:14px; margin-bottom:12px;
-  }
-  .slot-title{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-bottom:4px; }
-  .slot-summary{ font-size:14.5px; color:var(--parchment); margin-bottom:12px; min-height:20px; }
-  .slot-empty{ font-style:italic; color:#a9926a; }
-  .slot-actions{ display:flex; gap:10px; }
   .btn{
     font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
     border:none; border-radius:8px; padding:10px 14px; cursor:pointer; flex:1;
@@ -57,7 +49,6 @@
   .btn:active{ transform:scale(.97); }
   .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
   .btn-secondary{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
-  .btn-secondary:disabled{ opacity:.4; }
   .btn-danger{
     background:transparent; color:var(--bad); border:1.5px solid var(--bad);
     font-family:'Cinzel', serif; font-size:12px; letter-spacing:.5px; border-radius:8px;
@@ -100,32 +91,30 @@
     <div class="subtitle">Game Options</div>
 
     <div class="current-card">
-      <b id="current-location">—</b>
+      <b id="current-name">—</b>
+      <div id="current-location">—</div>
       <div id="current-date">—</div>
     </div>
 
-    <div class="section-label">Account &amp; Cloud Save</div>
+    <div class="section-label">Account</div>
     <div class="account-card" id="account-card">
       <div class="account-status" id="account-status">Checking login status…</div>
       <div class="account-row" id="logged-in-actions" style="display:none;">
         <div class="account-btn-row">
-          <button class="btn btn-secondary" id="cloud-load-btn">Load from Cloud</button>
-          <button class="btn btn-primary" id="cloud-save-btn">Save to Cloud</button>
+          <button class="btn btn-secondary" id="switch-character-btn">Switch Character</button>
+          <button class="btn btn-primary" id="save-now-btn">Save Now</button>
         </div>
         <button class="btn-danger" id="logout-btn">Log Out</button>
         <div class="account-synced" id="cloud-synced"></div>
       </div>
     </div>
 
-    <div class="section-label">Save Slots</div>
-    <div id="slots"></div>
-
     <div class="menu-item" onclick="location.href='changelog.html?_='+Date.now()">
       <span>Change Log</span>
       <span class="chevron">&rsaquo;</span>
     </div>
 
-    <button class="btn-danger" id="new-game-btn">Start New Game (reset progress)</button>
+    <button class="btn-danger" id="delete-character-btn">Delete This Character</button>
   </main>
 
   <div id="toast"></div>
@@ -133,6 +122,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
 <script>
+const NAME_KEY = "goblinwar_characterName";
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
 const HEADING_KEY = "goblinwar_heading";
@@ -144,12 +134,16 @@ const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
+const TERRITORY_KEY = "goblinwar_territoryControl";
+const WARSTATE_KEY = "goblinwar_warState";
+const LASTWARTICK_KEY = "goblinwar_lastWarTick";
+const POPULATION_KEY = "goblinwar_population";
 const DEFAULT_INVENTORY = [
   { name:"Food", qty:10, weight:1, value:2 },
   { name:"Waterskin", qty:1, weight:2, value:3 },
   { name:"Bedroll", qty:1, weight:3, value:5 },
 ];
-const SLOT_KEYS = ["goblinwar_slot_1","goblinwar_slot_2","goblinwar_slot_3"];
+const ACTIVE_CHAR_KEY = "goblinwar_activeCharacterId";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 
 let burgNames = {}; // id -> name, for display only
@@ -182,62 +176,19 @@ function renderCurrent(){
   const stamina = localStorage.getItem(STAMINA_KEY) || "100";
   const maxStamina = localStorage.getItem(MAXSTAMINA_KEY) || "100";
   const gold = localStorage.getItem(GOLD_KEY) || "50";
+  document.getElementById('current-name').textContent = localStorage.getItem(NAME_KEY) || "Unnamed Hero";
   document.getElementById('current-location').textContent = locationName(burgId);
   document.getElementById('current-date').textContent = `${dateStr(day)} · ${hp}/${maxHp} HP · ${stamina}/${maxStamina} STA · ${gold}g`;
 }
 
-function renderSlots(){
-  const container = document.getElementById('slots');
-  container.innerHTML = '';
-  SLOT_KEYS.forEach((key, i)=>{
-    const raw = localStorage.getItem(key);
-    const slotEl = document.createElement('div');
-    slotEl.className = 'slot';
-    let summaryHTML, loadDisabled;
-    if(raw){
-      const data = JSON.parse(raw);
-      const stamina = (data.stamina!==undefined) ? ` &middot; ${data.stamina}/${data.maxStamina||100} STA` : '';
-      const hpGold = (data.health!==undefined) ? ` &middot; ${data.health}/${data.maxHealth||100} HP${stamina} &middot; ${data.gold||0}g` : '';
-      summaryHTML = `${locationName(data.burgId)} — ${dateStr(data.day)}${hpGold}<br><span style="font-size:11.5px; color:#a9926a;">Saved ${data.savedAt}</span>`;
-      loadDisabled = '';
-    } else {
-      summaryHTML = `<span class="slot-empty">Empty</span>`;
-      loadDisabled = 'disabled';
-    }
-    slotEl.innerHTML = `
-      <div class="slot-title">Slot ${i+1}</div>
-      <div class="slot-summary">${summaryHTML}</div>
-      <div class="slot-actions">
-        <button class="btn btn-secondary" data-load="${i}" ${loadDisabled}>Load</button>
-        <button class="btn btn-primary" data-save="${i}">Save Here</button>
-      </div>
-    `;
-    container.appendChild(slotEl);
-  });
-
-  container.querySelectorAll('[data-save]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const i = parseInt(btn.dataset.save, 10);
-      localStorage.setItem(SLOT_KEYS[i], JSON.stringify(collectLiveState()));
-      showToast(`Saved to Slot ${i+1}.`);
-      renderSlots();
-    });
-  });
-  container.querySelectorAll('[data-load]').forEach(btn=>{
-    if(btn.disabled) return;
-    btn.addEventListener('click', ()=>{
-      const i = parseInt(btn.dataset.load, 10);
-      const data = JSON.parse(localStorage.getItem(SLOT_KEYS[i]));
-      if(!confirm(`Load Slot ${i+1}? Your current unsaved progress will be overwritten.`)) return;
-      applyLoadedState(data);
-      location.href = 'index.html?_=' + Date.now();
-    });
-  });
-}
-
-// Shared by save slots and cloud save — the full snapshot of live state.
-function collectLiveState(){
+// Same snapshot shape index.html's collectCharacterSnapshot() and characters.html's
+// freshCharacterData()/applyCharacterData() use (duplicated per the no-modules convention,
+// see CLAUDE.md) — this is the whole character, not just the old three-field summary the
+// local save slots used, since it's now the only thing standing between "still playing" and
+// "gone": there's exactly one save per character (see context/characters.md), no slots.
+function collectCharacterSnapshot(){
   return {
+    name: localStorage.getItem(NAME_KEY) || "Unnamed Hero",
     burgId: localStorage.getItem(LOC_KEY) || "5",
     day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
     heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
@@ -249,70 +200,46 @@ function collectLiveState(){
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
+    warState: localStorage.getItem(WARSTATE_KEY) || "{}",
+    lastWarTick: parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10),
+    population: localStorage.getItem(POPULATION_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
 
-// Shared by save slots and cloud load — writes a saved snapshot back onto the live keys.
-// Each field guarded with `if(defined)`, same reasoning as save-system.md: a snapshot from
-// an older version of the game may be missing fields that didn't exist yet.
-function applyLoadedState(data){
-  localStorage.setItem(LOC_KEY, data.burgId);
-  localStorage.setItem(CAL_KEY, String(data.day));
-  localStorage.setItem(HEADING_KEY, String(data.heading));
-  if(data.health!==undefined) localStorage.setItem(HEALTH_KEY, String(data.health));
-  if(data.maxHealth!==undefined) localStorage.setItem(MAXHEALTH_KEY, String(data.maxHealth));
-  if(data.stamina!==undefined) localStorage.setItem(STAMINA_KEY, String(data.stamina));
-  if(data.maxStamina!==undefined) localStorage.setItem(MAXSTAMINA_KEY, String(data.maxStamina));
-  if(data.age!==undefined) localStorage.setItem(AGE_KEY, String(data.age));
-  if(data.gold!==undefined) localStorage.setItem(GOLD_KEY, String(data.gold));
-  if(data.inventory) localStorage.setItem(INV_KEY, data.inventory);
-  if(data.equipped) localStorage.setItem(EQUIPPED_KEY, data.equipped);
-}
-
-// ===================== ACCOUNT / CLOUD SAVE (Supabase) =====================
-// One cloud save per account, stored in the `saves` table (see supabase/schema.sql) as a
-// row keyed by user id — a separate thing from the three local save slots above, which
-// stay device-only. Session persistence (staying logged in across reloads) is handled
-// automatically by the Supabase client via its own localStorage key. `sb` and
-// `authGateReady` come from assets/auth-client.js (loaded above), which is also what
-// enforces that this page requires a login in the first place — see context/accounts.md.
+// ===================== ACCOUNT (Supabase) =====================
+// `sb` and `authGateReady` come from assets/auth-client.js (loaded above), which is also
+// what enforces that this page requires a login AND an active character — see
+// context/accounts.md and context/characters.md.
 const accountStatusEl = document.getElementById('account-status');
 const loggedInActionsEl = document.getElementById('logged-in-actions');
 const cloudSyncedEl = document.getElementById('cloud-synced');
+let activeCharId = null;
 
-// This page requires a login (see assets/auth-gate-sync.js / assets/auth-client.js), so the
-// only states worth rendering here are "still confirming" and "confirmed" — there's no
-// logged-out form to show, unlike a page a visitor can reach without an account.
 authGateReady.then(session=>{
-  if(!session) return; // already being redirected to login.html
+  if(!session) return; // already being redirected
+  activeCharId = localStorage.getItem(ACTIVE_CHAR_KEY);
   accountStatusEl.innerHTML = `Logged in as <b>${session.user.email}</b>`;
   loggedInActionsEl.style.display = 'flex';
 
-  sb.from('saves').select('saved_at').eq('user_id', session.user.id).maybeSingle().then(({ data: row })=>{
-    if(row) cloudSyncedEl.textContent = `Last saved to cloud ${new Date(row.saved_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`;
+  sb.from('characters').select('updated_at').eq('id', activeCharId).maybeSingle().then(({ data: row })=>{
+    if(row) cloudSyncedEl.textContent = `Last saved ${new Date(row.updated_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`;
   });
 
-  document.getElementById('cloud-save-btn').addEventListener('click', async ()=>{
-    const state = collectLiveState();
-    const { error } = await sb.from('saves').upsert({
-      user_id: session.user.id,
-      data: state,
-      saved_at: new Date().toISOString()
-    });
-    if(error){ showToast(`Cloud save failed: ${error.message}`); return; }
-    cloudSyncedEl.textContent = `Saved to cloud ${state.savedAt}`;
-    showToast('Saved to cloud.');
+  document.getElementById('save-now-btn').addEventListener('click', async ()=>{
+    const snapshot = collectCharacterSnapshot();
+    const { error } = await sb.from('characters')
+      .update({ data: snapshot, updated_at: new Date().toISOString() })
+      .eq('id', activeCharId);
+    if(error){ showToast(`Save failed: ${error.message}`); return; }
+    cloudSyncedEl.textContent = `Last saved ${snapshot.savedAt}`;
+    showToast('Saved.');
   });
+});
 
-  document.getElementById('cloud-load-btn').addEventListener('click', async ()=>{
-    const { data: row, error } = await sb.from('saves').select('data, saved_at').eq('user_id', session.user.id).maybeSingle();
-    if(error){ showToast(`Cloud load failed: ${error.message}`); return; }
-    if(!row){ showToast('No cloud save found yet.'); return; }
-    if(!confirm('Load your cloud save? Your current unsaved progress will be overwritten.')) return;
-    applyLoadedState(row.data);
-    location.href = 'index.html?_=' + Date.now();
-  });
+document.getElementById('switch-character-btn').addEventListener('click', ()=>{
+  location.href = 'characters.html?_=' + Date.now();
 });
 
 document.getElementById('logout-btn').addEventListener('click', async ()=>{
@@ -320,30 +247,21 @@ document.getElementById('logout-btn').addEventListener('click', async ()=>{
   await sb.auth.signOut(); // assets/auth-client.js's SIGNED_OUT listener redirects to login.html
 });
 
-document.getElementById('new-game-btn').addEventListener('click', ()=>{
-  if(!confirm("Start a new game? Your current unsaved progress (not in a save slot) will be lost.")) return;
-  localStorage.setItem(LOC_KEY, "5");
-  localStorage.setItem(CAL_KEY, "0");
-  localStorage.setItem(HEADING_KEY, "0");
-  localStorage.setItem(MAXHEALTH_KEY, "100");
-  localStorage.setItem(HEALTH_KEY, "100");
-  localStorage.setItem(MAXSTAMINA_KEY, "100");
-  localStorage.setItem(STAMINA_KEY, "100");
-  localStorage.setItem(AGE_KEY, "24");
-  localStorage.setItem(GOLD_KEY, "50");
-  localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
-  localStorage.setItem(EQUIPPED_KEY, "{}");
-  location.href = 'index.html?_=' + Date.now();
+document.getElementById('delete-character-btn').addEventListener('click', async ()=>{
+  const name = localStorage.getItem(NAME_KEY) || "this character";
+  if(!confirm(`Delete ${name}? This cannot be undone.`)) return;
+  const { error } = await sb.from('characters').delete().eq('id', activeCharId);
+  if(error){ showToast(`Delete failed: ${error.message}`); return; }
+  localStorage.removeItem(ACTIVE_CHAR_KEY);
+  location.href = 'characters.html?_=' + Date.now();
 });
 
 fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
   Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);
   renderCurrent();
-  renderSlots();
 }).catch(()=>{
   // still usable without name resolution — fall back to raw ids
   renderCurrent();
-  renderSlots();
 });
 </script>
 </body>

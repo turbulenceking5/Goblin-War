@@ -323,19 +323,19 @@
 
   <div id="toolbar">
     <div id="nav-icons">
-      <button class="nav-btn" onclick="location.href='inventory.html?_='+Date.now()">
+      <button class="nav-btn" onclick="goTo('inventory.html')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
         Inventory
       </button>
-      <button class="nav-btn" onclick="location.href='party.html?_='+Date.now()">
+      <button class="nav-btn" onclick="goTo('party.html')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.6"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M13.5 14.2c2.6.3 4.5 2.4 4.5 5.8"/></svg>
         Party
       </button>
-      <button class="nav-btn" onclick="location.href='character.html?_='+Date.now()">
+      <button class="nav-btn" onclick="goTo('character.html')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
         Hero
       </button>
-      <button class="nav-btn" onclick="location.href='settings.html?_='+Date.now()">
+      <button class="nav-btn" onclick="goTo('settings.html')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.7a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.7a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.4-2-1.5z"/></svg>
         Settings
       </button>
@@ -623,6 +623,11 @@ const CHANGELOG = [
   { id:7, date:"2026-09-04", changes:[
     "Change Log moved out of Settings into its own page, reached via a Change Log button, so Settings stays uncluttered."
   ]},
+  { id:8, date:"2026-09-04", changes:[
+    "Your account can now hold multiple characters — choose or create one right after logging in.",
+    "Each character has exactly one save, kept up to date automatically as you play (plus a Save Now button in Settings) — the old local save slots are gone.",
+    "Settings now shows Switch Character and Delete This Character in place of the old save slots and New Game reset."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -681,7 +686,7 @@ function checkForUpdate(){
     .catch(()=>{}); // offline or unreachable — silently retry on the next interval
 }
 document.getElementById('update-banner').addEventListener('click', ()=>{
-  location.href = location.pathname + '?_=' + Date.now();
+  saveActiveCharacter().finally(()=>{ location.href = location.pathname + '?_=' + Date.now(); });
 });
 setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') checkForUpdate(); });
@@ -889,6 +894,7 @@ function maybeRunFactionAI(){
 }
 
 // ===================== PLAYER STATE (health / gold / inventory / weight / age) =====================
+const NAME_KEY = "goblinwar_characterName";
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
 const STAMINA_KEY = "goblinwar_stamina";
@@ -2137,6 +2143,64 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
 });
 
 window.addEventListener('resize', applyView);
+
+// ===================== CHARACTER AUTOSAVE =====================
+// There's no "save slot" anymore (see context/characters.md) — the active character's row
+// in Supabase's `characters` table (see supabase/schema.sql) *is* the save, so it has to be
+// kept current on its own rather than waiting for the player to remember to save. Same
+// snapshot shape collectLiveState()/applyLoadedState() in settings.html and
+// freshCharacterData()/applyCharacterData() in characters.html use (duplicated per the
+// no-modules convention) — but this copy also carries the world-state keys
+// (territoryControl/warState/lastWarTick/population), which never round-tripped through the
+// old local save slots at all; now that a Supabase account can run more than one character
+// on the same device, leaving those in flat localStorage would let two characters bleed
+// into each other's faction/war progress, so they're part of the per-character snapshot too.
+function collectCharacterSnapshot(){
+  return {
+    name: localStorage.getItem(NAME_KEY) || "Unnamed Hero",
+    burgId: localStorage.getItem(LOC_KEY) || "5",
+    day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
+    heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
+    health: parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10),
+    maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
+    stamina: parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10),
+    maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
+    age: localStorage.getItem(AGE_KEY) || "24",
+    gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
+    inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
+    equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
+    warState: localStorage.getItem(WARSTATE_KEY) || "{}",
+    lastWarTick: parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10),
+    population: localStorage.getItem(POPULATION_KEY) || "{}",
+    savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
+  };
+}
+
+// Fires on an interval, on tab-hide, and before leaving to another page (see goTo() below) —
+// not on every single state mutation, which would mean hooking dozens of call sites across
+// this file. That leaves a small window (well under a minute, or however long the tab stays
+// foregrounded after the last action) where a hard crash could lose the very latest change,
+// but covers every normal way a player actually stops playing.
+async function saveActiveCharacter(){
+  const activeId = localStorage.getItem('goblinwar_activeCharacterId');
+  if(!activeId) return;
+  await sb.from('characters')
+    .update({ data: collectCharacterSnapshot(), updated_at: new Date().toISOString() })
+    .eq('id', activeId)
+    .then(()=>{}, ()=>{}); // best-effort — a failed autosave shouldn't surface as an error to the player
+}
+setInterval(saveActiveCharacter, 60000);
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'hidden') saveActiveCharacter();
+});
+
+// Every nav-bar link to another page goes through this instead of a bare location.href, so
+// the active character is saved before we leave — otherwise anything since the last autosave
+// tick would be lost the moment the player taps to Inventory/Hero/Settings.
+function goTo(page){
+  saveActiveCharacter().finally(()=>{ location.href = page + '?_=' + Date.now(); });
+}
 </script>
 </body>
 </html>

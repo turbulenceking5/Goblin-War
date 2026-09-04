@@ -109,14 +109,17 @@
 <script>
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Login always routes through the character-select screen — see context/characters.md —
+// carrying along wherever the player was actually headed (?redirect=, defaulting to
+// index.html) so characters.html can send them on once they've picked/created a character.
 function targetPage(){
   const params = new URLSearchParams(location.search);
   const redirect = params.get('redirect');
-  const page = (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect)) ? redirect : 'index.html';
+  const page = (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect) && redirect !== 'characters.html') ? redirect : 'index.html';
   // Cache-bust so the destination page's own HTML is always fetched fresh rather than a
   // stale cached copy from before the last deploy — see assets/auth-gate-sync.js's matching
   // comment for why every internal navigation in the app does this.
-  return page + '?_=' + Date.now();
+  return `characters.html?redirect=${encodeURIComponent(page)}&_=${Date.now()}`;
 }
 
 function showView(id){

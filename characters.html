@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
+<meta name="theme-color" content="#1c2a2c">
+<title>Goblin War — Choose Character</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#e2857f; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  header{
+    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    border-bottom:3px solid var(--gold);
+    padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
+  }
+  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  #logout-btn{
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    background:transparent; color:var(--bad); border:1.5px solid var(--bad);
+    border-radius:6px; padding:7px 12px; cursor:pointer;
+  }
+  #logout-btn:active{ transform:scale(.96); }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
+  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:16px; text-align:center; }
+  .status{ text-align:center; color:#a9926a; font-size:14px; padding:20px 0; }
+
+  .char-card{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:14px; margin-bottom:12px;
+  }
+  .char-name{ font-family:'Cinzel Decorative', serif; font-size:17px; color:var(--gold-lt); margin-bottom:4px; }
+  .char-summary{ font-size:13.5px; color:var(--parchment); margin-bottom:12px; }
+  .char-actions{ display:flex; gap:10px; }
+  .btn{
+    font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
+    border:none; border-radius:8px; padding:10px 14px; cursor:pointer; flex:1;
+  }
+  .btn:active{ transform:scale(.97); }
+  .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
+  .btn-secondary{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
+  .btn-danger{
+    background:transparent; color:var(--bad); border:1.5px solid var(--bad);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:.5px; border-radius:8px;
+    padding:10px 14px; cursor:pointer; flex:none;
+  }
+  .btn-danger:active{ transform:scale(.96); }
+
+  .create-card{
+    background:rgba(255,255,255,.06); border:1.5px dashed rgba(209,164,69,.4); border-radius:10px;
+    padding:16px; margin-top:8px;
+  }
+  .create-prompt{
+    font-family:'Cinzel', serif; font-size:13px; letter-spacing:.5px; color:var(--gold-lt);
+    background:transparent; border:none; width:100%; text-align:center; cursor:pointer; padding:6px 0;
+  }
+  .create-form{ display:none; flex-direction:column; gap:10px; }
+  .create-form.show{ display:flex; }
+  input{
+    font-family:'EB Garamond', serif; font-size:15px; color:var(--parchment);
+    background:rgba(0,0,0,.25); border:1.5px solid rgba(209,164,69,.4); border-radius:8px;
+    padding:11px 12px; width:100%;
+  }
+  input::placeholder{ color:#7a6b4d; }
+  .error{ font-size:13px; color:var(--bad); min-height:0; }
+  .create-btn-row{ display:flex; gap:10px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>CHOOSE YOUR HERO</h1>
+    <button id="logout-btn">Log Out</button>
+  </header>
+  <main>
+    <div class="subtitle">One save per character</div>
+    <div id="status" class="status">Loading your characters…</div>
+    <div id="char-list"></div>
+
+    <div class="create-card">
+      <button class="create-prompt" id="show-create-btn">+ Create New Character</button>
+      <div class="create-form" id="create-form">
+        <input id="new-name" type="text" placeholder="Character name" maxlength="24" autocomplete="off">
+        <div class="error" id="create-error"></div>
+        <div class="create-btn-row">
+          <button class="btn btn-secondary" id="cancel-create-btn">Cancel</button>
+          <button class="btn btn-primary" id="confirm-create-btn">Begin Adventure</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
+<script>
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+const DEFAULT_INVENTORY = [
+  { name:"Food", qty:10, weight:1, value:2 },
+  { name:"Waterskin", qty:1, weight:2, value:3 },
+  { name:"Bedroll", qty:1, weight:3, value:5 },
+];
+
+function dateStr(dayCount){
+  const day = (dayCount % DAYS_PER_MONTH) + 1;
+  const month = (Math.floor(dayCount / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const year = Math.floor(dayCount / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  return `Day ${day}, Month ${month}, Year ${year}`;
+}
+
+let burgNames = {}; // id -> name, for display only
+function locationName(burgId){ return burgNames[burgId] || `Location #${burgId}`; }
+
+// A brand-new character's starting snapshot — same shape collectLiveState()/
+// applyLoadedState() in index.html and settings.html use, just built from scratch instead
+// of read off live localStorage keys. Matches initPlayerStateIfMissing()'s defaults in
+// index.html (see CLAUDE.md's no-modules convention — duplicated, not shared).
+function freshCharacterData(name){
+  return {
+    name,
+    burgId: "5", day: 0, heading: 0,
+    health: 100, maxHealth: 100,
+    stamina: 100, maxStamina: 100,
+    age: "24", gold: 50,
+    inventory: JSON.stringify(DEFAULT_INVENTORY),
+    equipped: "{}",
+    territoryControl: "{}", warState: "{}", lastWarTick: 0, population: "{}",
+    savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
+  };
+}
+
+// Writes a character snapshot onto the live goblinwar_* keys index.html and friends read —
+// same field set and same defensive `if(defined)` guards as settings.html's applyLoadedState.
+function applyCharacterData(data){
+  localStorage.setItem("goblinwar_characterName", data.name || "Unnamed Hero");
+  localStorage.setItem("goblinwar_currentBurg", data.burgId);
+  localStorage.setItem("goblinwar_gameDay", String(data.day));
+  localStorage.setItem("goblinwar_heading", String(data.heading));
+  if(data.health!==undefined) localStorage.setItem("goblinwar_health", String(data.health));
+  if(data.maxHealth!==undefined) localStorage.setItem("goblinwar_maxHealth", String(data.maxHealth));
+  if(data.stamina!==undefined) localStorage.setItem("goblinwar_stamina", String(data.stamina));
+  if(data.maxStamina!==undefined) localStorage.setItem("goblinwar_maxStamina", String(data.maxStamina));
+  if(data.age!==undefined) localStorage.setItem("goblinwar_age", String(data.age));
+  if(data.gold!==undefined) localStorage.setItem("goblinwar_gold", String(data.gold));
+  if(data.inventory) localStorage.setItem("goblinwar_inventory", data.inventory);
+  if(data.equipped) localStorage.setItem("goblinwar_equipped", data.equipped);
+  if(data.territoryControl) localStorage.setItem("goblinwar_territoryControl", data.territoryControl);
+  if(data.warState) localStorage.setItem("goblinwar_warState", data.warState);
+  if(data.lastWarTick!==undefined) localStorage.setItem("goblinwar_lastWarTick", String(data.lastWarTick));
+  if(data.population) localStorage.setItem("goblinwar_population", data.population);
+}
+
+function targetPage(){
+  const params = new URLSearchParams(location.search);
+  const redirect = params.get('redirect');
+  const page = (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect) && redirect !== 'characters.html') ? redirect : 'index.html';
+  return page + '?_=' + Date.now();
+}
+
+function playCharacter(row){
+  localStorage.setItem('goblinwar_activeCharacterId', row.id);
+  applyCharacterData(row.data);
+  location.href = targetPage();
+}
+
+document.getElementById('logout-btn').addEventListener('click', async ()=>{
+  await sb.auth.signOut(); // assets/auth-client.js's SIGNED_OUT listener redirects to login.html
+});
+
+document.getElementById('show-create-btn').addEventListener('click', ()=>{
+  document.getElementById('create-form').classList.add('show');
+  document.getElementById('show-create-btn').style.display = 'none';
+  document.getElementById('new-name').focus();
+});
+document.getElementById('cancel-create-btn').addEventListener('click', ()=>{
+  document.getElementById('create-form').classList.remove('show');
+  document.getElementById('show-create-btn').style.display = 'block';
+  document.getElementById('create-error').textContent = '';
+  document.getElementById('new-name').value = '';
+});
+
+let session = null;
+
+document.getElementById('confirm-create-btn').addEventListener('click', async ()=>{
+  const errorEl = document.getElementById('create-error');
+  errorEl.textContent = '';
+  const name = document.getElementById('new-name').value.trim();
+  if(!name){ errorEl.textContent = 'Give your hero a name.'; return; }
+  if(!session){ errorEl.textContent = 'Still signing you in — try again in a moment.'; return; }
+  const { data: row, error } = await sb.from('characters')
+    .insert({ user_id: session.user.id, name, data: freshCharacterData(name) })
+    .select().single();
+  if(error){ errorEl.textContent = error.message; return; }
+  playCharacter(row);
+});
+
+async function loadCharacters(){
+  const statusEl = document.getElementById('status');
+  const listEl = document.getElementById('char-list');
+  const { data: rows, error } = await sb.from('characters')
+    .select('id, name, data, updated_at')
+    .eq('user_id', session.user.id)
+    .order('updated_at', { ascending: false });
+  if(error){ statusEl.textContent = `Could not load your characters: ${error.message}`; return; }
+  if(!rows.length){ statusEl.textContent = "You haven't created a character yet."; return; }
+  statusEl.style.display = 'none';
+  listEl.innerHTML = rows.map(row => {
+    const d = row.data || {};
+    const hp = (d.health!==undefined) ? `${d.health}/${d.maxHealth||100} HP &middot; ` : '';
+    return `
+      <div class="char-card" data-id="${row.id}">
+        <div class="char-name">${row.name}</div>
+        <div class="char-summary">${hp}${locationName(d.burgId)} &middot; ${dateStr(d.day||0)}</div>
+        <div class="char-actions">
+          <button class="btn-danger" data-delete="${row.id}">Delete</button>
+          <button class="btn btn-primary" data-play="${row.id}">Play</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  listEl.querySelectorAll('[data-play]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const row = rows.find(r => r.id === btn.dataset.play);
+      if(row) playCharacter(row);
+    });
+  });
+  listEl.querySelectorAll('[data-delete]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const row = rows.find(r => r.id === btn.dataset.delete);
+      if(!row) return;
+      if(!confirm(`Delete ${row.name}? This cannot be undone.`)) return;
+      const { error } = await sb.from('characters').delete().eq('id', row.id);
+      if(error){ alert(`Could not delete: ${error.message}`); return; }
+      if(localStorage.getItem('goblinwar_activeCharacterId') === row.id){
+        localStorage.removeItem('goblinwar_activeCharacterId');
+      }
+      loadCharacters();
+    });
+  });
+}
+
+authGateReady.then(s=>{
+  if(!s) return; // already being redirected
+  session = s;
+  fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
+    Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);
+    loadCharacters();
+  }).catch(()=>{
+    // still usable without name resolution — fall back to raw ids
+    loadCharacters();
+  });
+});
+</script>
+</body>
+</html>

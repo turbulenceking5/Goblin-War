@@ -63,7 +63,7 @@ Waterskin and Bedroll aren't in `MARKET_ITEMS`, so they're never sellable — sa
 
 ## Persistence
 
-None of `goblinwar_territoryControl`, `goblinwar_warState`, `goblinwar_lastWarTick`, or `goblinwar_population` currently round-trip through settings.html's save slots or New Game reset — see [save-system.md](save-system.md)'s "keys added after a slot format existed" gotcha. Loading an old save or starting a new game leaves whatever territory/war/population state was already live in `localStorage` untouched (for New Game, that's arguably fine — a fresh start with an already-contested, already-population-shifted world is a reasonable read — but it's inconsistent with how every other player-state key resets, and worth fixing if this system gets built on further).
+`goblinwar_territoryControl`, `goblinwar_warState`, `goblinwar_lastWarTick`, and `goblinwar_population` are part of every character's save (see [characters.md](characters.md)) — each character effectively runs its own independent copy of the world's faction/war state, saved and loaded alongside everything else about that character. This matters more than it might sound: since a Supabase account can hold more than one character, and localStorage is a single flat namespace shared by whichever character is currently active on this device, these keys have to travel with the character snapshot — otherwise switching characters on the same device would let one character's war/territory progress bleed into another's.
 
 ## Known simplifications (not bugs, just where the scope was deliberately cut)
 

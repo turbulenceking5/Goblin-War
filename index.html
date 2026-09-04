@@ -588,8 +588,8 @@ function advanceDays(n){
 
 // ===================== CHANGE LOG / WHAT'S NEW =====================
 // One entry per shipped update, oldest first (ids only ever go up). This exact array is
-// duplicated in settings.html (see CLAUDE.md's no-modules convention) — add a new entry to
-// both whenever a change ships, or the Settings Change Log and this popup will disagree.
+// duplicated in changelog.html (see CLAUDE.md's no-modules convention) — add a new entry to
+// both whenever a change ships, or the Change Log page and this popup will disagree.
 // Namespaced per logged-in account (not a single shared key) so that on a shared device,
 // or across multiple devices for the same player, each account gets its own "have I seen
 // this" state — one player dismissing it never marks it seen for anyone else, and a player
@@ -619,6 +619,9 @@ const CHANGELOG = [
   ]},
   { id:6, date:"2026-09-04", changes:[
     "An account is now required to play — log in or sign up on the new login screen before entering the realm."
+  ]},
+  { id:7, date:"2026-09-04", changes:[
+    "Change Log moved out of Settings into its own page, reached via a Change Log button, so Settings stays uncluttered."
   ]},
 ];
 

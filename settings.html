@@ -73,13 +73,14 @@
   .account-status{ font-size:13.5px; color:#a9926a; margin-bottom:10px; }
   .account-status b{ color:var(--gold-lt); }
   .account-synced{ font-size:11.5px; color:#a9926a; text-align:center; margin-top:8px; }
-  .changelog-entry{
+  .menu-item{
+    display:flex; align-items:center; justify-content:space-between;
     background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
-    padding:12px 14px; margin-bottom:10px;
+    padding:14px 16px; margin-bottom:6px; cursor:pointer;
+    font-family:'Cinzel', serif; font-size:13px; letter-spacing:.5px; color:var(--parchment);
   }
-  .changelog-date{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:6px; }
-  .changelog-entry ul{ margin:0; padding-left:18px; }
-  .changelog-entry li{ font-size:14.5px; color:var(--parchment); margin-bottom:4px; line-height:1.4; }
+  .menu-item:active{ transform:scale(.98); }
+  .menu-item .chevron{ color:var(--gold-lt); font-size:17px; }
   #toast{
     position:fixed; top:66px; left:50%; transform:translate(-50%,-14px);
     background:rgba(20,14,6,.94); color:var(--parchment);
@@ -119,8 +120,10 @@
     <div class="section-label">Save Slots</div>
     <div id="slots"></div>
 
-    <div class="section-label">Change Log</div>
-    <div id="changelog-list"></div>
+    <div class="menu-item" onclick="location.href='changelog.html'">
+      <span>Change Log</span>
+      <span class="chevron">&rsaquo;</span>
+    </div>
 
     <button class="btn-danger" id="new-game-btn">Start New Game (reset progress)</button>
   </main>
@@ -148,36 +151,6 @@ const DEFAULT_INVENTORY = [
 ];
 const SLOT_KEYS = ["goblinwar_slot_1","goblinwar_slot_2","goblinwar_slot_3"];
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
-
-// Kept identical to the CHANGELOG array in index.html (see CLAUDE.md's no-modules
-// convention) — update both whenever a change ships, or this page and the "What's New"
-// popup on the map will disagree.
-// Namespaced per logged-in account — see the matching comment in index.html — set once
-// authGateReady resolves, below.
-let CHANGELOG_SEEN_KEY = null;
-const CHANGELOG = [
-  { id:1, date:"2026-09-03", changes:[
-    "Added a Change Log to Settings, and a \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
-  ]},
-  { id:2, date:"2026-09-03", changes:[
-    "Switched the whole game to a dark theme.",
-    "Added an \"Update available\" banner that drops down from the top of the map when a new version has shipped — tap it to refresh."
-  ]},
-  { id:3, date:"2026-09-03", changes:[
-    "Goblin and Ork raiders now show real portrait art in combat instead of a hand-drawn icon.",
-    "Goblin raiding parties now come in four distinct varieties — Raider, Shieldbearer, Skirmisher, and Archer — each with its own toughness and bite, not just a reskinned fight."
-  ]},
-  { id:4, date:"2026-09-03", changes:[
-    "Bandits now show real portrait art too — every enemy in the game has a proper look.",
-    "Ork raiding parties now come in three varieties — Raider, Berserker, and Warlord — with the Warlord as the toughest fight in the game."
-  ]},
-  { id:5, date:"2026-09-04", changes:[
-    "Added accounts and cloud saves — log in from Settings to back up your character and load it on another device."
-  ]},
-  { id:6, date:"2026-09-04", changes:[
-    "An account is now required to play — log in or sign up on the new login screen before entering the realm."
-  ]},
-];
 
 let burgNames = {}; // id -> name, for display only
 
@@ -361,25 +334,6 @@ document.getElementById('new-game-btn').addEventListener('click', ()=>{
   localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
   localStorage.setItem(EQUIPPED_KEY, "{}");
   location.href = 'index.html';
-});
-
-function renderChangelog(){
-  const container = document.getElementById('changelog-list');
-  const newestFirst = CHANGELOG.slice().reverse();
-  container.innerHTML = newestFirst.map(entry => `
-    <div class="changelog-entry">
-      <div class="changelog-date">${entry.date}</div>
-      <ul>${entry.changes.map(c=>`<li>${c}</li>`).join('')}</ul>
-    </div>
-  `).join('');
-  // Reading the full log here counts as "seen" — no need for the map's popup to repeat it.
-  if(CHANGELOG_SEEN_KEY) localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
-}
-renderChangelog();
-authGateReady.then(session=>{
-  if(!session) return; // being redirected to login.html
-  CHANGELOG_SEEN_KEY = `goblinwar_lastSeenChangelog_${session.user.id}`;
-  renderChangelog(); // re-run now that CHANGELOG_SEEN_KEY is set, so the "mark seen" write happens
 });
 
 fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{

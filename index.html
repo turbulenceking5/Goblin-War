@@ -286,8 +286,21 @@
   #combat-header{ padding:calc(18px + env(safe-area-inset-top)) 16px 8px; text-align:center; }
   #combat-title{ font-family:'Cinzel Decorative', serif; font-size:22px; color:#e2857f; text-shadow:0 2px 4px rgba(0,0,0,.6); }
   #combat-stage{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 20px; gap:14px; }
-  #combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); display:flex; align-items:center; justify-content:center; }
-  #combat-enemy-icon img{ display:block; width:auto; height:auto; max-width:190px; max-height:210px; object-fit:contain; }
+  #combat-enemies{ display:flex; gap:14px; justify-content:center; align-items:flex-end; flex-wrap:wrap; width:100%; max-width:340px; }
+  .combat-enemy-slot{
+    display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; max-width:140px;
+    padding:8px; border-radius:10px; border:1.5px solid transparent; cursor:pointer; transition:opacity .2s, border-color .2s;
+  }
+  .combat-enemy-slot .combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); display:flex; align-items:center; justify-content:center; }
+  .combat-enemy-slot .combat-enemy-icon img{ display:block; width:auto; height:auto; max-width:110px; max-height:130px; object-fit:contain; }
+  .combat-enemy-slot .combat-name{ font-size:11px; margin-bottom:0; }
+  .combat-enemy-slot .combat-bar-track{ width:100%; height:10px; }
+  .combat-enemy-slot.selected{ border-color:var(--gold); background:rgba(209,164,69,.08); }
+  .combat-enemy-slot.dead{ opacity:.35; pointer-events:none; filter:grayscale(1); }
+  /* Solo fights (Bandit ambush) look the same as before — no selection ring, bigger portrait. */
+  #combat-enemies .combat-enemy-slot:only-child{ max-width:320px; cursor:default; }
+  #combat-enemies .combat-enemy-slot:only-child .combat-enemy-icon img{ max-width:190px; max-height:210px; }
+  #combat-enemies .combat-enemy-slot:only-child.selected{ border-color:transparent; background:none; }
   .combat-bar-row{ width:100%; max-width:320px; }
   .combat-name{ font-family:'Cinzel', serif; font-size:12px; color:var(--parchment); margin-bottom:4px; display:flex; justify-content:space-between; letter-spacing:.5px; }
   .combat-bar-track{ background:rgba(0,0,0,.35); border-radius:8px; height:14px; overflow:hidden; border:1px solid rgba(255,255,255,.15); }
@@ -438,11 +451,7 @@
       <div id="combat-title">Ambush!</div>
     </div>
     <div id="combat-stage">
-      <div class="combat-bar-row">
-        <div class="combat-name"><span id="combat-enemy-name">Bandit</span><span id="combat-enemy-hp-text">30/30</span></div>
-        <div class="combat-bar-track"><div class="combat-bar-fill enemy" id="combat-enemy-hp-bar" style="width:100%"></div></div>
-      </div>
-      <div id="combat-enemy-icon"></div>
+      <div id="combat-enemies"></div>
       <div class="combat-bar-row">
         <div class="combat-name"><span>You</span><span id="combat-player-hp-text">100/100</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill player" id="combat-player-hp-bar" style="width:100%"></div></div>
@@ -676,6 +685,10 @@ const CHANGELOG = [
   ]},
   { id:16, date:"2026-09-04", changes:[
     "Skills moved off the Character sheet onto their own new Skills tab — Level/XP, Strength/Agility/Intelligence, Perks, and Special Attacks all live there now, so the Character sheet stays focused on your hero and gear."
+  ]},
+  { id:17, date:"2026-09-04", changes:[
+    "Goblin and Ork raiding parties can now ambush you with 2-3 enemies at once instead of just one — pick your target, watch each enemy's own health bar, and everyone still standing swings back each round.",
+    "Cleave now actually hits every enemy in the fight, and War Cry now weakens all of them at once — both moves were previously written for this but had nothing to loop over."
   ]},
 ];
 
@@ -1203,8 +1216,8 @@ function refreshPlayerStatUI(){
   if(fp) fp.textContent = getFoodQty();
   if(gp) gp.textContent = playerGold;
 }
-// ===================== COMBAT (minimal turn-based, one enemy type) =====================
-let combat = null; // {enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange, xpRewardRange}
+// ===================== COMBAT (minimal turn-based, 1-3 enemies) =====================
+let combat = null; // {enemies:[{name,hp,maxHp,dmgRange,goldRange,xpRange,art}], targetIndex, playerDmgRange, onEnd, usedMoves, race}
 const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest refills it
 
 function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min; }
@@ -1235,12 +1248,22 @@ const ENEMY_VARIANTS = {
   ],
 };
 
-function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, artPath, goldRewardRange, xpRewardRange, race){
-  combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange: goldRewardRange || [8,20], xpRewardRange: xpRewardRange || [5,10], usedMoves: {}, race };
-  document.getElementById('combat-title').textContent = `${enemyName} Ambush!`;
-  document.getElementById('combat-enemy-name').textContent = enemyName;
-  document.getElementById('combat-enemy-icon').innerHTML = `<img src="${artPath}" alt="${enemyName}">`;
-  document.getElementById('combat-log').innerHTML = `<div>${enemyName} block${enemyName.endsWith('s')?'':'s'} your path!</div>`;
+// enemySpecs: array of {name, hp, dmgRange, goldRange, xpRange, art} — 1 entry for a Bandit
+// ambush, 2-3 for a Goblin/Ork raiding party (see triggerEnemyFight below).
+function startCombat(enemySpecs, playerDmgRange, onEnd, race){
+  combat = {
+    enemies: enemySpecs.map(s => ({
+      name: s.name, hp: s.hp, maxHp: s.hp, dmgRange: s.enemyDmgRange.slice(),
+      goldRange: s.goldRange, xpRange: s.xpRange, art: s.art
+    })),
+    targetIndex: 0,
+    playerDmgRange, onEnd, usedMoves: {}, race
+  };
+  const multi = combat.enemies.length > 1;
+  document.getElementById('combat-title').textContent = multi ? 'Ambush!' : `${combat.enemies[0].name} Ambush!`;
+  document.getElementById('combat-log').innerHTML = multi
+    ? `<div>${combat.enemies.length} enemies block your path!</div>`
+    : `<div>${combat.enemies[0].name} block${combat.enemies[0].name.endsWith('s')?'':'s'} your path!</div>`;
   document.getElementById('combat-specials-panel').classList.remove('show');
   document.getElementById('combat-special-btn').classList.remove('active');
   updateCombatUI();
@@ -1249,14 +1272,41 @@ function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd
 
 function updateCombatUI(){
   if(!combat) return;
-  document.getElementById('combat-enemy-hp-bar').style.width = Math.max(0, Math.round((combat.enemyHp/combat.enemyMaxHp)*100)) + '%';
-  document.getElementById('combat-enemy-hp-text').textContent = `${Math.max(0,combat.enemyHp)}/${combat.enemyMaxHp}`;
+  renderEnemies();
   document.getElementById('combat-player-hp-bar').style.width = Math.max(0, Math.round((playerHealth/playerMaxHealth)*100)) + '%';
   document.getElementById('combat-player-hp-text').textContent = `${playerHealth}/${playerMaxHealth}`;
   document.getElementById('combat-player-stamina-bar').style.width = Math.max(0, Math.round((playerStamina/playerMaxStamina)*100)) + '%';
   document.getElementById('combat-player-stamina-text').textContent = `${playerStamina}/${playerMaxStamina}`;
   document.getElementById('combat-attack-btn').disabled = playerStamina < STAMINA_COST_PER_ATTACK;
   renderSpecialsPanel();
+}
+
+// One slot per enemy, clickable to retarget. Dead slots are dimmed and inert (both CSS
+// pointer-events and a guard in the click handler, since a stale render could still be on
+// screen for a moment). Solo fights (Bandit) get no selection ring — see :only-child CSS.
+function renderEnemies(){
+  const wrap = document.getElementById('combat-enemies');
+  if(!combat){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = combat.enemies.map((e, i) => {
+    const dead = e.hp <= 0;
+    const selected = i === combat.targetIndex && !dead;
+    const pct = Math.max(0, Math.round((e.hp / e.maxHp) * 100));
+    return `
+      <div class="combat-enemy-slot${dead?' dead':''}${selected?' selected':''}" data-idx="${i}">
+        <div class="combat-enemy-icon"><img src="${e.art}" alt="${e.name}"></div>
+        <div class="combat-name"><span>${e.name}</span><span>${Math.max(0,e.hp)}/${e.maxHp}</span></div>
+        <div class="combat-bar-track"><div class="combat-bar-fill enemy" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  }).join('');
+  wrap.querySelectorAll('.combat-enemy-slot').forEach(slot => {
+    slot.addEventListener('click', () => {
+      const i = Number(slot.dataset.idx);
+      if(!combat || combat.enemies[i].hp <= 0) return;
+      combat.targetIndex = i;
+      renderEnemies();
+    });
+  });
 }
 
 function combatLog(msg){
@@ -1267,17 +1317,44 @@ function combatLog(msg){
   log.scrollTop = log.scrollHeight;
 }
 
-// Shared by combatAttack and every special move except Reckless Swing (which deliberately
-// bypasses both Evasion and defense — see MOVES below). Doesn't end the fight itself; callers
-// check playerHealth<=0 afterward, same as they already checked combat.enemyHp<=0 before calling.
-function enemyCounter(){
+// One enemy's counter-attack. Evasion/defense roll independently per hit — dodging one
+// enemy's swing doesn't dodge another's.
+function enemyCounter(enemy){
   if(hasPerk('evasion') && Math.random() < 0.15){
-    combatLog(`You dodge the ${combat.enemyName}'s counter-attack entirely.`);
-  } else {
-    const edmg = Math.max(1, randRange(combat.enemyDmgRange) - getEquipDefenseBonus());
-    setHealth(playerHealth - edmg);
-    combatLog(`The ${combat.enemyName} hits you for ${edmg} damage.`);
+    combatLog(`You dodge the ${enemy.name}'s counter-attack entirely.`);
+    return;
   }
+  const edmg = Math.max(1, randRange(enemy.dmgRange) - getEquipDefenseBonus());
+  setHealth(playerHealth - edmg);
+  combatLog(`The ${enemy.name} hits you for ${edmg} damage.`);
+}
+
+// Every alive enemy counters each round — the real difficulty lever for a multi-enemy fight.
+// bypassEnemy (Reckless Swing only): that one enemy's hit ignores armor/Evasion; everyone else
+// counters normally. Stops early if the player is already down so the log doesn't keep
+// narrating hits on a defeated player.
+function runEnemyCounters(bypassEnemy){
+  for(const enemy of combat.enemies){
+    if(enemy.hp <= 0) continue;
+    if(playerHealth <= 0) break;
+    if(enemy === bypassEnemy){
+      const edmg = randRange(enemy.dmgRange);
+      setHealth(playerHealth - edmg);
+      combatLog(`The ${enemy.name} makes you pay for it — ${edmg} damage, ignoring your armor.`);
+    } else {
+      enemyCounter(enemy);
+    }
+  }
+}
+
+function aliveEnemies(){ return combat.enemies.filter(e => e.hp > 0); }
+
+// If the current target just died, retarget to the next alive enemy. No-op if it's still alive
+// (player can always manually retarget by clicking a different slot).
+function autoAdvanceTarget(){
+  if(combat.enemies[combat.targetIndex] && combat.enemies[combat.targetIndex].hp > 0) return;
+  const next = combat.enemies.findIndex(e => e.hp > 0);
+  if(next !== -1) combat.targetIndex = next;
 }
 
 function combatAttack(){
@@ -1287,37 +1364,38 @@ function combatAttack(){
     updateCombatUI();
     return;
   }
+  const target = combat.enemies[combat.targetIndex];
   const freeAttack = hasPerk('second_wind') && Math.random() < 0.25;
   if(!freeAttack) setStamina(playerStamina - STAMINA_COST_PER_ATTACK);
   const dmg = randRange(combat.playerDmgRange) + getEquipDamageBonus();
-  combat.enemyHp -= dmg;
-  combatLog(`You hit the ${combat.enemyName} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : ''));
-  if(combat.enemyHp <= 0){
+  target.hp -= dmg;
+  combatLog(`You hit the ${target.name} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : ''));
+  if(aliveEnemies().length === 0){
     updateCombatUI();
     endCombat('victory');
     return;
   }
-  enemyCounter();
+  autoAdvanceTarget();
+  runEnemyCounters(null);
   updateCombatUI();
   if(playerHealth <= 0){ endCombat('defeat'); }
 }
 
-// Active special attacks — unlocked with a skill point (character.html) same as PERKS, gated
+// Active special attacks — unlocked with a skill point (skills.html) same as PERKS, gated
 // on a stat threshold, but usable in combat rather than always-on. Each costs more stamina
 // than a basic Attack and is usable once per fight (combat.usedMoves), reset when a new fight
-// starts (see startCombat). Duplicated in character.html (unlock UI only) per the no-modules
+// starts (see startCombat). Duplicated in skills.html (unlock UI only) per the no-modules
 // convention — the effects below are the only place they actually do anything.
 //
-// Cleave is written to loop over every current enemy so it's ready for multi-enemy encounters
-// (see context/roadmap.md) without changes — today combat is always exactly one enemy, so it
-// plays out identically to a single reduced-damage hit.
+// Cleave and War Cry act on every alive enemy in combat.enemies — real multi-enemy fights
+// (2-3 Goblin/Ork raiders) exist now, see triggerEnemyFight/pickAmbushEnemy and context/combat.md.
 const MOVES = [
-  { id:"crushing_blow",   name:"Crushing Blow",   stat:"str", req:2, cost:35, desc:"2x damage, single hit." },
-  { id:"reckless_swing",  name:"Reckless Swing",  stat:"str", req:4, cost:30, desc:"2.5x damage, but the enemy's counter-hit ignores your armor and Evasion this turn." },
-  { id:"precise_shot",    name:"Precise Shot",    stat:"agi", req:2, cost:25, desc:"Always deals your maximum damage roll instead of a random one." },
-  { id:"adrenaline_rush", name:"Adrenaline Rush", stat:"agi", req:4, cost:15, desc:"A free extra attack this turn, at no extra stamina cost." },
-  { id:"war_cry",         name:"War Cry",         stat:"int", req:2, cost:20, desc:"Cuts the enemy's damage by 30% for the rest of the fight. Deals no damage itself." },
-  { id:"cleave",          name:"Cleave",          stat:"str", req:6, cost:40, desc:"Hits every enemy in the fight for 60% damage. Only one enemy exists today, so this plays like a weaker attack until multi-enemy fights ship." },
+  { id:"crushing_blow",   name:"Crushing Blow",   stat:"str", req:2, cost:35, desc:"2x damage to your target." },
+  { id:"reckless_swing",  name:"Reckless Swing",  stat:"str", req:4, cost:30, desc:"2.5x damage to your target, but its counter-hit this turn ignores your armor and Evasion." },
+  { id:"precise_shot",    name:"Precise Shot",    stat:"agi", req:2, cost:25, desc:"Always deals your maximum damage roll to your target instead of a random one." },
+  { id:"adrenaline_rush", name:"Adrenaline Rush", stat:"agi", req:4, cost:15, desc:"A free extra attack on your target this turn, at no extra stamina cost." },
+  { id:"war_cry",         name:"War Cry",         stat:"int", req:2, cost:20, desc:"Cuts every enemy's damage by 30% for the rest of the fight. Deals no damage itself." },
+  { id:"cleave",          name:"Cleave",          stat:"str", req:6, cost:40, desc:"Hits every enemy in the fight for 60% damage." },
 ];
 function canUseMove(move){
   return !!combat && hasPerk(move.id) && !combat.usedMoves[move.id] && playerStamina >= move.cost;
@@ -1329,52 +1407,52 @@ function combatSpecial(moveId){
   combat.usedMoves[moveId] = true;
   setStamina(playerStamina - move.cost);
 
+  const target = combat.enemies[combat.targetIndex];
   let dmg = 0;
   switch(moveId){
     case 'crushing_blow':
       dmg = randRange(combat.playerDmgRange)*2 + getEquipDamageBonus();
-      combat.enemyHp -= dmg;
-      combatLog(`Crushing Blow! You hit the ${combat.enemyName} for ${dmg} damage.`);
+      target.hp -= dmg;
+      combatLog(`Crushing Blow! You hit the ${target.name} for ${dmg} damage.`);
       break;
     case 'reckless_swing':
       dmg = Math.round(randRange(combat.playerDmgRange)*2.5) + getEquipDamageBonus();
-      combat.enemyHp -= dmg;
-      combatLog(`Reckless Swing! You hit the ${combat.enemyName} for ${dmg} damage, leaving yourself wide open.`);
+      target.hp -= dmg;
+      combatLog(`Reckless Swing! You hit the ${target.name} for ${dmg} damage, leaving yourself wide open.`);
       break;
     case 'precise_shot':
       dmg = combat.playerDmgRange[1] + getEquipDamageBonus();
-      combat.enemyHp -= dmg;
-      combatLog(`Precise Shot! You hit the ${combat.enemyName} for ${dmg} damage.`);
+      target.hp -= dmg;
+      combatLog(`Precise Shot! You hit the ${target.name} for ${dmg} damage.`);
       break;
     case 'adrenaline_rush':
       dmg = randRange(combat.playerDmgRange) + getEquipDamageBonus();
-      combat.enemyHp -= dmg;
-      combatLog(`Adrenaline Rush! A free extra strike hits the ${combat.enemyName} for ${dmg} damage.`);
+      target.hp -= dmg;
+      combatLog(`Adrenaline Rush! A free extra strike hits the ${target.name} for ${dmg} damage.`);
       break;
     case 'war_cry':
-      combat.enemyDmgRange = [Math.max(1,Math.round(combat.enemyDmgRange[0]*0.7)), Math.max(1,Math.round(combat.enemyDmgRange[1]*0.7))];
-      combatLog(`War Cry! The ${combat.enemyName}'s attacks are weaker for the rest of the fight.`);
+      aliveEnemies().forEach(e => {
+        e.dmgRange = [Math.max(1,Math.round(e.dmgRange[0]*0.7)), Math.max(1,Math.round(e.dmgRange[1]*0.7))];
+      });
+      combatLog(`War Cry! Every enemy's attacks are weaker for the rest of the fight.`);
       break;
     case 'cleave':
-      dmg = Math.round(randRange(combat.playerDmgRange)*0.6) + getEquipDamageBonus();
-      combat.enemyHp -= dmg;
-      combatLog(`Cleave! You strike the ${combat.enemyName} for ${dmg} damage.`);
+      aliveEnemies().forEach(e => {
+        const hit = Math.round(randRange(combat.playerDmgRange)*0.6) + getEquipDamageBonus();
+        e.hp -= hit;
+        combatLog(`Cleave! You strike the ${e.name} for ${hit} damage.`);
+      });
       break;
   }
 
-  if(combat.enemyHp <= 0){
+  if(aliveEnemies().length === 0){
     updateCombatUI();
     endCombat('victory');
     return;
   }
 
-  if(moveId === 'reckless_swing'){
-    const edmg = randRange(combat.enemyDmgRange);
-    setHealth(playerHealth - edmg);
-    combatLog(`The ${combat.enemyName} makes you pay for it — ${edmg} damage, ignoring your armor.`);
-  } else {
-    enemyCounter();
-  }
+  autoAdvanceTarget();
+  runEnemyCounters(moveId === 'reckless_swing' ? target : null);
 
   document.getElementById('combat-specials-panel').classList.remove('show');
   document.getElementById('combat-special-btn').classList.remove('active');
@@ -1415,26 +1493,29 @@ function combatFlee(){
 }
 
 function endCombat(result){
-  const enemyName = combat ? combat.enemyName : 'enemy';
+  const enemies = combat ? combat.enemies : [];
   const onEnd = combat ? combat.onEnd : null;
-  const goldRewardRange = combat ? combat.goldRewardRange : [8,20];
-  const xpRewardRange = combat ? combat.xpRewardRange : [5,10];
   const enemyRace = combat ? combat.race : null;
   // Nulled synchronously (not inside the setTimeout below) so a click during the
   // victory/defeat delay hits combatAttack/combatFlee's `if(!combat) return;` guard
   // instead of re-entering — without this, mashing Attack right as the killing blow
-  // lands could re-trigger endCombat('victory') again before enemyHp's negative value
-  // stopped combat.enemyHp<=0 from re-passing, stacking duplicate gold rewards and onEnd calls.
+  // lands could re-trigger endCombat('victory') again before every enemy's hp<=0 stopped
+  // aliveEnemies().length===0 from re-passing, stacking duplicate gold rewards and onEnd calls.
   combat = null;
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
     if(result === 'victory'){
-      let reward = randRange(goldRewardRange);
-      if(hasPerk('scavenger')) reward = Math.round(reward * 1.2);
-      setGold(playerGold + reward);
-      const xpGain = randRange(xpRewardRange);
-      let anyLevelUp = addXp(xpGain);
-      let msg = `Victory! You defeated the ${enemyName}, found ${reward} gold, and gained ${xpGain} XP.`;
+      let goldTotal = 0, xpTotal = 0;
+      enemies.forEach(e => { goldTotal += randRange(e.goldRange); xpTotal += randRange(e.xpRange); });
+      if(hasPerk('scavenger')) goldTotal = Math.round(goldTotal * 1.2);
+      setGold(playerGold + goldTotal);
+      let anyLevelUp = addXp(xpTotal);
+
+      // "2x Goblin Raider, 1x Goblin Archer" — group defeated enemies by name for the toast.
+      const counts = {};
+      enemies.forEach(e => { counts[e.name] = (counts[e.name]||0) + 1; });
+      const names = Object.keys(counts).map(n => counts[n] > 1 ? `${counts[n]}x ${n}` : n).join(', ');
+      let msg = `Victory! You defeated ${names}, found ${goldTotal} gold, and gained ${xpTotal} XP.`;
 
       // Notable Figure kill-quests complete on the next matching victory anywhere — Kill
       // Bandits wants a Bandit, Drive Off the Raiders wants a Goblin or Ork (see
@@ -1479,14 +1560,17 @@ document.getElementById('combat-special-btn').addEventListener('click', ()=>{
 });
 
 const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed regardless of who they're fighting
-// Picks a random variant from ENEMY_VARIANTS[race] and starts that fight — see the comment on
-// ENEMY_VARIANTS above for how each variant's own difficulty/art is expressed. One function for
-// all three races now that every race has real art; a "Bandit" ambush is just a race with a
-// single variant so far, same as Ork had only one before Berserker/Warlord were added.
+// Picks 1-3 random variants from ENEMY_VARIANTS[race] and starts that fight — see the comment
+// on ENEMY_VARIANTS above for how each variant's own difficulty/art is expressed. Bandit
+// ambushes stay solo (the documented "easiest fight in the game"); Goblin/Ork raiding-party
+// ambushes spawn 2-3 enemies, each an independently-rolled variant (repeats allowed), matching
+// triggerAmbushFight's plural "raiders" flavor text below.
 function triggerEnemyFight(race, onEnd){
   const variants = ENEMY_VARIANTS[race] || ENEMY_VARIANTS.bandit;
-  const v = variants[Math.floor(Math.random()*variants.length)];
-  startCombat(v.name, v.hp, v.enemyDmgRange, PLAYER_DMG_RANGE, onEnd || (()=>{}), v.art, v.goldRange, v.xpRange, race);
+  const count = race === 'bandit' ? 1 : (2 + Math.floor(Math.random()*2)); // 2 or 3
+  const specs = [];
+  for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), race);
 }
 const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
 // Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement

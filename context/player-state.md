@@ -92,8 +92,8 @@ A skill point can also unlock an active special attack instead of a perk — sam
 | Reckless Swing | Str 4 | 30 | 2.5x damage, but the enemy's counter that turn ignores both armor and Evasion |
 | Precise Shot | Agi 2 | 25 | Always rolls maximum damage instead of random (the game has no miss chance to guarantee against, so this is the meaningful equivalent) |
 | Adrenaline Rush | Agi 4 | 15 | A free extra attack this turn, no stamina cost |
-| War Cry | Int 2 | 20 | Cuts the enemy's damage 30% for the rest of the fight; deals no damage itself |
-| Cleave | Str 6 | 40 | Hits every enemy for 60% damage — written as a loop so it's ready for multi-enemy fights (see [roadmap.md](roadmap.md)), but today there's always exactly one enemy, so it plays like a single reduced-damage hit |
+| War Cry | Int 2 | 20 | Cuts every alive enemy's damage 30% for the rest of the fight; deals no damage itself |
+| Cleave | Str 6 | 40 | Hits every alive enemy in the fight for 60% damage each — see [combat.md](combat.md)'s "Multi-enemy encounters" for how raiding-party fights (2-3 enemies) work |
 
 This resolved the naming collision noted in an earlier pass of [roadmap.md](roadmap.md): the active move is called **Crushing Blow**, kept distinct from the passive **Power Strike** perk (+2 flat damage, always on) above.
 

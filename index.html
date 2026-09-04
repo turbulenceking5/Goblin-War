@@ -784,6 +784,20 @@ const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered
 const RAID_SUCCESS_MIN = 0.2, RAID_SUCCESS_MAX = 0.8; // siege progress per tick is population-driven (see pickRaidTarget/advanceSiege) but always stays uncertain
 const SIEGE_PROGRESS_MAX_PER_TICK = 45; // % progress a siege can gain in one tick, at the highest clamped success chance
 
+// Tick-scoped read cache for the sparse override maps below (territory control, population,
+// relations, sieges, reinforcements). Every getXxx() normally does a fresh JSON.parse on every
+// call — fine for the rare, player-triggered reads elsewhere (Marketplace, Guard House,
+// onMapTap), but runFactionAITick's own callees (getArmyStrength, findNearestPeacefulSettlement)
+// each re-scan every one of the ~800 settlements, calling these getters an enormous number of
+// times in the course of one weekly tick. Once a save has run long enough that most settlements
+// carry an override, re-parsing that JSON on every single one of those reads made a single tick
+// take multiple seconds and get slower over time (measured directly — see the perf note in
+// factions-and-territory.md). Set at the start of runFactionAITick, cleared at the end; every
+// getXxx() below returns the SAME cached object while active, so a setXxx() call's in-place
+// mutation (they all still write straight through to localStorage too) is visible to every
+// later read in the same tick without needing a separate invalidation step.
+let _tickCache = null;
+
 let KINGDOM_RACE = {};  // kingdom name -> race, derived from graph.burgs once loaded
 let ALL_KINGDOMS = [];
 function buildFactionData(){
@@ -859,7 +873,10 @@ function isFrontlineBurg(burgId){
 // any kingdom's strength until it's captured again (which writes the new kingdom-name format).
 // Self-healing, not silently wrong — worth knowing if regional strength ever looks light on an
 // old save.
-function getTerritoryControl(){ try{ return JSON.parse(localStorage.getItem(TERRITORY_KEY)) || {}; }catch(e){ return {}; } }
+function getTerritoryControl(){
+  if(_tickCache) return _tickCache.territory;
+  try{ return JSON.parse(localStorage.getItem(TERRITORY_KEY)) || {}; }catch(e){ return {}; }
+}
 function getControllerKingdom(burgId){
   const overrides = getTerritoryControl();
   if(overrides[burgId]) return overrides[burgId];
@@ -887,24 +904,49 @@ function setController(burgId, kingdom){
 // simply starts with everyone at peace and wars begin fresh, rather than trying to reconstruct
 // "who was fighting whom" from the old single-flag-per-kingdom system.
 function getRelationKey(k1, k2){ return [k1, k2].sort().join('::'); }
-function getRelationsMap(){ try{ return JSON.parse(localStorage.getItem(RELATIONS_KEY)) || {}; }catch(e){ return {}; } }
+function getRelationsMap(){
+  if(_tickCache) return _tickCache.relations;
+  try{ return JSON.parse(localStorage.getItem(RELATIONS_KEY)) || {}; }catch(e){ return {}; }
+}
 function getRelation(k1, k2){ return getRelationsMap()[getRelationKey(k1, k2)] || 'peace'; }
 function setRelation(k1, k2, state){
   const map = getRelationsMap();
   map[getRelationKey(k1, k2)] = state;
   localStorage.setItem(RELATIONS_KEY, JSON.stringify(map));
 }
-// Every opposite-alliance kingdom this one currently has a "war" relation with.
+// Every opposite-alliance kingdom this one currently has a "war" relation with. Reads
+// getRelationsMap() once up front rather than calling getRelation() per candidate (which would
+// re-parse the same localStorage JSON once per candidate kingdom) — this function sits in
+// isAtWarAt's hot path, itself called up to once per burg inside findNearestPeacefulSettlement's
+// O(796) scan, so an avoidable per-candidate re-parse here compounds badly at scale (many
+// kingdoms at war, many settlements bleeding attrition every tick).
 function getEnemiesAtWar(kingdom){
   const alliance = ALLIANCE[KINGDOM_RACE[kingdom]];
-  return ALL_KINGDOMS.filter(k => k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== alliance && getRelation(kingdom, k) === 'war');
+  const relations = getRelationsMap();
+  return ALL_KINGDOMS.filter(k => k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== alliance && (relations[getRelationKey(kingdom, k)] || 'peace') === 'war');
 }
 // Derived, not stored: "is this kingdom fighting *someone*" — kept as its own function (rather
 // than inlining getEnemiesAtWar().length everywhere) because every existing caller (Marketplace
 // pricing, pickAmbushEnemy, Guard House, Petition for Troops) only ever needed this coarser
 // question, not which specific enemy. Signature unchanged from the old per-kingdom flag, so
 // none of those callers needed to change.
-function getWarState(kingdom){ return getEnemiesAtWar(kingdom).length ? 'war' : 'peace'; }
+//
+// Memoized per-kingdom for the duration of one tick (see _tickCache) — this is isAtWarAt's own
+// hot path, called once per settlement inside findNearestPeacefulSettlement's O(796) scan, which
+// itself runs once per attritioned/besieged settlement (hundreds, once many kingdoms are at
+// war). Recomputing getEnemiesAtWar's full ALL_KINGDOMS scan on every one of those calls measured
+// out to tens of millions of redundant relation-key lookups per tick — safe to cache because
+// nothing after runFactionAITick's first (declare/peace) pass ever calls setRelation again, so a
+// kingdom's war state genuinely can't change partway through the second pass this feeds.
+function getWarState(kingdom){
+  if(_tickCache){
+    if(kingdom in _tickCache.warState) return _tickCache.warState[kingdom];
+    const result = getEnemiesAtWar(kingdom).length ? 'war' : 'peace';
+    _tickCache.warState[kingdom] = result;
+    return result;
+  }
+  return getEnemiesAtWar(kingdom).length ? 'war' : 'peace';
+}
 function isAtWarAt(burgId){
   const b = graph.burgs[burgId];
   return b && b.state ? getWarState(b.state) === 'war' : false;
@@ -926,7 +968,10 @@ const REFUGEE_FLEE_SHARE = 0.6;     // ...and this fraction flees to the nearest
 const REFUGEE_ARRIVAL_WINDOW_DAYS = 7; // how long a settlement counts as "recently received refugees" for the Aid the Refugees action
 const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could field as soldiers
 
-function getPopulationOverrides(){ try{ return JSON.parse(localStorage.getItem(POPULATION_KEY)) || {}; }catch(e){ return {}; } }
+function getPopulationOverrides(){
+  if(_tickCache) return _tickCache.population;
+  try{ return JSON.parse(localStorage.getItem(POPULATION_KEY)) || {}; }catch(e){ return {}; }
+}
 function getPopulation(burgId){
   const overrides = getPopulationOverrides();
   if(overrides[burgId] !== undefined) return overrides[burgId];
@@ -963,7 +1008,10 @@ function hasRecentRefugeeArrival(burgId){
 // can't be farmed into an ever-growing bonus.
 const REINFORCEMENT_FRACTION = 0.25;  // the petitioned kingdom sends this fraction of its own strength
 const REINFORCEMENT_DURATION_DAYS = 14;
-function getReinforcements(){ try{ return JSON.parse(localStorage.getItem(REINFORCE_KEY)) || {}; }catch(e){ return {}; } }
+function getReinforcements(){
+  if(_tickCache) return _tickCache.reinforcements;
+  try{ return JSON.parse(localStorage.getItem(REINFORCE_KEY)) || {}; }catch(e){ return {}; }
+}
 function setReinforcement(kingdom, amount, fromKingdom){
   const map = getReinforcements();
   map[kingdom] = { amount, expiresDay: gameDay + REINFORCEMENT_DURATION_DAYS, fromKingdom };
@@ -1034,7 +1082,10 @@ function getSellPrice(mi, burgId){
     : Math.round(mi.price * PEACE_SELL_FRACTION);
 }
 
-function getSieges(){ try{ return JSON.parse(localStorage.getItem(SIEGE_KEY)) || {}; }catch(e){ return {}; } }
+function getSieges(){
+  if(_tickCache) return _tickCache.sieges;
+  try{ return JSON.parse(localStorage.getItem(SIEGE_KEY)) || {}; }catch(e){ return {}; }
+}
 function setSieges(map){ localStorage.setItem(SIEGE_KEY, JSON.stringify(map)); }
 // A settlement's own local defense, distinct from getArmyStrength(kingdom) (that kingdom's
 // whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege.
@@ -1124,35 +1175,53 @@ function advanceSiege(attackerKingdom, defenderKingdom){
 // bleeds attrition and, per specific enemy it's fighting, has a chance to start or advance a
 // siege against that enemy.
 function runFactionAITick(){
-  const events = [];
-  for(let i=0;i<ALL_KINGDOMS.length;i++){
-    for(let j=i+1;j<ALL_KINGDOMS.length;j++){
-      const k1 = ALL_KINGDOMS[i], k2 = ALL_KINGDOMS[j];
-      if(ALLIANCE[KINGDOM_RACE[k1]] === ALLIANCE[KINGDOM_RACE[k2]]) continue;
-      if(getRelation(k1, k2) === 'peace'){
-        if(Math.random() < WAR_DECLARE_CHANCE) setRelation(k1, k2, 'war');
-      } else if(Math.random() < WAR_PEACE_CHANCE){
-        setRelation(k1, k2, 'peace');
-        cancelSiegesBetween(k1, k2);
-      }
-    }
-  }
-  ALL_KINGDOMS.forEach(kingdom=>{
-    const enemies = getEnemiesAtWar(kingdom);
-    if(!enemies.length) return;
-    // Every settlement that originally belongs to this kingdom bleeds a little population just
-    // from being at war, regardless of whether it's the one under siege this tick.
-    Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
-    enemies.forEach(enemy=>{
-      if(Math.random() < RAID_CHANCE){
-        const result = advanceSiege(kingdom, enemy);
-        if(result && result.captured){
-          events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
+  // Populate the tick-scoped read cache (see its declaration near KINGDOM_RACE above) — every
+  // getXxx() call for the rest of this function, and everything it calls (getArmyStrength,
+  // applyWarLoss, findNearestPeacefulSettlement, advanceSiege, etc.), reuses these same parsed
+  // objects instead of re-parsing localStorage on every one of the many thousands of reads one
+  // tick performs. try/finally so a thrown error still clears it rather than leaking a stale
+  // cache into whatever runs next.
+  _tickCache = {
+    territory: getTerritoryControl(),
+    population: getPopulationOverrides(),
+    relations: getRelationsMap(),
+    sieges: getSieges(),
+    reinforcements: getReinforcements(),
+    warState: {}, // see getWarState — populated lazily, safe for the whole tick once the declare/peace pass below finishes
+  };
+  try{
+    const events = [];
+    for(let i=0;i<ALL_KINGDOMS.length;i++){
+      for(let j=i+1;j<ALL_KINGDOMS.length;j++){
+        const k1 = ALL_KINGDOMS[i], k2 = ALL_KINGDOMS[j];
+        if(ALLIANCE[KINGDOM_RACE[k1]] === ALLIANCE[KINGDOM_RACE[k2]]) continue;
+        if(getRelation(k1, k2) === 'peace'){
+          if(Math.random() < WAR_DECLARE_CHANCE) setRelation(k1, k2, 'war');
+        } else if(Math.random() < WAR_PEACE_CHANCE){
+          setRelation(k1, k2, 'peace');
+          cancelSiegesBetween(k1, k2);
         }
       }
+    }
+    ALL_KINGDOMS.forEach(kingdom=>{
+      const enemies = getEnemiesAtWar(kingdom);
+      if(!enemies.length) return;
+      // Every settlement that originally belongs to this kingdom bleeds a little population just
+      // from being at war, regardless of whether it's the one under siege this tick.
+      Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
+      enemies.forEach(enemy=>{
+        if(Math.random() < RAID_CHANCE){
+          const result = advanceSiege(kingdom, enemy);
+          if(result && result.captured){
+            events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
+          }
+        }
+      });
     });
-  });
-  return events;
+    return events;
+  } finally {
+    _tickCache = null;
+  }
 }
 
 function maybeRunFactionAI(){

@@ -124,6 +124,26 @@
   #camp-here-btn:active{ transform:scale(.94); }
   #camp-here-btn.hide{ display:none; }
 
+  #wait-controls{
+    position:fixed; left:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
+    background:rgba(24,17,8,.95); border:1.5px solid var(--gold); border-radius:12px;
+    padding:8px 10px; display:flex; align-items:center; gap:7px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+  }
+  #wait-controls.hide{ display:none; }
+  .wait-btn{
+    width:34px; height:34px; flex:none; border-radius:50%; border:1.5px solid var(--gold-lt);
+    background:rgba(20,14,6,.6); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:12px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .wait-btn.active{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; }
+  .wait-btn:active{ transform:scale(.92); }
+  .wait-btn:disabled{ opacity:.4; }
+  #wait-status{
+    font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:.3px; color:var(--parchment);
+    min-width:74px; text-align:center; line-height:1.25;
+  }
+
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
     background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
@@ -402,6 +422,13 @@
 
   <button id="recenter-btn">FIND<br>ME</button>
   <button id="camp-here-btn">MAKE<br>CAMP</button>
+
+  <div id="wait-controls">
+    <button class="wait-btn" id="wait-play-btn" title="Wait">&#9654;</button>
+    <button class="wait-btn" id="wait-pause-btn" title="Pause" disabled>&#10074;&#10074;</button>
+    <button class="wait-btn" id="wait-speed-btn" title="3&times; Speed">3&times;</button>
+    <div id="wait-status">Wait here</div>
+  </div>
 
   <div id="travel-controls">
     <div id="travel-status">Traveling to <b id="travel-dest-name">—</b>…</div>
@@ -1064,6 +1091,51 @@ function applyWarLoss(burgId, rate){
       setPopulation(haven.id, getPopulation(haven.id) + fled);
       stampRefugeeArrival(haven.id);
     }
+  }
+}
+
+// Killed enemies count toward their own side's decline — a small, cumulative cost distinct
+// from the weekly tick's own attrition/siege damage above, applied from the player's own
+// combat victories (see endCombat). Symmetric by design: Ork/Goblin kills reduce Ork/Goblin
+// population and Human/Dwarf kills reduce Human/Dwarf population, the same logic either way —
+// though in practice only Ork/Goblin enemies are ever actually fought today (Bandit ambushes
+// and themed raiding parties, see combat.md's pickAmbushEnemy), so the Good-alliance direction
+// is currently latent rather than something a player can trigger. Bandit kills are excluded —
+// Bandits aren't tied to any kingdom or race population at all.
+const ENEMY_CASUALTY_POP_LOSS = 0.01; // ~10 people per enemy actually killed
+function findNearestSettlementOfRace(fromBurgId, race){
+  const from = graph.burgs[fromBurgId];
+  if(!from) return null;
+  let best = null, bestDist = Infinity;
+  Object.values(graph.burgs).forEach(b=>{
+    if(getController(b.id) !== race) return;
+    const d = Math.hypot(b.x-from.x, b.y-from.y);
+    if(d < bestDist){ bestDist = d; best = b; }
+  });
+  return best;
+}
+// attackerKingdom (from a siege's Defend the Walls fight, see triggerSiegeDefenseFight) lets
+// this attribute the loss to that *specific* kingdom's own nearest-held settlement instead of
+// just "the nearest settlement of that race" — feeding directly back into its own
+// getArmyStrength on the next weekly tick, so repeatedly defending against one kingdom's sieges
+// measurably weakens that kingdom's future ones. A plain ambush has no specific kingdom behind
+// it, so it falls back to the race-wide nearest-settlement search.
+function applyEnemyCasualtyLoss(race, attackerKingdom, nearBurgId, count){
+  if(!race || race === 'bandit' || count <= 0) return;
+  const totalLoss = ENEMY_CASUALTY_POP_LOSS * count;
+  if(attackerKingdom){
+    const ownBurgs = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === attackerKingdom);
+    if(!ownBurgs.length) return;
+    const from = graph.burgs[nearBurgId];
+    let best = ownBurgs[0], bestDist = Infinity;
+    ownBurgs.forEach(b=>{
+      const d = from ? Math.hypot(b.x-from.x, b.y-from.y) : 0;
+      if(d < bestDist){ bestDist = d; best = b; }
+    });
+    setPopulation(best.id, getPopulation(best.id) - totalLoss);
+  } else {
+    const target = findNearestSettlementOfRace(nearBurgId, race);
+    if(target) setPopulation(target.id, getPopulation(target.id) - totalLoss);
   }
 }
 
@@ -1766,6 +1838,7 @@ function endCombat(result){
   const enemies = combat ? combat.enemies : [];
   const onEnd = combat ? combat.onEnd : null;
   const enemyRace = combat ? combat.race : null;
+  const attackerKingdom = combat ? combat.attackerKingdom : null;
   // Nulled synchronously (not inside the setTimeout below) so a click during the
   // victory/defeat delay hits combatAttack/combatFlee's `if(!combat) return;` guard
   // instead of re-entering — without this, mashing Attack right as the killing blow
@@ -1789,6 +1862,7 @@ function endCombat(result){
       if(hasPerk('scavenger')) goldTotal = Math.round(goldTotal * 1.2);
       setGold(playerGold + goldTotal);
       let anyLevelUp = addXp(xpTotal);
+      applyEnemyCasualtyLoss(enemyRace, attackerKingdom, currentBurg, enemies.length);
 
       // "2x Goblin Raider, 1x Goblin Archer" — group defeated enemies by name for the toast.
       const counts = {};
@@ -2006,6 +2080,83 @@ function hoursToFoodCost(hours){
   const mult = hasPerk('field_rations') ? 0.9 : 1;
   return Math.max(1, Math.ceil((hours/HOURS_PER_DAY)*FOOD_PER_DAY*mult));
 }
+
+// "Wait here" — lets the player pass time at their current location, via Play/Pause/3x
+// controls (bottom-left, alongside Find Me/Make Camp), without needing to travel anywhere.
+// Deliberately a *safe* fast-forward, per the project owner: unlike travel or camping, it never
+// rolls an ambush and never runs the weekly faction AI tick — advanceCalendarQuietly (below) is
+// advanceDays() without that side effect. It does still cost Food, at the exact same effective
+// rate travel does (hoursToFoodCost), just accrued incrementally in real time instead of as one
+// lump sum, and only ever debited for the *new* hours crossed since the last tick so it can't
+// double-charge.
+const WAIT_HOURS_PER_TICK = 2; // in-game hours advanced per real-time tick, at 1x
+const WAIT_TICK_MS = 1000;
+let waitState = null; // {speed, totalHours, foodDeducted, daysAdvanced, intervalId}
+
+function advanceCalendarQuietly(days){
+  if(days <= 0) return;
+  gameDay += days;
+  localStorage.setItem(CAL_KEY, String(gameDay));
+  refreshCalendarUI();
+}
+
+function updateWaitUI(){
+  const playBtn = document.getElementById('wait-play-btn');
+  const pauseBtn = document.getElementById('wait-pause-btn');
+  const speedBtn = document.getElementById('wait-speed-btn');
+  const status = document.getElementById('wait-status');
+  const active = !!waitState;
+  if(playBtn) playBtn.classList.toggle('active', active);
+  if(pauseBtn) pauseBtn.disabled = !active;
+  if(speedBtn) speedBtn.classList.toggle('active', active && waitState.speed === 3);
+  if(status) status.textContent = active ? `Waiting… ${getFoodQty()} food` : 'Wait here';
+}
+
+function waitTick(){
+  if(!waitState) return;
+  waitState.totalHours += WAIT_HOURS_PER_TICK * (waitState.speed === 3 ? 3 : 1);
+  const costSoFar = hoursToFoodCost(waitState.totalHours);
+  const newCost = costSoFar - waitState.foodDeducted;
+  if(newCost > 0){
+    if(newCost > getFoodQty()){
+      showToast("You've run out of food and must stop waiting.");
+      stopWaiting();
+      return;
+    }
+    consumeItem(FOOD_NAME, newCost);
+    waitState.foodDeducted = costSoFar;
+  }
+  const daysSoFar = hoursToDaysElapsed(waitState.totalHours);
+  if(daysSoFar > waitState.daysAdvanced){
+    advanceCalendarQuietly(daysSoFar - waitState.daysAdvanced);
+    waitState.daysAdvanced = daysSoFar;
+  }
+  updateWaitUI();
+}
+
+function startWaiting(){
+  if(waitState || activeTravel) return;
+  waitState = { speed: 1, totalHours: 0, foodDeducted: 0, daysAdvanced: 0, intervalId: null };
+  waitState.intervalId = setInterval(waitTick, WAIT_TICK_MS);
+  updateWaitUI();
+}
+// Exposed as the Pause button, but also the generic "something else needs the calendar/screen
+// now" escape hatch — called whenever the player leaves the open map (showLocationView,
+// showCampView, beginTravel) so waiting can never keep silently ticking behind another screen.
+function stopWaiting(){
+  if(!waitState) return;
+  clearInterval(waitState.intervalId);
+  waitState = null;
+  updateWaitUI();
+}
+function toggleWaitSpeed(){
+  if(!waitState) return;
+  waitState.speed = waitState.speed === 3 ? 1 : 3;
+  updateWaitUI();
+}
+document.getElementById('wait-play-btn').addEventListener('click', startWaiting);
+document.getElementById('wait-pause-btn').addEventListener('click', stopWaiting);
+document.getElementById('wait-speed-btn').addEventListener('click', toggleWaitSpeed);
 
 function computeTravel(toId){
   const fromXY = getCurrentXY(), fromCell = getCurrentCell();
@@ -2330,13 +2481,30 @@ function showTravelControls(destName){
   document.getElementById('travel-dest-name').textContent = destName;
   document.getElementById('travel-controls').classList.add('show');
   document.getElementById('camp-here-btn').classList.add('hide');
+  document.getElementById('wait-controls').classList.add('hide');
 }
 function hideTravelControls(){
   document.getElementById('travel-controls').classList.remove('show');
   document.getElementById('camp-here-btn').classList.remove('hide');
+  document.getElementById('wait-controls').classList.remove('hide');
+}
+
+// Food is only ever actually deducted (consumeItem) at arrival or at a mid-journey
+// interruption (campMidTravel) — see those call sites — but the header's #stat-food used to
+// sit frozen at its pre-travel value for the whole animation, then jump straight to the
+// post-cost number the instant a trip ended, which read as if travel cost nothing until it
+// suddenly did. This repaints #stat-food every animation frame with a smooth linear interpolation
+// from the food count at departure down to exactly what it'll actually be on arrival
+// (startFood - totalCost, reached precisely at frac=1, so there's no discontinuity with the real
+// consumeItem call that follows) — display-only, never touches playerInventory itself, so it
+// can't cause a double deduction no matter how it's called.
+function updateLiveFoodDisplay(startFood, totalCost, frac){
+  const fp = document.getElementById('stat-food');
+  if(fp) fp.textContent = Math.max(0, Math.round(startFood - totalCost*frac));
 }
 
 function beginTravel(destId){
+  stopWaiting();
   const t = computeTravel(destId);
   if(!t) return;
   if(t.foodCost > getFoodQty()){
@@ -2344,6 +2512,7 @@ function beginTravel(destId){
     return;
   }
   const destName = graph.burgs[destId].name;
+  const startFood = getFoodQty();
   closeCard();
 
   const fromPos = { ...getCurrentXY(), cell:getCurrentCell() };
@@ -2369,9 +2538,13 @@ function beginTravel(destId){
     } else {
       showLocationView(currentBurg);
     }
-  }, (info)=>{ if(activeTravel) activeTravel.lastSnap = info; });
+  }, (info)=>{
+    if(!activeTravel) return;
+    activeTravel.lastSnap = info;
+    updateLiveFoodDisplay(startFood, t.foodCost, info.frac);
+  });
 
-  activeTravel = { controller, destId, destName, totalHours: t.hours, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
+  activeTravel = { controller, destId, destName, totalHours: t.hours, startFood, foodCost: t.foodCost, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
 }
 
 // Cancels the current journey in place — the character stops exactly where the
@@ -2387,6 +2560,11 @@ function stopTravel(){
   positionPlayerMarker(campPos.x, campPos.y);
   centerOnLogical(campPos.x, campPos.y, view.scale);
   refreshReachability();
+  // No Food is actually spent on a plain Stop (unlike Camp) — the header's live depletion
+  // display (see updateLiveFoodDisplay) had been counting down purely as a preview of what
+  // arrival *would* cost, so it needs restoring to the real, untouched inventory value rather
+  // than being left showing a number that was never actually deducted.
+  refreshPlayerStatUI();
   showToast(`You stop on the road toward ${activeTravel.destName}.`);
   activeTravel = null;
 }
@@ -2497,6 +2675,7 @@ const CAMP_ART = `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.or
 // Camp reuses the same split-screen shell as a settlement's location-view,
 // just populated with camp-specific content instead.
 function showCampView(destId, destName, partialHours){
+  stopWaiting();
   const standalone = !destId; // camped from the map directly, not mid-journey
   const here = getCurrentDisplayName();
 
@@ -2817,6 +2996,7 @@ function showNotableFigurePanel(burgId){
 }
 
 function showLocationView(burgId){
+  stopWaiting();
   const b = graph.burgs[burgId];
   if(!b) return;
   checkQuestTurnIns(burgId);
@@ -3235,6 +3415,10 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
   startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace);
+  // Recorded so endCombat's victory branch can attribute killed-enemy population loss (see
+  // applyEnemyCasualtyLoss) to this specific kingdom rather than just "the nearest settlement of
+  // that race" — a plain ambush has no particular kingdom behind it, but a siege's attacker does.
+  combat.attackerKingdom = siege.attackerKingdom;
   document.getElementById('combat-title').textContent = 'Defend the Walls!';
   // Appended, not overwritten — startCombat already seeded the log with a random
   // COMBAT_INTRO_LINES beat plus its own "N enemies block your path!" line; this replaces

@@ -9,7 +9,8 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | File | Role |
 |---|---|
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
-| [character.html](character.html) | Hero sheet (HP/stamina/gold/food/weight/age/location) — mostly read-only, but Equipment can be unequipped and skill points spent on Strength/Agility/Intelligence from here (see [context/player-state.md](context/player-state.md)). |
+| [character.html](character.html) | Hero sheet — identity, Health/Stamina, Equipment (unequip from here), Accessories (placeholder), Purse, and basic info (age/location/day/food/weight). Mostly read-only. Level, stats, perks, and special attacks live on [skills.html](skills.html), not here. |
+| [skills.html](skills.html) | Level/XP, Strength/Agility/Intelligence (spend skill points here), the 9 passive perks, and the 6 active special attacks — see [context/player-state.md](context/player-state.md)'s "Leveling & stats". Split out from character.html into its own toolbar tab so the two screens don't compete for space. |
 | [inventory.html](inventory.html) | Bag contents, gold, and carried weight — and where equippable items get equipped (see [context/player-state.md](context/player-state.md)). |
 | [party.html](party.html) | Stub — no companion system yet. |
 | [settings.html](settings.html) | The active character's current status, Save Now / Switch Character / Log Out, a Change Log menu item linking out to changelog.html, and Delete This Character. No local save slots anymore — see [context/characters.md](context/characters.md). |

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
+<meta name="theme-color" content="#1c2a2c">
+<title>Goblin War — Skills</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  header{
+    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    border-bottom:3px solid var(--gold);
+    padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
+  }
+  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  #back-btn{
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
+    border-radius:6px; padding:7px 12px; cursor:pointer;
+  }
+  #back-btn:active{ transform:scale(.96); }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
+  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:18px; text-align:center; }
+
+  .card{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:12px;
+    padding:18px; margin-bottom:16px;
+  }
+  .hero-row{ display:flex; align-items:center; gap:14px; }
+  .level-badge{
+    flex:none; width:54px; text-align:center; border:2px solid var(--gold); border-radius:10px;
+    padding:6px 4px; background:rgba(255,255,255,.08);
+  }
+  .level-num{ font-family:'Cinzel Decorative', serif; font-size:22px; color:var(--parchment); line-height:1; }
+  .level-label{ font-family:'Cinzel', serif; font-size:8px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-top:2px; }
+  .level-caption{ font-family:'Cinzel Decorative', serif; font-size:16px; color:var(--parchment); }
+  .xp-track{ background:rgba(0,0,0,.3); border-radius:8px; height:8px; overflow:hidden; border:1px solid rgba(209,164,69,.35); margin-top:12px; }
+  .xp-fill{ height:100%; background:linear-gradient(90deg,#8a6a1f,var(--gold-lt)); }
+  .xp-label{ font-size:10px; color:#a9926a; margin-top:4px; text-align:center; }
+
+  .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:16px 0 6px; }
+  .stat-label:first-child{ margin-top:0; }
+
+  .stats-box{ background:rgba(255,255,255,.05); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:4px 14px; }
+  .stat-line{ display:flex; justify-content:space-between; align-items:center; padding:7px 0; font-size:13.5px; border-bottom:1px solid rgba(255,255,255,.08); }
+  .stat-line:last-child{ border-bottom:none; }
+  .stat-line span:first-child{ color:var(--parchment); }
+  .stat-value-row{ display:flex; align-items:center; gap:8px; }
+  .stat-value-row span{ color:#a9926a; font-weight:600; min-width:14px; text-align:right; }
+  .stat-plus-btn{
+    width:22px; height:22px; border-radius:6px; border:1.5px solid var(--gold); background:rgba(209,164,69,.2);
+    color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:14px; line-height:1; cursor:pointer;
+  }
+  .stat-plus-btn:active{ transform:scale(.94); }
+  .stat-plus-btn:disabled{ opacity:.3; border-color:rgba(209,164,69,.35); color:#a9926a; cursor:not-allowed; }
+  .stats-note{ font-size:10.5px; color:#a9926a; text-align:center; margin-top:8px; font-style:italic; }
+  .stats-note b{ color:var(--gold-lt); font-style:normal; }
+
+  .perks-list{ display:flex; flex-direction:column; gap:8px; }
+  .perk-row{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    background:rgba(255,255,255,.05); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:10px 12px;
+  }
+  .perk-row.unlocked{ border-color:var(--gold); background:rgba(209,164,69,.15); }
+  .perk-name{ font-family:'Cinzel', serif; font-size:13px; color:var(--parchment); }
+  .perk-desc{ font-size:11px; color:#a9926a; margin-top:2px; }
+  .perk-req{ font-size:10px; color:#a9926a; margin-top:2px; font-style:italic; }
+  .perk-unlock-btn{
+    flex:none; font-family:'Cinzel', serif; font-size:11px; padding:8px 12px; border-radius:8px; cursor:pointer;
+    border:1.5px solid var(--gold); background:rgba(209,164,69,.2); color:var(--gold-lt); font-weight:700;
+  }
+  .perk-unlock-btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .perk-unlocked-badge{ flex:none; font-family:'Cinzel', serif; font-size:11px; color:#7fbf6a; font-weight:700; }
+
+  #toast{
+    position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+    max-width:80vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>SKILLS</h1>
+    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()">&larr; Back to Map</button>
+  </header>
+  <main>
+    <div class="subtitle">Skills &amp; Progression</div>
+
+    <div class="card">
+      <div class="hero-row">
+        <div class="level-badge">
+          <div class="level-num" id="level-num">1</div>
+          <div class="level-label">Level</div>
+        </div>
+        <div class="level-caption">Level &amp; Experience</div>
+      </div>
+      <div class="xp-track"><div class="xp-fill" id="xp-fill" style="width:0%"></div></div>
+      <div class="xp-label" id="xp-label">XP: 0 / 40</div>
+    </div>
+
+    <div class="card">
+      <div class="stat-label">Character Stats</div>
+      <div class="stats-box" id="stats-box">
+        <div class="stat-line" data-stat="str">
+          <span>Strength</span>
+          <div class="stat-value-row"><span id="stat-str">0</span><button class="stat-plus-btn" data-stat="str">+</button></div>
+        </div>
+        <div class="stat-line" data-stat="agi">
+          <span>Agility</span>
+          <div class="stat-value-row"><span id="stat-agi">0</span><button class="stat-plus-btn" data-stat="agi">+</button></div>
+        </div>
+        <div class="stat-line" data-stat="int">
+          <span>Intelligence</span>
+          <div class="stat-value-row"><span id="stat-int">0</span><button class="stat-plus-btn" data-stat="int">+</button></div>
+        </div>
+      </div>
+      <div class="stats-note">Skill points available: <b id="skill-points-value">0</b></div>
+    </div>
+
+    <div class="card">
+      <div class="stat-label">Perks</div>
+      <div class="perks-list" id="perks-list"></div>
+      <div class="stats-note">A perk costs 1 skill point too, once its stat requirement is met.</div>
+    </div>
+
+    <div class="card">
+      <div class="stat-label">Special Attacks</div>
+      <div class="perks-list" id="moves-list"></div>
+      <div class="stats-note">Active moves usable once per fight from the Specials button in combat — unlocking one also costs 1 skill point.</div>
+    </div>
+  </main>
+  <div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
+<script>
+const LEVEL_KEY = "goblinwar_level";
+const XP_KEY = "goblinwar_xp";
+const SKILLPOINTS_KEY = "goblinwar_skillPoints";
+const STATS_KEY = "goblinwar_stats";
+const SKILLS_KEY = "goblinwar_skills";
+const STAT_LABELS = { str:"Strength", agi:"Agility", int:"Intelligence" };
+// Mirrors index.html's PERKS exactly (duplicated per the no-modules convention) — the actual
+// mechanical effects live there (getEquipDamageBonus, getCarryCapacity, combatAttack, etc.);
+// this copy only drives the unlock UI.
+const PERKS = [
+  { id:"power_strike",  name:"Power Strike",  stat:"str", req:2, desc:"+2 flat damage on attack." },
+  { id:"iron_skin",     name:"Iron Skin",     stat:"str", req:2, desc:"-1 flat damage taken." },
+  { id:"pack_mule",     name:"Pack Mule",     stat:"str", req:4, desc:"+10 carry capacity." },
+  { id:"evasion",       name:"Evasion",       stat:"agi", req:2, desc:"15% chance to fully dodge an enemy's counter-attack." },
+  { id:"second_wind",   name:"Second Wind",   stat:"agi", req:2, desc:"25% chance an attack costs no stamina." },
+  { id:"sure_feet",     name:"Sure Feet",     stat:"agi", req:4, desc:"-10% ambush chance while traveling or camping." },
+  { id:"silver_tongue", name:"Silver Tongue", stat:"int", req:2, desc:"-10% Marketplace buy prices." },
+  { id:"scavenger",     name:"Scavenger",     stat:"int", req:2, desc:"+20% gold from combat victories." },
+  { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Food cost while traveling." },
+];
+// Mirrors index.html's MOVES exactly (duplicated per the no-modules convention) — the actual
+// combat effects live there (combatSpecial); this copy only drives the unlock UI. Shares the
+// same goblinwar_skills storage and skill-point cost as PERKS above (ids don't collide).
+const MOVES = [
+  { id:"crushing_blow",   name:"Crushing Blow",   stat:"str", req:2, desc:"2x damage, single hit. Costs 35 stamina, once per fight." },
+  { id:"reckless_swing",  name:"Reckless Swing",  stat:"str", req:4, desc:"2.5x damage, but the enemy's counter ignores your armor and Evasion this turn. Costs 30 stamina, once per fight." },
+  { id:"precise_shot",    name:"Precise Shot",    stat:"agi", req:2, desc:"Always deals your maximum damage roll instead of a random one. Costs 25 stamina, once per fight." },
+  { id:"adrenaline_rush", name:"Adrenaline Rush", stat:"agi", req:4, desc:"A free extra attack this turn, at no extra stamina cost. Costs 15 stamina, once per fight." },
+  { id:"war_cry",         name:"War Cry",         stat:"int", req:2, desc:"Cuts the enemy's damage by 30% for the rest of the fight. Costs 20 stamina, once per fight." },
+  { id:"cleave",          name:"Cleave",          stat:"str", req:6, desc:"Hits every enemy for 60% damage (today, always just one). Costs 40 stamina, once per fight." },
+];
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+// Same curve as index.html's xpForLevel/addXp (duplicated per the no-modules convention) —
+// XP needed to go from `level` to `level+1`, not cumulative.
+function xpForLevel(level){ return Math.round(40 * Math.pow(level, 1.5)); }
+
+function getStats(){ try{ return Object.assign({str:0,agi:0,int:0}, JSON.parse(localStorage.getItem(STATS_KEY))); }catch(e){ return {str:0,agi:0,int:0}; } }
+function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
+
+// A skill point can be spent raising a raw stat (below), unlocking a passive perk, or
+// unlocking an active special attack — PERKS and MOVES render through this same function
+// since the unlock rules (gated on a stat threshold, costs 1 point, shared goblinwar_skills
+// storage) are identical; only the effects differ; those live entirely in index.html
+// (getEquipDamageBonus, getCarryCapacity, combatAttack, combatSpecial, getBuyPrice, etc.) —
+// this page only drives the unlock UI.
+function renderSkillList(list, containerId){
+  const stats = getStats();
+  const skillPoints = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
+  const unlocked = getUnlockedSkills();
+  document.getElementById(containerId).innerHTML = list.map(p => {
+    const isUnlocked = !!unlocked[p.id];
+    const meetsReq = stats[p.stat] >= p.req;
+    const action = isUnlocked
+      ? `<span class="perk-unlocked-badge">Unlocked</span>`
+      : `<button class="perk-unlock-btn" data-perk="${p.id}" ${(!meetsReq || skillPoints <= 0) ? 'disabled' : ''}>Unlock</button>`;
+    return `
+      <div class="perk-row ${isUnlocked ? 'unlocked' : ''}">
+        <div>
+          <div class="perk-name">${p.name}</div>
+          <div class="perk-desc">${p.desc}</div>
+          <div class="perk-req">Requires ${STAT_LABELS[p.stat]} ${p.req}${meetsReq || isUnlocked ? '' : ` (have ${stats[p.stat]})`}</div>
+        </div>
+        ${action}
+      </div>
+    `;
+  }).join('');
+  document.querySelectorAll(`#${containerId} .perk-unlock-btn`).forEach(btn => {
+    btn.addEventListener('click', ()=>{
+      const points = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
+      if(points <= 0) return;
+      const item = list.find(p => p.id === btn.dataset.perk);
+      const unlockedNow = getUnlockedSkills();
+      unlockedNow[item.id] = true;
+      localStorage.setItem(SKILLS_KEY, JSON.stringify(unlockedNow));
+      localStorage.setItem(SKILLPOINTS_KEY, String(points - 1));
+      showToast(`Unlocked ${item.name}.`);
+      renderProgression();
+    });
+  });
+}
+
+// Spending a point on a raw stat here only raises the Strength/Agility/Intelligence number —
+// see renderSkillList() above for where a point instead unlocks a perk or special attack.
+function renderProgression(){
+  const level = parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10);
+  const xp = parseInt(localStorage.getItem(XP_KEY) || "0", 10);
+  const skillPoints = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
+  const stats = getStats();
+  const xpNeeded = xpForLevel(level);
+
+  document.getElementById('level-num').textContent = level;
+  document.getElementById('xp-fill').style.width = Math.max(0, Math.min(100, Math.round((xp/xpNeeded)*100))) + '%';
+  document.getElementById('xp-label').textContent = `XP: ${xp} / ${xpNeeded}`;
+  document.getElementById('skill-points-value').textContent = skillPoints;
+  Object.keys(STAT_LABELS).forEach(stat => {
+    document.getElementById(`stat-${stat}`).textContent = stats[stat];
+  });
+  document.querySelectorAll('.stat-plus-btn').forEach(btn => {
+    btn.disabled = skillPoints <= 0;
+  });
+  renderSkillList(PERKS, 'perks-list');
+  renderSkillList(MOVES, 'moves-list');
+}
+renderProgression();
+
+document.querySelectorAll('.stat-plus-btn').forEach(btn => {
+  btn.addEventListener('click', ()=>{
+    const skillPoints = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
+    if(skillPoints <= 0) return;
+    const stat = btn.dataset.stat;
+    const stats = getStats();
+    stats[stat] += 1;
+    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+    localStorage.setItem(SKILLPOINTS_KEY, String(skillPoints - 1));
+    showToast(`${STAT_LABELS[stat]} increased to ${stats[stat]}.`);
+    renderProgression();
+  });
+});
+</script>
+</body>
+</html>

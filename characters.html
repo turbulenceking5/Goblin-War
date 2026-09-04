@@ -135,7 +135,8 @@ function freshCharacterData(name){
     level: 1, xp: 0, skillPoints: 0,
     stats: JSON.stringify({str:0,agi:0,int:0}), skills: "{}",
     quests: "[]",
-    territoryControl: "{}", warState: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
+    territoryControl: "{}", relations: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
+    sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -162,10 +163,13 @@ function applyCharacterData(data){
   if(data.skills) localStorage.setItem("goblinwar_skills", data.skills);
   if(data.quests) localStorage.setItem("goblinwar_quests", data.quests);
   if(data.territoryControl) localStorage.setItem("goblinwar_territoryControl", data.territoryControl);
-  if(data.warState) localStorage.setItem("goblinwar_warState", data.warState);
+  if(data.relations) localStorage.setItem("goblinwar_relations", data.relations);
   if(data.reinforcements) localStorage.setItem("goblinwar_reinforcements", data.reinforcements);
   if(data.lastWarTick!==undefined) localStorage.setItem("goblinwar_lastWarTick", String(data.lastWarTick));
   if(data.population) localStorage.setItem("goblinwar_population", data.population);
+  if(data.sieges) localStorage.setItem("goblinwar_sieges", data.sieges);
+  if(data.refugeeArrivals) localStorage.setItem("goblinwar_refugeeArrivals", data.refugeeArrivals);
+  if(data.siegeDefenseCooldowns) localStorage.setItem("goblinwar_siegeDefenseCooldowns", data.siegeDefenseCooldowns);
 }
 
 function targetPage(){

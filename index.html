@@ -391,6 +391,7 @@
         <path id="route-preview"/>
         <g id="hitzones"></g>
         <g id="city-icons" style="pointer-events:none"></g>
+        <g id="frontline-markers" style="pointer-events:none"></g>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
       </svg>
@@ -764,20 +765,24 @@ checkForUpdate();
 // A settlement's *historical* kingdom/race (graph.burgs[id].state/.race, from the Azgaar
 // export) never changes — that's its permanent identity. Its *current controller* is a
 // separate, sparse override (goblinwar_territoryControl), only present once a settlement has
-// actually been fought over. War state (goblinwar_warState) belongs to kingdoms, not
-// settlements or races — a captured settlement stays labeled by its original kingdom, and
-// that kingdom's war/peace status is what the Marketplace prices react to (see showMarketPanel),
-// regardless of who's currently occupying any one of its settlements.
+// actually been fought over. War is tracked as pairwise relations between specific kingdoms
+// (goblinwar_relations) rather than a single per-kingdom flag — a kingdom can be at war with
+// one enemy while at peace with everyone else — and that's what the Marketplace prices react
+// to (see showMarketPanel, via the derived getWarState/isAtWarAt), regardless of who's
+// currently occupying any one of its settlements.
 const TERRITORY_KEY = "goblinwar_territoryControl";
-const WARSTATE_KEY = "goblinwar_warState";
+const RELATIONS_KEY = "goblinwar_relations";
 const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
+const SIEGE_KEY = "goblinwar_sieges";
+const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WAR_TICK_INTERVAL_DAYS = 7;   // faction AI only rolls once per in-game week
-const WAR_DECLARE_CHANCE = 0.06;    // per kingdom, per tick, while at peace
-const WAR_PEACE_CHANCE = 0.15;      // per kingdom, per tick, while at war — sues for peace
-const RAID_CHANCE = 0.35;           // per kingdom, per tick, while at war — attempts a raid
-const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered per raid
-const RAID_SUCCESS_MIN = 0.2, RAID_SUCCESS_MAX = 0.8; // raid success is population-driven (see attemptRaid) but always stays uncertain
+const WAR_DECLARE_CHANCE = 0.06;    // per cross-alliance kingdom pair, per tick, while at peace
+const WAR_PEACE_CHANCE = 0.15;      // per cross-alliance kingdom pair, per tick, while at war — sues for peace
+const RAID_CHANCE = 0.35;           // per kingdom, per enemy it's at war with, per tick — attempts to start/advance a siege
+const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered when no real border exists (see pickRaidTarget)
+const RAID_SUCCESS_MIN = 0.2, RAID_SUCCESS_MAX = 0.8; // siege progress per tick is population-driven (see pickRaidTarget/advanceSiege) but always stays uncertain
+const SIEGE_PROGRESS_MAX_PER_TICK = 45; // % progress a siege can gain in one tick, at the highest clamped success chance
 
 let KINGDOM_RACE = {};  // kingdom name -> race, derived from graph.burgs once loaded
 let ALL_KINGDOMS = [];
@@ -787,6 +792,55 @@ function buildFactionData(){
     if(b.state && b.race && b.race !== 'neutral' && !KINGDOM_RACE[b.state]) KINGDOM_RACE[b.state] = b.race;
   });
   ALL_KINGDOMS = Object.keys(KINGDOM_RACE);
+}
+
+// Burg-to-burg adjacency, derived once from the existing cell-level road/sea graph (adjacency,
+// built by buildAdjacency() from graph.edges — see travel-and-map.md). Neither burgs nor
+// kingdoms have any adjacency data of their own in travel-graph.json; edges only connect map
+// cells, most of which aren't a settlement at all. For each burg, this BFSes outward through
+// the cell graph and, along every branch, stops at the first cell that's home to some *other*
+// burg — giving "which settlements does a road/sea route reach before any other settlement."
+// Cheap to compute (796 burgs, 3069 edges) and, like KINGDOM_RACE/ALL_KINGDOMS, rebuilt fresh
+// every load rather than persisted, since it's entirely derived from static map data.
+let burgAdjacency = {}; // burgId -> [burgId, ...]
+function buildBurgAdjacency(){
+  burgAdjacency = {};
+  const burgCells = {}; // cellId -> burgId, for the cells that ARE a burg
+  Object.values(graph.burgs).forEach(b=>{ burgCells[b.cell] = b.id; });
+  Object.values(graph.burgs).forEach(startBurg=>{
+    const neighbors = new Set();
+    const visited = new Set([startBurg.cell]);
+    let frontier = (adjacency[startBurg.cell] || []).map(step=>step.to);
+    while(frontier.length){
+      const next = [];
+      frontier.forEach(cell=>{
+        if(visited.has(cell)) return;
+        visited.add(cell);
+        if(burgCells[cell] !== undefined && burgCells[cell] !== startBurg.id){
+          neighbors.add(burgCells[cell]); // found a settlement on this branch — stop following it
+        } else {
+          (adjacency[cell] || []).forEach(step=>{ if(!visited.has(step.to)) next.push(step.to); });
+        }
+      });
+      frontier = next;
+    }
+    burgAdjacency[startBurg.id] = Array.from(neighbors);
+  });
+}
+
+// True if this settlement directly borders (via the road/sea graph) a settlement controlled by
+// an opposite-alliance kingdom it's currently at war with — a real frontline, not the old
+// proximity guess. Used both for raid targeting (pickRaidTarget) and the map's frontline
+// markers (buildFrontlineMarkers).
+function isFrontlineBurg(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  if(!kingdom) return false;
+  return (burgAdjacency[burgId] || []).some(neighborId=>{
+    const neighborKingdom = getControllerKingdom(neighborId);
+    if(!neighborKingdom || neighborKingdom === kingdom) return false;
+    if(ALLIANCE[KINGDOM_RACE[neighborKingdom]] === ALLIANCE[KINGDOM_RACE[kingdom]]) return false;
+    return getRelation(kingdom, neighborKingdom) === 'war';
+  });
 }
 
 // goblinwar_territoryControl overrides store the specific conquering KINGDOM now (e.g.
@@ -825,13 +879,32 @@ function setController(burgId, kingdom){
   localStorage.setItem(TERRITORY_KEY, JSON.stringify(overrides));
 }
 
-function getWarStateMap(){ try{ return JSON.parse(localStorage.getItem(WARSTATE_KEY)) || {}; }catch(e){ return {}; } }
-function getWarState(kingdom){ return getWarStateMap()[kingdom] || 'peace'; }
-function setWarState(kingdom, state){
-  const map = getWarStateMap();
-  map[kingdom] = state;
-  localStorage.setItem(WARSTATE_KEY, JSON.stringify(map));
+// Pairwise kingdom relations — only opposite-alliance kingdoms ever have a meaningful entry
+// (same-alliance kingdoms never fight, per ALLIANCE/attemptRaid's old alliance filter, now
+// baked directly into runFactionAITick's pair loop below). Canonical, order-independent key so
+// getRelation(a,b) and getRelation(b,a) always agree. Absent entry defaults to "peace", same
+// sparse-override philosophy as territory control/population — a fresh or pre-this-update save
+// simply starts with everyone at peace and wars begin fresh, rather than trying to reconstruct
+// "who was fighting whom" from the old single-flag-per-kingdom system.
+function getRelationKey(k1, k2){ return [k1, k2].sort().join('::'); }
+function getRelationsMap(){ try{ return JSON.parse(localStorage.getItem(RELATIONS_KEY)) || {}; }catch(e){ return {}; } }
+function getRelation(k1, k2){ return getRelationsMap()[getRelationKey(k1, k2)] || 'peace'; }
+function setRelation(k1, k2, state){
+  const map = getRelationsMap();
+  map[getRelationKey(k1, k2)] = state;
+  localStorage.setItem(RELATIONS_KEY, JSON.stringify(map));
 }
+// Every opposite-alliance kingdom this one currently has a "war" relation with.
+function getEnemiesAtWar(kingdom){
+  const alliance = ALLIANCE[KINGDOM_RACE[kingdom]];
+  return ALL_KINGDOMS.filter(k => k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== alliance && getRelation(kingdom, k) === 'war');
+}
+// Derived, not stored: "is this kingdom fighting *someone*" — kept as its own function (rather
+// than inlining getEnemiesAtWar().length everywhere) because every existing caller (Marketplace
+// pricing, pickAmbushEnemy, Guard House, Petition for Troops) only ever needed this coarser
+// question, not which specific enemy. Signature unchanged from the old per-kingdom flag, so
+// none of those callers needed to change.
+function getWarState(kingdom){ return getEnemiesAtWar(kingdom).length ? 'war' : 'peace'; }
 function isAtWarAt(burgId){
   const b = graph.burgs[burgId];
   return b && b.state ? getWarState(b.state) === 'war' : false;
@@ -843,12 +916,14 @@ function isAtWarAt(burgId){
 // only present once a settlement's population has actually moved. War shrinks it (some die,
 // the rest flee as refugees to the nearest settlement currently at peace, growing it there
 // instead of just vanishing), and total controlled population is what an attacking kingdom's
-// raid odds are actually built from — see attemptRaid below.
+// raid odds are actually built from — see advanceSiege below.
 const POPULATION_KEY = "goblinwar_population";
+const REFUGEE_ARRIVAL_KEY = "goblinwar_refugeeArrivals";
 const WAR_ATTRITION_RATE = 0.02;    // weekly population loss, every settlement of a kingdom at war
 const RAID_DAMAGE_RATE = 0.08;      // additional loss for the specific settlement raided this tick
 const REFUGEE_DEATH_SHARE = 0.4;    // of population lost to war, this fraction dies...
 const REFUGEE_FLEE_SHARE = 0.6;     // ...and this fraction flees to the nearest peaceful settlement
+const REFUGEE_ARRIVAL_WINDOW_DAYS = 7; // how long a settlement counts as "recently received refugees" for the Aid the Refugees action
 const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could field as soldiers
 
 function getPopulationOverrides(){ try{ return JSON.parse(localStorage.getItem(POPULATION_KEY)) || {}; }catch(e){ return {}; } }
@@ -864,6 +939,20 @@ function setPopulation(burgId, pop){
   localStorage.setItem(POPULATION_KEY, JSON.stringify(overrides));
 }
 function formatPopulation(pop){ return Math.round(pop*1000).toLocaleString(); }
+
+// Stamped on a settlement whenever applyWarLoss's flee path (below) lands population there —
+// what the Aid the Refugees location action (see showLocationView) checks to decide whether a
+// settlement is currently hosting a fresh wave of arrivals worth the player helping with.
+function getRefugeeArrivals(){ try{ return JSON.parse(localStorage.getItem(REFUGEE_ARRIVAL_KEY)) || {}; }catch(e){ return {}; } }
+function stampRefugeeArrival(burgId){
+  const map = getRefugeeArrivals();
+  map[burgId] = gameDay;
+  localStorage.setItem(REFUGEE_ARRIVAL_KEY, JSON.stringify(map));
+}
+function hasRecentRefugeeArrival(burgId){
+  const day = getRefugeeArrivals()[burgId];
+  return day !== undefined && (gameDay - day) <= REFUGEE_ARRIVAL_WINDOW_DAYS;
+}
 
 // Alliance reinforcement — the one deliberate exception to "every kingdom stands entirely
 // alone militarily" (see getArmyStrength below). Petitioning at a Palace (see
@@ -887,7 +976,7 @@ function getReinforcementBonus(kingdom){
 }
 
 // Total population one specific kingdom currently controls, times MILITARY_FRACTION, plus any
-// active reinforcement bonus (above) — what attemptRaid compares attacker vs. defender with.
+// active reinforcement bonus (above) — what advanceSiege compares attacker vs. defender with.
 // Deliberately not capped to any one settlement's local garrison — a kingdom's whole territory
 // backs up any single raid — but scoped to that kingdom alone otherwise: other kingdoms of the
 // same race (even allied ones) contribute nothing automatically. See the comment on
@@ -922,7 +1011,10 @@ function applyWarLoss(burgId, rate){
   setPopulation(burgId, pop - died - fled);
   if(fled > 0){
     const haven = findNearestPeacefulSettlement(burgId);
-    if(haven) setPopulation(haven.id, getPopulation(haven.id) + fled);
+    if(haven){
+      setPopulation(haven.id, getPopulation(haven.id) + fled);
+      stampRefugeeArrival(haven.id);
+    }
   }
 }
 
@@ -942,65 +1034,123 @@ function getSellPrice(mi, burgId){
     : Math.round(mi.price * PEACE_SELL_FRACTION);
 }
 
-// Picks one enemy-alliance settlement to raid, biased toward the attacker's own territory
-// (nearest RAID_CANDIDATE_POOL enemy-held settlements to the centroid of what the attacking
-// kingdom currently controls) rather than a uniformly random settlement anywhere on the map.
-// "The attacking kingdom currently controls" means literally that one kingdom, via
-// getControllerKingdom — not every kingdom that shares its race — so both the raid's staging
-// centroid and (below) its strength calculation are regional, not race-pooled.
-function attemptRaid(attackerKingdom){
-  const attackerRace = KINGDOM_RACE[attackerKingdom];
-  const attackerAlliance = ALLIANCE[attackerRace];
-  const ownBurgs = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === attackerKingdom);
-  if(!ownBurgs.length) return null;
-  const cx = ownBurgs.reduce((s,b)=>s+b.x,0) / ownBurgs.length;
-  const cy = ownBurgs.reduce((s,b)=>s+b.y,0) / ownBurgs.length;
-  const enemyBurgs = Object.values(graph.burgs).filter(b=>{
-    const race = getController(b.id); // race is still all that matters for alliance targeting
-    return race && race !== 'neutral' && ALLIANCE[race] && ALLIANCE[race] !== attackerAlliance;
+function getSieges(){ try{ return JSON.parse(localStorage.getItem(SIEGE_KEY)) || {}; }catch(e){ return {}; } }
+function setSieges(map){ localStorage.setItem(SIEGE_KEY, JSON.stringify(map)); }
+// A settlement's own local defense, distinct from getArmyStrength(kingdom) (that kingdom's
+// whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege.
+function getGarrisonStrength(burgId){ return getPopulation(burgId) * MILITARY_FRACTION; }
+// Ends any siege currently running between these two specific kingdoms (either direction) —
+// called when they reach peace, since a truce leaves no one left to besiege whom. The defender
+// keeps whatever it still held; nothing else about the siege's partial progress is preserved.
+function cancelSiegesBetween(k1, k2){
+  const sieges = getSieges();
+  let changed = false;
+  Object.keys(sieges).forEach(bid=>{
+    const s = sieges[bid];
+    if((s.attackerKingdom===k1 && s.defenderKingdom===k2) || (s.attackerKingdom===k2 && s.defenderKingdom===k1)){
+      delete sieges[bid];
+      changed = true;
+    }
   });
-  if(!enemyBurgs.length) return null;
-  enemyBurgs.sort((a,b)=> Math.hypot(a.x-cx,a.y-cy) - Math.hypot(b.x-cx,b.y-cy));
-  const candidates = enemyBurgs.slice(0, RAID_CANDIDATE_POOL);
-  const target = candidates[Math.floor(Math.random()*candidates.length)];
-  const targetKingdom = getControllerKingdom(target.id);
-
-  // Raid odds come from each side's real (population-derived) military strength, not a flat
-  // coin flip — but still clamped so no kingdom is ever a guaranteed win or loss. Strength is
-  // scoped to the two specific kingdoms actually fighting, not their whole race — see
-  // getArmyStrength.
-  const attackerStrength = getArmyStrength(attackerKingdom);
-  const defenderStrength = getArmyStrength(targetKingdom);
-  const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
-  const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
-  const success = Math.random() < successChance;
-
-  applyWarLoss(target.id, RAID_DAMAGE_RATE); // a raid costs the target lives either way
-  if(success) setController(target.id, attackerKingdom);
-  return { success, target, attackerKingdom, attackerRace, successChance };
+  if(changed) setSieges(sieges);
 }
 
-// Runs the whole weekly tick across every kingdom and returns a short list of {text} events
-// worth telling the player about (captures only — declarations/peace deals are frequent
-// enough that surfacing every one would be noise).
+// Picks one settlement belonging to defenderKingdom for attackerKingdom to besiege. Prefers a
+// real border settlement — one directly reachable (via burgAdjacency, see buildBurgAdjacency
+// above) from territory the attacker already controls — over the old "nearest by straight-line
+// distance" guess, falling back to that guess only when the two kingdoms' territory doesn't
+// actually touch (e.g. separated by sea or unclaimed land in between).
+function pickRaidTarget(attackerKingdom, defenderKingdom){
+  const ownBurgs = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === attackerKingdom);
+  if(!ownBurgs.length) return null;
+  const defenderBurgs = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === defenderKingdom);
+  if(!defenderBurgs.length) return null;
+
+  const ownBurgIds = new Set(ownBurgs.map(b=>b.id));
+  const borderCandidates = defenderBurgs.filter(b => (burgAdjacency[b.id]||[]).some(n => ownBurgIds.has(n)));
+  if(borderCandidates.length) return borderCandidates[Math.floor(Math.random()*borderCandidates.length)];
+
+  const cx = ownBurgs.reduce((s,b)=>s+b.x,0) / ownBurgs.length;
+  const cy = ownBurgs.reduce((s,b)=>s+b.y,0) / ownBurgs.length;
+  const sorted = defenderBurgs.slice().sort((a,b)=> Math.hypot(a.x-cx,a.y-cy) - Math.hypot(b.x-cx,b.y-cy));
+  const candidates = sorted.slice(0, RAID_CANDIDATE_POOL);
+  return candidates[Math.floor(Math.random()*candidates.length)];
+}
+
+// Starts a new siege (if attackerKingdom has none running against defenderKingdom yet) or
+// advances the existing one by one tick's worth of progress — replacing the old single-tick
+// coin-flip raid with a persistent, multi-week conflict over one specific settlement. Progress
+// per tick still comes from the same clamped attacker/defender strength ratio the old
+// attemptRaid used, just applied repeatedly instead of once; the besieged settlement also takes
+// RAID_DAMAGE_RATE attrition every tick it remains under siege, not only at the start. At 100%
+// progress the settlement actually changes hands and the siege ends.
+function advanceSiege(attackerKingdom, defenderKingdom){
+  const sieges = getSieges();
+  const existing = Object.entries(sieges).find(([bid, s]) => s.attackerKingdom===attackerKingdom && s.defenderKingdom===defenderKingdom);
+  let burgId, siege;
+  if(existing){
+    [burgId, siege] = existing;
+  } else {
+    const target = pickRaidTarget(attackerKingdom, defenderKingdom);
+    if(!target) return null;
+    burgId = target.id;
+    siege = { attackerKingdom, defenderKingdom, startedDay: gameDay, progress: 0 };
+  }
+
+  const attackerStrength = getArmyStrength(attackerKingdom);
+  const defenderStrength = getArmyStrength(defenderKingdom);
+  const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
+  const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
+  siege.progress += successChance * SIEGE_PROGRESS_MAX_PER_TICK;
+  applyWarLoss(burgId, RAID_DAMAGE_RATE);
+
+  const target = graph.burgs[burgId];
+  let captured = false;
+  if(siege.progress >= 100){
+    setController(burgId, attackerKingdom);
+    delete sieges[burgId];
+    captured = true;
+  } else {
+    sieges[burgId] = siege;
+  }
+  setSieges(sieges);
+  return { captured, target };
+}
+
+// Runs the whole weekly tick and returns a short list of {text} events worth telling the player
+// about (captures only — declarations/peace deals are frequent enough that surfacing every one
+// would be noise). Two passes: first, war/peace rolls once per cross-alliance kingdom pair
+// (same-alliance kingdoms never fight — see ALLIANCE); second, every kingdom currently at war
+// bleeds attrition and, per specific enemy it's fighting, has a chance to start or advance a
+// siege against that enemy.
 function runFactionAITick(){
   const events = [];
+  for(let i=0;i<ALL_KINGDOMS.length;i++){
+    for(let j=i+1;j<ALL_KINGDOMS.length;j++){
+      const k1 = ALL_KINGDOMS[i], k2 = ALL_KINGDOMS[j];
+      if(ALLIANCE[KINGDOM_RACE[k1]] === ALLIANCE[KINGDOM_RACE[k2]]) continue;
+      if(getRelation(k1, k2) === 'peace'){
+        if(Math.random() < WAR_DECLARE_CHANCE) setRelation(k1, k2, 'war');
+      } else if(Math.random() < WAR_PEACE_CHANCE){
+        setRelation(k1, k2, 'peace');
+        cancelSiegesBetween(k1, k2);
+      }
+    }
+  }
   ALL_KINGDOMS.forEach(kingdom=>{
-    const state = getWarState(kingdom);
-    if(state === 'peace'){
-      if(Math.random() < WAR_DECLARE_CHANCE) setWarState(kingdom, 'war');
-    } else {
-      // Every settlement that originally belongs to this kingdom bleeds a little population
-      // just from being at war, regardless of whether it's the one being raided this tick.
-      Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
+    const enemies = getEnemiesAtWar(kingdom);
+    if(!enemies.length) return;
+    // Every settlement that originally belongs to this kingdom bleeds a little population just
+    // from being at war, regardless of whether it's the one under siege this tick.
+    Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
+    enemies.forEach(enemy=>{
       if(Math.random() < RAID_CHANCE){
-        const result = attemptRaid(kingdom);
-        if(result && result.success){
-          events.push(`${result.target.name} has fallen to ${RACE_LABEL[result.attackerRace]} forces from ${kingdom}.`);
+        const result = advanceSiege(kingdom, enemy);
+        if(result && result.captured){
+          events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
         }
       }
-      if(Math.random() < WAR_PEACE_CHANCE) setWarState(kingdom, 'peace');
-    }
+    });
   });
   return events;
 }
@@ -1011,6 +1161,7 @@ function maybeRunFactionAI(){
   if(gameDay - lastTick < WAR_TICK_INTERVAL_DAYS) return;
   localStorage.setItem(LASTWARTICK_KEY, String(gameDay));
   const events = runFactionAITick();
+  buildFrontlineMarkers();
   if(events.length){
     const summary = events.length === 1 ? events[0] : `${events.length} settlements changed hands this week, including ${events[0]}`;
     showToast(summary);
@@ -1120,10 +1271,13 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(QUEST_KEY) === null) localStorage.setItem(QUEST_KEY, JSON.stringify([]));
   if(localStorage.getItem(EQUIPPED_KEY) === null) localStorage.setItem(EQUIPPED_KEY, JSON.stringify({}));
   if(localStorage.getItem(TERRITORY_KEY) === null) localStorage.setItem(TERRITORY_KEY, JSON.stringify({}));
-  if(localStorage.getItem(WARSTATE_KEY) === null) localStorage.setItem(WARSTATE_KEY, JSON.stringify({}));
+  if(localStorage.getItem(RELATIONS_KEY) === null) localStorage.setItem(RELATIONS_KEY, JSON.stringify({}));
   if(localStorage.getItem(REINFORCE_KEY) === null) localStorage.setItem(REINFORCE_KEY, JSON.stringify({}));
   if(localStorage.getItem(LASTWARTICK_KEY) === null) localStorage.setItem(LASTWARTICK_KEY, "0");
   if(localStorage.getItem(POPULATION_KEY) === null) localStorage.setItem(POPULATION_KEY, JSON.stringify({}));
+  if(localStorage.getItem(SIEGE_KEY) === null) localStorage.setItem(SIEGE_KEY, JSON.stringify({}));
+  if(localStorage.getItem(REFUGEE_ARRIVAL_KEY) === null) localStorage.setItem(REFUGEE_ARRIVAL_KEY, JSON.stringify({}));
+  if(localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) === null) localStorage.setItem(SIEGE_DEFENSE_COOLDOWN_KEY, JSON.stringify({}));
 }
 initPlayerStateIfMissing();
 
@@ -2007,6 +2161,28 @@ function buildCityIcons(){
   }
 }
 
+// A small red ring on every settlement isFrontlineBurg() flags as actively bordering enemy
+// territory it's at war with — the visual counterpart to buildBurgAdjacency/isFrontlineBurg
+// above. Rebuilt from scratch (like buildCityIcons) rather than diffed, since it only needs to
+// run once at load and again after each weekly tick — never on every frame/pan/zoom.
+function buildFrontlineMarkers(){
+  const g = document.getElementById('frontline-markers');
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  Object.values(graph.burgs).forEach(b=>{
+    if(!isFrontlineBurg(b.id)) return;
+    const ring = document.createElementNS(ns, "circle");
+    ring.setAttribute("cx", b.x);
+    ring.setAttribute("cy", b.y);
+    ring.setAttribute("r", 9);
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", "#c0392b");
+    ring.setAttribute("stroke-width", "1.6");
+    ring.setAttribute("opacity", "0.85");
+    g.appendChild(ring);
+  });
+}
+
 function showHighlight(x, y){
   const ring = document.getElementById('highlight-ring');
   ring.setAttribute('transform', `translate(${x},${y})`);
@@ -2589,6 +2765,17 @@ function showLocationView(burgId){
   if(b.tier === 'capital'){
     actions.push({ icon:`<path d="M4 21h16"/><path d="M5 21V9l3-3 4 3 4-3 3 3v12"/><path d="M12 21v-6"/>`, title:"The Palace", desc:"Learn of the ruling court", action:'palace' });
   }
+  // Any settlement, any tier, can be under siege (advanceSiege doesn't restrict targeting by
+  // tier) or have taken in refugees this week — both conditions are rare enough day-to-day that
+  // showing the action only when it actually applies is worth the extra check.
+  const activeSiege = getSieges()[burgId];
+  if(activeSiege){
+    const defendedToday = hasDefendedToday(burgId);
+    actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/><path d="M3 10h18"/>`, title:"Defend the Walls", desc: defendedToday ? "You've already fought here today — come back tomorrow" : `${activeSiege.attackerKingdom}'s forces are attacking`, action:'defend_walls', disabled:defendedToday });
+  }
+  if(hasRecentRefugeeArrival(burgId)){
+    actions.push({ icon:`<circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5"/><path d="M13 20c.3-2.3 2-4 3.5-4.2"/>`, title:"Refugee Camp", desc:"Help those who fled the fighting", action:'refugee_camp' });
+  }
   const list = document.getElementById('loc-action-list');
   list.innerHTML = actions.map(a => `
     <button class="loc-action" data-action="${a.action}" ${a.disabled ? 'disabled' : ''}>
@@ -2605,12 +2792,17 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
       else if(btn.dataset.action === 'guardhouse') showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId));
       else if(btn.dataset.action === 'palace'){
-        showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId));
-        const petitionBtn = document.getElementById('petition-accept-btn');
-        if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
+        showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
+        wirePalaceButtons(burgId);
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'talk') showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId));
+      else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
+      else if(btn.dataset.action === 'refugee_camp'){
+        showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
+        const aidBtn = document.getElementById('refugee-aid-btn');
+        if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+      }
       else showToast("Not built yet — coming in a future update.");
     });
   });
@@ -2674,6 +2866,16 @@ const PALACE_LINES = [
   "Petitioners queue for an audience that may not come today.",
   "Guards in ceremonial armour stand motionless beside the throne.",
   "Word in the court is that the war is weighing heavily on the ruler's mind.",
+];
+// Refugee Camp — shown only at a settlement with a recent refugee arrival (see
+// hasRecentRefugeeArrival/applyWarLoss's flee path). Same pure-flavor-line-plus-extraHTML
+// pattern as Guard House/Palace.
+const REFUGEE_LINES = [
+  "Makeshift tents crowd whatever open ground could be found, filled with families who fled the fighting.",
+  "A weary mother tries to calm her children by a fire someone lit for them.",
+  "Volunteers pass out what bread they can spare to the new arrivals.",
+  "An old man stares back the way he came, as if hoping someone else might still follow.",
+  "Children too tired to cry just sit and watch the road.",
 ];
 
 // Talk to Townsfolk — settlement-flavored counterpart to the Inn's RUMOURS: reacts to this
@@ -2744,17 +2946,23 @@ function showFlavorPanel(burgId, title, lines, extraHTML){
   document.getElementById('flavor-back-btn').addEventListener('click', ()=> showLocationView(burgId));
 }
 
-// Guard House shows real numbers alongside its flavor line — local population and the
-// current controlling *kingdom's own* mustered strength (not its whole race — see
-// getArmyStrength), both population-derived (see attemptRaid).
+// Guard House shows real numbers alongside its flavor line — local population, the current
+// controlling *kingdom's own* mustered strength (not its whole race — see getArmyStrength),
+// both population-derived (see advanceSiege), and — new — this settlement's own siege state if
+// one is currently underway (see goblinwar_sieges/advanceSiege).
 function buildGuardHouseStats(burgId){
   const controllerKingdom = getControllerKingdom(burgId);
   const pop = getPopulation(burgId);
   const army = getArmyStrength(controllerKingdom);
+  const siege = getSieges()[burgId];
+  const siegeRow = siege
+    ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#e07a5f;"><span>Under siege by ${siege.attackerKingdom}</span><b>${Math.round(Math.min(100,siege.progress))}%</b></div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
       <div style="display:flex; justify-content:space-between;"><span>${controllerKingdom || 'Unknown'} forces</span><b>${formatPopulation(army)}</b></div>
+      ${siegeRow}
     </div>
   `;
 }
@@ -2812,9 +3020,158 @@ function acceptPetition(burgId){
   const leveledUp = addXp(offer.xp);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
-  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId));
+  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
+  wirePalaceButtons(burgId);
+}
+
+// Negotiate Peace — the counterpart to Petition for Troops, and the direct payoff of tracking
+// pairwise relations (see getEnemiesAtWar) instead of a single per-kingdom war flag: the player
+// can now buy off *one specific enemy* rather than an undifferentiated "the war." Offered at any
+// Capital still held by its own court that has at least one active war relation. The gold cost
+// scales with how much leverage the player effectively has — cheaper against a relatively weak
+// enemy (reusing the same strength-ratio math advanceSiege already computes), pricier against a
+// strong one. Picks the weakest enemy when more than one applies, same "start with the easiest
+// win" logic Petition for Troops' least-reinforced-ally pick already uses.
+const NEGOTIATE_PEACE_BASE_COST = 150;
+function generateNegotiatePeaceOffer(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  const enemies = getEnemiesAtWar(kingdom);
+  if(!enemies.length) return null;
+  const myStrength = getArmyStrength(kingdom);
+  enemies.sort((a,b2) => getArmyStrength(a) - getArmyStrength(b2));
+  const enemy = enemies[0];
+  const enemyStrength = getArmyStrength(enemy);
+  const ratio = enemyStrength / ((myStrength + enemyStrength) || 1); // weaker enemy -> lower ratio -> cheaper truce
+  const cost = Math.round(NEGOTIATE_PEACE_BASE_COST * Math.max(0.4, Math.min(1.6, ratio * 2)));
+  return { kingdom, enemy, cost };
+}
+function buildNegotiatePeaceHTML(burgId){
+  const offer = generateNegotiatePeaceOffer(burgId);
+  if(!offer) return '';
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Negotiate Peace</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at war with ${offer.enemy}. Bribe envoys to broker a truce between them.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">${offer.cost}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="negotiate-peace-btn">Negotiate</button>
+      </div>
+    </div>
+  `;
+}
+// On success, ends the war relation outright and cancels any active siege between the two
+// kingdoms (see cancelSiegesBetween) — the defender keeps whatever it still held; there's no
+// partial credit for a siege that was almost finished.
+function acceptNegotiatePeace(burgId){
+  const offer = generateNegotiatePeaceOffer(burgId);
+  if(!offer){ showLocationView(burgId); return; } // relations shifted since the panel opened
+  if(playerGold < offer.cost){ showToast("Not enough gold to sway the court."); return; }
+  setGold(playerGold - offer.cost);
+  setRelation(offer.kingdom, offer.enemy, 'peace');
+  cancelSiegesBetween(offer.kingdom, offer.enemy);
+  buildFrontlineMarkers();
+  showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.`);
+  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
+  wirePalaceButtons(burgId);
+}
+// Both Palace cards can appear together in the same panel render, so their click handlers are
+// wired from one shared place rather than duplicating the "if the button exists, wire it" guard
+// at every call site that re-renders the panel.
+function wirePalaceButtons(burgId){
   const petitionBtn = document.getElementById('petition-accept-btn');
   if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
+  const negotiateBtn = document.getElementById('negotiate-peace-btn');
+  if(negotiateBtn) negotiateBtn.addEventListener('click', ()=> acceptNegotiatePeace(burgId));
+}
+
+// Aid the Refugees — the simplest of the three player-involvement hooks, deliberately: spend
+// gold and Food to help a settlement's recently-arrived refugees (see hasRecentRefugeeArrival)
+// settle in, same instant-resolve pattern as Petition for Troops rather than a travel/turn-in
+// quest.
+const REFUGEE_AID_GOLD_COST = 15;
+const REFUGEE_AID_FOOD_COST = 2;
+const REFUGEE_AID_POP_BOOST = 0.05; // ~50 people helped onto their feet rather than left destitute
+const REFUGEE_AID_XP_RANGE = [10,20];
+function buildRefugeeAidHTML(burgId){
+  if(!hasRecentRefugeeArrival(burgId)) return '';
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Aid the Refugees</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Spend ${REFUGEE_AID_GOLD_COST}g and ${REFUGEE_AID_FOOD_COST} Food to help the new arrivals settle in.</div>
+      <button class="btn btn-primary" style="padding:8px 16px;" id="refugee-aid-btn">Give Aid</button>
+    </div>
+  `;
+}
+function acceptRefugeeAid(burgId){
+  if(!hasRecentRefugeeArrival(burgId)){ showLocationView(burgId); return; } // arrivals aged out since the panel opened
+  if(playerGold < REFUGEE_AID_GOLD_COST){ showToast("Not enough gold to help."); return; }
+  if(getFoodQty() < REFUGEE_AID_FOOD_COST){ showToast("Not enough Food to spare."); return; }
+  setGold(playerGold - REFUGEE_AID_GOLD_COST);
+  consumeItem(FOOD_NAME, REFUGEE_AID_FOOD_COST);
+  setPopulation(burgId, getPopulation(burgId) + REFUGEE_AID_POP_BOOST);
+  const xp = randRange(REFUGEE_AID_XP_RANGE);
+  const leveledUp = addXp(xp);
+  showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
+  const aidBtn = document.getElementById('refugee-aid-btn');
+  if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+}
+
+// Defend the Walls — fighting in an active siege's defense (see goblinwar_sieges/advanceSiege).
+// Once per settlement per day (same cooldown pattern as Work, see hasWorkedToday), so it can't
+// be spammed to trivialize every siege — per the project's own "player can grow strong but never
+// solo-topple a city" design constraint (see roadmap.md), one fight meaningfully helps rather
+// than instantly deciding the outcome.
+const SIEGE_DEFENSE_PROGRESS_RELIEF = 30; // % knocked off the siege's progress on a successful defense
+const SIEGE_DEFENSE_GOLD_RANGE = [15,35];
+const SIEGE_DEFENSE_XP_RANGE = [20,35];
+function getSiegeDefenseCooldowns(){ try{ return JSON.parse(localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY)) || {}; }catch(e){ return {}; } }
+function hasDefendedToday(burgId){ return getSiegeDefenseCooldowns()[burgId] === gameDay; }
+function recordSiegeDefended(burgId){
+  const cd = getSiegeDefenseCooldowns();
+  cd[burgId] = gameDay;
+  localStorage.setItem(SIEGE_DEFENSE_COOLDOWN_KEY, JSON.stringify(cd));
+}
+// Builds a fight from the attacking kingdom's own race/variant table (see ENEMY_VARIANTS) and
+// starts it via the same generic startCombat used by ambushes — siege attacks are never solo,
+// same "2-3 enemies" curation triggerEnemyFight already applies to raiding-party ambushes.
+// startCombat's own title/log strings are ambush-flavored, so they're overwritten right after
+// the call with siege-appropriate text instead.
+function triggerSiegeDefenseFight(burgId, onEnd){
+  const siege = getSieges()[burgId];
+  if(!siege) return;
+  const attackerRace = KINGDOM_RACE[siege.attackerKingdom] || 'ork';
+  const variants = ENEMY_VARIANTS[attackerRace] || ENEMY_VARIANTS.ork;
+  const count = 2 + Math.floor(Math.random()*2); // 2 or 3
+  const specs = [];
+  for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace);
+  document.getElementById('combat-title').textContent = 'Defend the Walls!';
+  document.getElementById('combat-log').innerHTML = `<div>${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!</div>`;
+}
+// Combat's onEnd hook, per-siege: victory knocks a meaningful chunk off progress (not an
+// instant win) plus a reward; defeat/flee simply leaves the siege to advance normally on the
+// next weekly tick.
+function resolveSiegeDefense(burgId, result){
+  const sieges = getSieges();
+  const siege = sieges[burgId];
+  if(!siege) return;
+  recordSiegeDefended(burgId);
+  if(result === 'victory'){
+    siege.progress = Math.max(0, siege.progress - SIEGE_DEFENSE_PROGRESS_RELIEF);
+    setSieges(sieges);
+    const gold = randRange(SIEGE_DEFENSE_GOLD_RANGE);
+    const xp = randRange(SIEGE_DEFENSE_XP_RANGE);
+    setGold(playerGold + gold);
+    const leveledUp = addXp(xp);
+    showToast(`You help drive back ${siege.attackerKingdom}'s attack! The siege eases — +${gold}g, +${xp} XP.`
+      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  } else {
+    showToast(`The attack presses on despite your efforts.`);
+  }
+  showLocationView(burgId);
 }
 
 function showInnPanel(burgId){
@@ -2948,6 +3305,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   graph = graphData;
   buildAdjacency();
   buildFactionData();
+  buildBurgAdjacency();
   if(!graph.burgs[currentBurg]){
     currentBurg = "5"; // Bary — fallback if a stale/invalid location was saved
     localStorage.setItem(LOC_KEY, currentBurg);
@@ -2961,6 +3319,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
 
   buildHitzones();
   buildCityIcons();
+  buildFrontlineMarkers();
   drawPlayerMarker();
   refreshCalendarUI();
   refreshPlayerStatUI();
@@ -3022,10 +3381,13 @@ function collectCharacterSnapshot(){
     skills: localStorage.getItem(SKILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
-    warState: localStorage.getItem(WARSTATE_KEY) || "{}",
+    relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",
     lastWarTick: parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10),
     population: localStorage.getItem(POPULATION_KEY) || "{}",
+    sieges: localStorage.getItem(SIEGE_KEY) || "{}",
+    refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
+    siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

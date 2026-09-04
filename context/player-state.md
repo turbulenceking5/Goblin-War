@@ -25,10 +25,13 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |
 | `goblinwar_territoryControl` | JSON object `{burgId: kingdomName}` — sparse, only conquered settlements (older saves may hold a bare race string instead — see [factions-and-territory.md](factions-and-territory.md)) | `{}` | index.html only |
-| `goblinwar_warState` | JSON object `{kingdomName: "war"\|"peace"}` — sparse, missing = peace | `{}` | index.html only |
+| `goblinwar_relations` | JSON object `{"KingdomA::KingdomB": "war"\|"peace"}` — sparse, pairwise, missing = peace (replaces the old per-kingdom `goblinwar_warState` flag) | `{}` | index.html only — see [factions-and-territory.md](factions-and-territory.md) |
 | `goblinwar_reinforcements` | JSON object `{kingdomName: {amount, expiresDay, fromKingdom}}` — sparse, a temporary strength bonus from a Palace petition | `{}` | index.html only — see [factions-and-territory.md](factions-and-territory.md) |
 | `goblinwar_lastWarTick` | `gameDay` the faction AI last ran | `0` | index.html only |
 | `goblinwar_population` | JSON object `{burgId: population}` — sparse, in thousands (Azgaar's unit); missing = `graph.burgs[id].population` | `{}` | index.html only |
+| `goblinwar_sieges` | JSON object `{burgId: {attackerKingdom, defenderKingdom, startedDay, progress}}` — sparse, at most one active siege per settlement | `{}` | index.html only — see [factions-and-territory.md](factions-and-territory.md) |
+| `goblinwar_refugeeArrivals` | JSON object `{burgId: gameDay}` — sparse, last day a settlement took in war refugees; drives the Aid the Refugees action | `{}` | index.html only |
+| `goblinwar_siegeDefenseCooldowns` | JSON object `{burgId: gameDay}` — sparse, once-per-day gate on the Defend the Walls action | `{}` | index.html only |
 
 The last four are world state, not player state in the usual sense, but they're still part of every character's save (see [characters.md](characters.md)) — each character runs its own independent copy of the world's faction/war state. They aren't read by character.html/inventory.html/settings.html's UI at all, only carried along by settings.html's Save Now and index.html's autosave so they survive alongside everything else. Full mechanics in [factions-and-territory.md](factions-and-territory.md).
 

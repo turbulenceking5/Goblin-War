@@ -40,14 +40,15 @@ Every character's `data` column holds:
   level, xp, skillPoints,          // leveling — see player-state.md's "Leveling & stats"
   stats, skills,                   // JSON strings, not parsed — see player-state.md
   quests,                          // JSON string, not parsed — see quests.md
-  territoryControl, warState, reinforcements, lastWarTick, population,  // JSON strings/number — see below
+  territoryControl, relations, reinforcements, lastWarTick, population,  // JSON strings/number — see below
+  sieges, refugeeArrivals, siegeDefenseCooldowns,                        // JSON strings — see below
   savedAt
 }
 ```
 
 This is the old local-save-slot shape (see player-state.md) plus three additions:
 - **`name`** — new. Set once at character creation, shown in character.html's header and settings.html's current-character card, never edited afterward (no rename feature).
-- **`territoryControl`/`warState`/`reinforcements`/`lastWarTick`/`population`** — these used to be pure device-local "world state" that never round-tripped through a save at all (see [factions-and-territory.md](factions-and-territory.md)). Now that one account can run multiple characters sharing the same browser's `localStorage`, that gap became a real bug rather than a theoretical one: without carrying these along, switching characters on the same device would let one character's faction/war progress bleed into another's, since they'd all be reading/writing the same flat keys. So each character now has its own copy.
+- **`territoryControl`/`relations`/`reinforcements`/`lastWarTick`/`population`/`sieges`/`refugeeArrivals`/`siegeDefenseCooldowns`** — these are pure device-local "world state" that would otherwise never round-trip through a save at all (see [factions-and-territory.md](factions-and-territory.md); `relations` replaced the earlier per-kingdom `warState` field). Now that one account can run multiple characters sharing the same browser's `localStorage`, that gap became a real bug rather than a theoretical one: without carrying these along, switching characters on the same device would let one character's faction/war progress bleed into another's, since they'd all be reading/writing the same flat keys. So each character now has its own copy.
 - **`level`/`xp`/`skillPoints`/`stats`/`skills`** — the Skills & Progression system (see [player-state.md](player-state.md) and [roadmap.md](roadmap.md)). Without these, switching characters or logging in on another device would silently reset a character's level back to the freshly-created default.
 - **`quests`** — accepted Quest Board/Notable Figure quests (see [quests.md](quests.md)). Same reasoning as above: without it, switching characters would silently drop whatever quests were in progress.
 

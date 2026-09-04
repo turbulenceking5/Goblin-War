@@ -135,10 +135,13 @@ const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const TERRITORY_KEY = "goblinwar_territoryControl";
-const WARSTATE_KEY = "goblinwar_warState";
+const RELATIONS_KEY = "goblinwar_relations";
 const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
 const POPULATION_KEY = "goblinwar_population";
+const SIEGE_KEY = "goblinwar_sieges";
+const REFUGEE_ARRIVAL_KEY = "goblinwar_refugeeArrivals";
+const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns";
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -214,10 +217,13 @@ function collectCharacterSnapshot(){
     skills: localStorage.getItem(SKILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
-    warState: localStorage.getItem(WARSTATE_KEY) || "{}",
+    relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",
     lastWarTick: parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10),
     population: localStorage.getItem(POPULATION_KEY) || "{}",
+    sieges: localStorage.getItem(SIEGE_KEY) || "{}",
+    refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
+    siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

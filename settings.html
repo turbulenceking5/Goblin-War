@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -62,6 +64,15 @@
     padding:11px 14px; width:100%; cursor:pointer; margin-top:8px;
   }
   .btn-danger:active{ transform:scale(.98); }
+  .account-card{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:14px; margin-bottom:6px;
+  }
+  .account-row{ display:flex; flex-direction:column; gap:8px; }
+  .account-btn-row{ display:flex; gap:10px; margin-top:2px; }
+  .account-status{ font-size:13.5px; color:#a9926a; margin-bottom:10px; }
+  .account-status b{ color:var(--gold-lt); }
+  .account-synced{ font-size:11.5px; color:#a9926a; text-align:center; margin-top:8px; }
   .changelog-entry{
     background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
     padding:12px 14px; margin-bottom:10px;
@@ -92,6 +103,19 @@
       <div id="current-date">—</div>
     </div>
 
+    <div class="section-label">Account &amp; Cloud Save</div>
+    <div class="account-card" id="account-card">
+      <div class="account-status" id="account-status">Checking login status…</div>
+      <div class="account-row" id="logged-in-actions" style="display:none;">
+        <div class="account-btn-row">
+          <button class="btn btn-secondary" id="cloud-load-btn">Load from Cloud</button>
+          <button class="btn btn-primary" id="cloud-save-btn">Save to Cloud</button>
+        </div>
+        <button class="btn-danger" id="logout-btn">Log Out</button>
+        <div class="account-synced" id="cloud-synced"></div>
+      </div>
+    </div>
+
     <div class="section-label">Save Slots</div>
     <div id="slots"></div>
 
@@ -103,6 +127,8 @@
 
   <div id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
 <script>
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
@@ -126,7 +152,9 @@ const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 // Kept identical to the CHANGELOG array in index.html (see CLAUDE.md's no-modules
 // convention) — update both whenever a change ships, or this page and the "What's New"
 // popup on the map will disagree.
-const CHANGELOG_SEEN_KEY = "goblinwar_lastSeenChangelog";
+// Namespaced per logged-in account — see the matching comment in index.html — set once
+// authGateReady resolves, below.
+let CHANGELOG_SEEN_KEY = null;
 const CHANGELOG = [
   { id:1, date:"2026-09-03", changes:[
     "Added a Change Log to Settings, and a \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
@@ -142,6 +170,12 @@ const CHANGELOG = [
   { id:4, date:"2026-09-03", changes:[
     "Bandits now show real portrait art too — every enemy in the game has a proper look.",
     "Ork raiding parties now come in three varieties — Raider, Berserker, and Warlord — with the Warlord as the toughest fight in the game."
+  ]},
+  { id:5, date:"2026-09-04", changes:[
+    "Added accounts and cloud saves — log in from Settings to back up your character and load it on another device."
+  ]},
+  { id:6, date:"2026-09-04", changes:[
+    "An account is now required to play — log in or sign up on the new login screen before entering the realm."
   ]},
 ];
 
@@ -211,21 +245,7 @@ function renderSlots(){
   container.querySelectorAll('[data-save]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const i = parseInt(btn.dataset.save, 10);
-      const data = {
-        burgId: localStorage.getItem(LOC_KEY) || "5",
-        day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
-        heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
-        health: parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10),
-        maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
-        stamina: parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10),
-        maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
-        age: localStorage.getItem(AGE_KEY) || "24",
-        gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
-        inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
-        equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
-        savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
-      };
-      localStorage.setItem(SLOT_KEYS[i], JSON.stringify(data));
+      localStorage.setItem(SLOT_KEYS[i], JSON.stringify(collectLiveState()));
       showToast(`Saved to Slot ${i+1}.`);
       renderSlots();
     });
@@ -236,21 +256,96 @@ function renderSlots(){
       const i = parseInt(btn.dataset.load, 10);
       const data = JSON.parse(localStorage.getItem(SLOT_KEYS[i]));
       if(!confirm(`Load Slot ${i+1}? Your current unsaved progress will be overwritten.`)) return;
-      localStorage.setItem(LOC_KEY, data.burgId);
-      localStorage.setItem(CAL_KEY, String(data.day));
-      localStorage.setItem(HEADING_KEY, String(data.heading));
-      if(data.health!==undefined) localStorage.setItem(HEALTH_KEY, String(data.health));
-      if(data.maxHealth!==undefined) localStorage.setItem(MAXHEALTH_KEY, String(data.maxHealth));
-      if(data.stamina!==undefined) localStorage.setItem(STAMINA_KEY, String(data.stamina));
-      if(data.maxStamina!==undefined) localStorage.setItem(MAXSTAMINA_KEY, String(data.maxStamina));
-      if(data.age!==undefined) localStorage.setItem(AGE_KEY, String(data.age));
-      if(data.gold!==undefined) localStorage.setItem(GOLD_KEY, String(data.gold));
-      if(data.inventory) localStorage.setItem(INV_KEY, data.inventory);
-      if(data.equipped) localStorage.setItem(EQUIPPED_KEY, data.equipped);
+      applyLoadedState(data);
       location.href = 'index.html';
     });
   });
 }
+
+// Shared by save slots and cloud save — the full snapshot of live state.
+function collectLiveState(){
+  return {
+    burgId: localStorage.getItem(LOC_KEY) || "5",
+    day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
+    heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
+    health: parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10),
+    maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
+    stamina: parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10),
+    maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
+    age: localStorage.getItem(AGE_KEY) || "24",
+    gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
+    inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
+    equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
+  };
+}
+
+// Shared by save slots and cloud load — writes a saved snapshot back onto the live keys.
+// Each field guarded with `if(defined)`, same reasoning as save-system.md: a snapshot from
+// an older version of the game may be missing fields that didn't exist yet.
+function applyLoadedState(data){
+  localStorage.setItem(LOC_KEY, data.burgId);
+  localStorage.setItem(CAL_KEY, String(data.day));
+  localStorage.setItem(HEADING_KEY, String(data.heading));
+  if(data.health!==undefined) localStorage.setItem(HEALTH_KEY, String(data.health));
+  if(data.maxHealth!==undefined) localStorage.setItem(MAXHEALTH_KEY, String(data.maxHealth));
+  if(data.stamina!==undefined) localStorage.setItem(STAMINA_KEY, String(data.stamina));
+  if(data.maxStamina!==undefined) localStorage.setItem(MAXSTAMINA_KEY, String(data.maxStamina));
+  if(data.age!==undefined) localStorage.setItem(AGE_KEY, String(data.age));
+  if(data.gold!==undefined) localStorage.setItem(GOLD_KEY, String(data.gold));
+  if(data.inventory) localStorage.setItem(INV_KEY, data.inventory);
+  if(data.equipped) localStorage.setItem(EQUIPPED_KEY, data.equipped);
+}
+
+// ===================== ACCOUNT / CLOUD SAVE (Supabase) =====================
+// One cloud save per account, stored in the `saves` table (see supabase/schema.sql) as a
+// row keyed by user id — a separate thing from the three local save slots above, which
+// stay device-only. Session persistence (staying logged in across reloads) is handled
+// automatically by the Supabase client via its own localStorage key. `sb` and
+// `authGateReady` come from assets/auth-client.js (loaded above), which is also what
+// enforces that this page requires a login in the first place — see context/accounts.md.
+const accountStatusEl = document.getElementById('account-status');
+const loggedInActionsEl = document.getElementById('logged-in-actions');
+const cloudSyncedEl = document.getElementById('cloud-synced');
+
+// This page requires a login (see assets/auth-gate-sync.js / assets/auth-client.js), so the
+// only states worth rendering here are "still confirming" and "confirmed" — there's no
+// logged-out form to show, unlike a page a visitor can reach without an account.
+authGateReady.then(session=>{
+  if(!session) return; // already being redirected to login.html
+  accountStatusEl.innerHTML = `Logged in as <b>${session.user.email}</b>`;
+  loggedInActionsEl.style.display = 'flex';
+
+  sb.from('saves').select('saved_at').eq('user_id', session.user.id).maybeSingle().then(({ data: row })=>{
+    if(row) cloudSyncedEl.textContent = `Last saved to cloud ${new Date(row.saved_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`;
+  });
+
+  document.getElementById('cloud-save-btn').addEventListener('click', async ()=>{
+    const state = collectLiveState();
+    const { error } = await sb.from('saves').upsert({
+      user_id: session.user.id,
+      data: state,
+      saved_at: new Date().toISOString()
+    });
+    if(error){ showToast(`Cloud save failed: ${error.message}`); return; }
+    cloudSyncedEl.textContent = `Saved to cloud ${state.savedAt}`;
+    showToast('Saved to cloud.');
+  });
+
+  document.getElementById('cloud-load-btn').addEventListener('click', async ()=>{
+    const { data: row, error } = await sb.from('saves').select('data, saved_at').eq('user_id', session.user.id).maybeSingle();
+    if(error){ showToast(`Cloud load failed: ${error.message}`); return; }
+    if(!row){ showToast('No cloud save found yet.'); return; }
+    if(!confirm('Load your cloud save? Your current unsaved progress will be overwritten.')) return;
+    applyLoadedState(row.data);
+    location.href = 'index.html';
+  });
+});
+
+document.getElementById('logout-btn').addEventListener('click', async ()=>{
+  accountStatusEl.textContent = 'Logging out…';
+  await sb.auth.signOut(); // assets/auth-client.js's SIGNED_OUT listener redirects to login.html
+});
 
 document.getElementById('new-game-btn').addEventListener('click', ()=>{
   if(!confirm("Start a new game? Your current unsaved progress (not in a save slot) will be lost.")) return;
@@ -278,9 +373,14 @@ function renderChangelog(){
     </div>
   `).join('');
   // Reading the full log here counts as "seen" — no need for the map's popup to repeat it.
-  localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
+  if(CHANGELOG_SEEN_KEY) localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
 }
 renderChangelog();
+authGateReady.then(session=>{
+  if(!session) return; // being redirected to login.html
+  CHANGELOG_SEEN_KEY = `goblinwar_lastSeenChangelog_${session.user.id}`;
+  renderChangelog(); // re-run now that CHANGELOG_SEEN_KEY is set, so the "mark seen" write happens
+});
 
 fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
   Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);

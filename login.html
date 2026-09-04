@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
+<meta name="theme-color" content="#1c2a2c">
+<title>Goblin War — Log In</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#e2857f; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  body{ display:flex; align-items:center; justify-content:center; padding:24px calc(20px + env(safe-area-inset-right)) 24px calc(20px + env(safe-area-inset-left)); }
+  main{ width:100%; max-width:400px; }
+  .title-block{ text-align:center; margin-bottom:22px; }
+  h1{ font-family:'Cinzel Decorative', serif; font-size:24px; letter-spacing:1px; color:var(--gold-lt); margin:0 0 6px; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  .subtitle{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:2.5px; color:#a9926a; text-transform:uppercase; }
+  .card{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:12px;
+    padding:20px; display:flex; flex-direction:column; gap:10px;
+  }
+  .field-label{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:4px 0 -2px; }
+  input{
+    font-family:'EB Garamond', serif; font-size:15px; color:var(--parchment);
+    background:rgba(0,0,0,.25); border:1.5px solid rgba(209,164,69,.4); border-radius:8px;
+    padding:11px 12px; width:100%;
+  }
+  input::placeholder{ color:#7a6b4d; }
+  .error{ font-size:13px; color:var(--bad); min-height:0; }
+  .notice{ font-size:13px; color:var(--gold-lt); min-height:0; }
+  .btn-row{ display:flex; gap:10px; margin-top:6px; }
+  .btn{
+    font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
+    border:none; border-radius:8px; padding:12px 14px; cursor:pointer; flex:1;
+  }
+  .btn:active{ transform:scale(.97); }
+  .btn-primary{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; box-shadow:0 3px 0 #7a5715; }
+  .btn-secondary{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
+  .hint{ font-size:12px; color:#a9926a; text-align:center; margin-top:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+<main>
+  <div class="title-block">
+    <h1>THE GOBLIN WAR</h1>
+    <div class="subtitle">An account is required to play</div>
+  </div>
+  <div class="card">
+    <div class="field-label">Email</div>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+    <div class="field-label">Password</div>
+    <input id="password" type="password" placeholder="6+ characters" autocomplete="current-password">
+    <div class="error" id="error"></div>
+    <div class="notice" id="notice"></div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" id="signup-btn">Sign Up</button>
+      <button class="btn btn-primary" id="login-btn">Log In</button>
+    </div>
+  </div>
+  <div class="hint">New here? Sign up with an email and password, then confirm your email if asked before logging in.</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-config.js"></script>
+<script>
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function targetPage(){
+  const params = new URLSearchParams(location.search);
+  const redirect = params.get('redirect');
+  return (redirect && /^[a-zA-Z0-9_-]+\.html$/.test(redirect)) ? redirect : 'index.html';
+}
+
+// Already logged in (e.g. followed a stale link, or came back after confirming email in
+// another tab) — skip the form entirely.
+sb.auth.getSession().then(({ data: { session } })=>{
+  if(session) location.replace(targetPage());
+});
+
+const emailEl = document.getElementById('email');
+const passwordEl = document.getElementById('password');
+const errorEl = document.getElementById('error');
+const noticeEl = document.getElementById('notice');
+
+function setError(msg){ errorEl.textContent = msg || ''; noticeEl.textContent = ''; }
+function setNotice(msg){ noticeEl.textContent = msg || ''; errorEl.textContent = ''; }
+
+document.getElementById('signup-btn').addEventListener('click', async ()=>{
+  const email = emailEl.value.trim();
+  const password = passwordEl.value;
+  if(!email || password.length < 6){ setError('Enter an email and a password of 6+ characters.'); return; }
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if(error){ setError(error.message); return; }
+  if(data.session){ location.replace(targetPage()); return; }
+  setNotice('Account created — check your email to confirm it, then log in below.');
+});
+
+document.getElementById('login-btn').addEventListener('click', async ()=>{
+  const email = emailEl.value.trim();
+  const password = passwordEl.value;
+  if(!email || !password){ setError('Enter your email and password.'); return; }
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ setError(error.message); return; }
+  location.replace(targetPage());
+});
+</script>
+</body>
+</html>

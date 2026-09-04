@@ -30,6 +30,16 @@ The `#new-game-btn` handler `confirm()`s, then writes fresh defaults directly fo
 
 `renderCurrent()` at the top of the page (current location, date, HP, stamina, gold) reads live keys but writes nothing — purely informational, refreshed by the same `renderCurrent()`/`renderSlots()` pair called once on load after `travel-graph.json` resolves (needed only to turn `burgId` into a display name via `locationName()`).
 
+## Cloud Save (Supabase)
+
+Every player is logged in by the time they reach settings.html — see [accounts.md](accounts.md) for the login gate every page sits behind. Separate from the three local slots above: settings.html's Account & Cloud Save section lets a logged-in player push/pull **one** cloud save per account, stored in the `saves` table (`user_id primary key, data jsonb, saved_at` — see [supabase/schema.sql](../supabase/schema.sql)). It reuses the exact same snapshot shape as a local slot — both now go through shared helpers, `collectLiveState()` (build the snapshot from live keys) and `applyLoadedState(data)` (write a snapshot back onto live keys) — so a cloud save can be loaded with the same defensive-guard behavior described above.
+
+- **Save to Cloud**: `collectLiveState()` then `sb.from('saves').upsert({ user_id, data, saved_at })` — one row per user, overwritten each time, no multiple cloud slots.
+- **Load from Cloud**: `confirm()`s (same as a local slot load), fetches the row by `user_id`, then `applyLoadedState()` and redirects to index.html.
+- `sb` and `authGateReady` come from `assets/auth-client.js` (shared with every gated page — see [accounts.md](accounts.md)), not something settings.html sets up itself. The Supabase client persists its own session in `localStorage` under a `sb-`-prefixed key it manages itself — separate from every `goblinwar_`-prefixed key.
+- Row Level Security on the `saves` table restricts every operation to `auth.uid() = user_id`, so the public anon key in `assets/supabase-config.js` can't read or write another account's save even though it ships in the page source — that's expected of an anon key, not a leak.
+- Cloud save/load is still manual and settings.html-only — logging in doesn't itself push or pull anything (see accounts.md's "What the gate does not do"). It's a deliberate mirror of the local-slot flow the player triggers, not an automatic sync.
+
 ## Gotcha: keys added after a slot format existed
 
 If you add a new persisted key to the game (e.g. a future reputation stat), remember three places need it, not one: the live default in index.html's `initPlayerStateIfMissing()`, the New Game reset in this file, and — if it should survive save/load — the save-slot object shape and both the save and (defensively-guarded) load handlers here.

@@ -1,0 +1,22 @@
+# Accounts (login gate)
+
+Every player page requires a logged-in Supabase account — there's no way to reach the game, or even see it flash on screen, without one. This is separate from (but sits alongside) the cloud save mechanism described in [save-system.md](save-system.md).
+
+## The gate itself
+
+Two shared scripts, loaded on every gated page — index.html, character.html, inventory.html, party.html, settings.html (not game-map.html, which is unlinked dead code per the root [CLAUDE.md](../CLAUDE.md) and isn't gated):
+
+1. **`assets/auth-gate-sync.js`** — loaded synchronously as the very first thing in `<head>`, before any CSS or body content. It has no network call: it just checks whether *any* Supabase session token exists in this browser's `localStorage` (Supabase's own key, `sb-<project-ref>-auth-token`, derived from `SUPABASE_URL`). If not, it redirects to `login.html?redirect=<page>` immediately — before a single frame of gameplay paints. It can't tell if a present token has actually *expired*.
+2. **`assets/auth-client.js`** — loaded near the bottom of the page, right after the Supabase JS CDN script, alongside each page's own inline script. It creates the one shared client (`const sb`), and does the real check: `sb.auth.getSession()` actually validates the token and redirects if it turns out to be stale (the case the sync check above can't catch). It also listens for `SIGNED_OUT` (fired if the player logs out in another tab) and redirects then too, so a stale tab can't keep playing after logout elsewhere. Exposes a promise, `authGateReady`, that resolves to the session once confirmed (or `null`, in which case a redirect is already underway) — any page logic that needs to know who's logged in (e.g. the per-account changelog key, below) waits on this rather than calling `getSession()` again itself.
+
+Both are genuinely shared files, not duplicated per page — the project's usual [no-modules convention](../CLAUDE.md) is to copy-paste logic per page, but login is security-relevant control flow: one page's copy silently drifting from another's would be a login bypass, not just a display bug worth living with.
+
+`login.html` is the only page that skips the gate (it checks for an *existing* session itself and redirects to `index.html`/`?redirect=` if already logged in, so a logged-in player never sees the form by mistake). It offers sign-up and log-in (email + password via Supabase Auth) side by side, and on success sends the player to wherever `?redirect=` points, or `index.html` by default. Supabase may require email confirmation before a session exists — if `signUp()` returns no session, the page shows a "check your email" notice rather than redirecting.
+
+## What the gate does *not* do
+
+On successful login, nothing is pulled from or pushed to the cloud automatically — whatever's already in this browser's `localStorage` (from previous local play) is what the player sees, same as before accounts existed. Cloud save/load in settings.html (see [save-system.md](save-system.md)) stays fully manual. This was a deliberate choice: auto-pulling a cloud save on every login risks silently overwriting more recent local progress with a stale cloud copy, and auto-clearing local state for an account with no cloud save yet risks wiping a returning player's own local save slots the first time they log in on their own device. If cross-device sync-on-login is wanted later, it needs an explicit decision about which side wins a conflict — not an assumption baked into the gate.
+
+## Per-account "seen the changelog" state
+
+`goblinwar_lastSeenChangelog` (index.html's "What's New" popup, and settings.html's Change Log view marking itself as read) is namespaced per logged-in account — `goblinwar_lastSeenChangelog_<user id>` — rather than one flat key. `CHANGELOG_SEEN_KEY` starts `null` in both pages and is only set once `authGateReady` resolves with a session; anything that reads/writes it (`checkForWhatsNew()`, the dismiss handler, `renderChangelog()`) guards against it still being `null`. This means the popup's "seen" state is tied to *who's logged in*, not to the browser — one player dismissing it never marks it seen for a different account on the same device, and the same player logging into a second device still sees whatever they personally haven't seen yet (instead of every new device replaying the whole history, which the old flat per-browser key would have caused now that login exists).

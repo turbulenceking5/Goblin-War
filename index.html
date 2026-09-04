@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -439,6 +441,8 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
 <script>
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital" };
 const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
@@ -586,7 +590,12 @@ function advanceDays(n){
 // One entry per shipped update, oldest first (ids only ever go up). This exact array is
 // duplicated in settings.html (see CLAUDE.md's no-modules convention) — add a new entry to
 // both whenever a change ships, or the Settings Change Log and this popup will disagree.
-const CHANGELOG_SEEN_KEY = "goblinwar_lastSeenChangelog";
+// Namespaced per logged-in account (not a single shared key) so that on a shared device,
+// or across CHANGELOG.length-1 devices for the same player, each account gets its own
+// "have I seen this" state — one player dismissing it never marks it seen for anyone else,
+// and a player who logs in on a second device still sees whatever they haven't yet. Resolved
+// once authGateReady settles; see assets/auth-client.js.
+let CHANGELOG_SEEN_KEY = null;
 const CHANGELOG = [
   { id:1, date:"2026-09-03", changes:[
     "Added a Change Log to Settings, and this \"What's New\" popup — it now greets you on the map after any update you haven't seen yet."
@@ -603,11 +612,19 @@ const CHANGELOG = [
     "Bandits now show real portrait art too — every enemy in the game has a proper look.",
     "Ork raiding parties now come in three varieties — Raider, Berserker, and Warlord — with the Warlord as the toughest fight in the game."
   ]},
+  { id:5, date:"2026-09-04", changes:[
+    "Added accounts and cloud saves — log in from Settings to back up your character and load it on another device."
+  ]},
+  { id:6, date:"2026-09-04", changes:[
+    "An account is now required to play — log in or sign up on the new login screen before entering the realm."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
-// entry newer than the last one this player has dismissed, newest first.
+// entry newer than the last one this player has dismissed, newest first. Requires
+// CHANGELOG_SEEN_KEY to already be set (see the authGateReady.then(...) call site below).
 function checkForWhatsNew(){
+  if(!CHANGELOG_SEEN_KEY) return;
   const latestId = CHANGELOG[CHANGELOG.length-1].id;
   const seenRaw = localStorage.getItem(CHANGELOG_SEEN_KEY);
   if(seenRaw === null){
@@ -2089,7 +2106,11 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
       centerOnLogical(b.x, b.y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
     }
     document.getElementById('loading').classList.add('hide');
-    checkForWhatsNew();
+    authGateReady.then(session=>{
+      if(!session) return; // being redirected to login.html
+      CHANGELOG_SEEN_KEY = `goblinwar_lastSeenChangelog_${session.user.id}`;
+      checkForWhatsNew();
+    });
   };
   if(img.complete) finishLoad();
   else img.addEventListener('load', finishLoad);

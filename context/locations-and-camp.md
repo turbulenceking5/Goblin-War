@@ -7,17 +7,20 @@ Two full-screen overlays (`#location-view`, shared markup, z-index 60) that show
 Reached by tapping "Enter Settlement" / "Travel Here" on a burg you're already at, or automatically on arrival after travel (post-ambush-roll, see [combat.md](combat.md)).
 
 - The visual side picks an SVG from `TIER_ART` (`village`/`town`/`city`/`capital` — four hand-drawn building illustrations, no per-settlement art).
-- The action list is a small array of `{icon, title, desc, action}` objects rendered identically. Every settlement gets the same base four:
+- `checkQuestTurnIns(burgId)` (see [quests.md](quests.md)) runs first, before anything renders — so arriving at (or re-entering) a settlement that completes a Deliver a Message quest pays out immediately.
+- The action list is a small array of `{icon, title, desc, action}` objects rendered identically. Every settlement gets the same base five:
   - **The Inn** (`action:'inn'`) → `showInnPanel(burgId)`.
   - **Marketplace** (`action:'market'`) → `showMarketPanel(burgId)`.
   - **Work** (`action:'work'`) → `doWork()`, straight from the action list with no sub-panel — see "Work" below.
   - **Talk to Townsfolk** (`action:'stub'`) → toast "Not built yet — coming in a future update." (see [roadmap.md](roadmap.md)).
+  - **Quest Board** (`action:'questboard'`) → `showQuestBoardPanel(burgId)` — see [quests.md](quests.md).
 
   City- and Capital-tier settlements get more on top, appended conditionally by `b.tier` before the array is rendered — deliberately so a big settlement has more to actually do, not just a fancier building icon:
   - **Temple** (`action:'temple'`, City + Capital) and **Guard House** (`action:'guardhouse'`, City + Capital) → `showFlavorPanel(burgId, title, LINES)`.
-  - **The Palace** (`action:'palace'`, Capital only) → same, one tier further.
+  - **Notable Figure** (`action:'notable_figure'`) → `showNotableFigurePanel(burgId)` — the important-quest counterpart to the Quest Board. Unlike Temple/Guard House/Palace, tier isn't the only gate: this only appears at the handful of specific settlements pinned as a named figure's home, and only while that home hasn't been captured — see [quests.md](quests.md).
+  - **The Palace** (`action:'palace'`, Capital only) → same `showFlavorPanel` pattern, one tier further.
 
-  All three route through one shared `showFlavorPanel(burgId, title, lines, extraHTML)` rather than three near-copies of `showInnPanel` — it picks a random line from whichever pool is passed in (`TEMPLE_LINES`/`GUARDHOUSE_LINES`/`PALACE_LINES`, 5 lines each, same flavor-only pattern as `RUMOURS`) and renders one Back button + one quote box, plus whatever `extraHTML` is passed. Temple and The Palace pass nothing extra and stay pure flavor with no mechanical effect (same as Talk to Townsfolk's eventual replacement is likely to be — see [roadmap.md](roadmap.md)); Guard House is the exception — its call site passes `buildGuardHouseStats(burgId)`, which renders that settlement's real population and its current controller's total mustered strength (both population-derived — see [factions-and-territory.md](factions-and-territory.md)) below the flavor line.
+  All three route through one shared `showFlavorPanel(burgId, title, lines, extraHTML)` rather than three near-copies of `showInnPanel` — it picks a random line from whichever pool is passed in (`TEMPLE_LINES`/`GUARDHOUSE_LINES`/`PALACE_LINES`, 5 lines each, same flavor-only pattern as `RUMOURS`) and renders one Back button + one quote box, plus whatever `extraHTML` is passed. Temple stays pure flavor with no mechanical effect (same as Talk to Townsfolk's eventual replacement is likely to be — see [roadmap.md](roadmap.md)); Guard House and The Palace both pass real `extraHTML` now: Guard House's `buildGuardHouseStats(burgId)` renders that settlement's real population and its current controller's own mustered strength (population-derived — see [factions-and-territory.md](factions-and-territory.md)), and The Palace's `buildPalacePetitionHTML(burgId)` renders a "Petition for Troops" offer (Alliance reinforcement — see [factions-and-territory.md](factions-and-territory.md)) whenever this Capital's own kingdom is at peace and an ally needs help, with its own Accept button wired up right after `showFlavorPanel` renders.
 - `loc-back` (the `&larr; Back to Map` button) just hides the overlay — no state changes.
 
 ### The Inn — `showInnPanel(burgId)`

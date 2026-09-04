@@ -307,6 +307,21 @@
   #combat-attack-btn{ background:linear-gradient(180deg,#c0524f,#8c3a3a); color:#fff; border:1.5px solid #6e2626; font-weight:700; box-shadow:0 3px 0 #5a1f1f; }
   #combat-attack-btn:disabled{ opacity:.4; box-shadow:none; cursor:not-allowed; }
   #combat-flee-btn{ background:transparent; color:var(--parchment); border:1.5px solid rgba(255,255,255,.3); }
+  #combat-special-btn{ background:linear-gradient(180deg,#8a6a1f,#5c4712); color:#fff; border:1.5px solid #6e5219; }
+  #combat-special-btn.active{ box-shadow:inset 0 0 0 2px rgba(255,255,255,.4); }
+  #combat-specials-panel{ display:none; flex-direction:column; gap:8px; padding:0 16px 12px; max-height:40vh; overflow-y:auto; }
+  #combat-specials-panel.show{ display:flex; }
+  .special-move-btn{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    width:100%; text-align:left; font-family:'EB Garamond', serif; font-size:13px;
+    background:rgba(0,0,0,.3); border:1.5px solid rgba(209,164,69,.4); border-radius:8px;
+    padding:10px 12px; color:var(--parchment); cursor:pointer;
+  }
+  .special-move-btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .special-move-name{ font-family:'Cinzel', serif; font-weight:700; color:var(--gold-lt); }
+  .special-move-desc{ font-size:11.5px; color:#a9926a; margin-top:2px; }
+  .special-move-cost{ flex:none; font-size:11px; color:#5b8fc7; font-weight:700; }
+  .special-empty-note{ text-align:center; font-size:12px; color:#a9926a; font-style:italic; padding:8px 0; }
 </style>
 </head>
 <body>
@@ -434,8 +449,10 @@
       </div>
       <div id="combat-log"></div>
     </div>
+    <div id="combat-specials-panel"></div>
     <div id="combat-actions">
       <button class="combat-btn" id="combat-flee-btn">Flee</button>
+      <button class="combat-btn" id="combat-special-btn">Specials</button>
       <button class="combat-btn" id="combat-attack-btn">Attack</button>
     </div>
   </div>
@@ -628,6 +645,31 @@ const CHANGELOG = [
     "Each character has exactly one save, kept up to date automatically as you play (plus a Save Now button in Settings) — the old local save slots are gone.",
     "Settings now shows Switch Character and Delete This Character in place of the old save slots and New Game reset."
   ]},
+  { id:9, date:"2026-09-04", changes:[
+    "Combat victories now grant XP, and leveling up grants a skill point plus a small Health/Stamina boost.",
+    "The Character sheet's Level, XP bar, and Strength/Agility/Intelligence are live — spend skill points on your stats there."
+  ]},
+  { id:10, date:"2026-09-04", changes:[
+    "Skill points can now unlock 9 real perks on the Character sheet — combat bonuses, extra carry capacity, safer travel, and cheaper Marketplace prices."
+  ]},
+  { id:11, date:"2026-09-04", changes:[
+    "Combat isn't just Attack/Flee anymore — a new Specials button lets you unleash active moves like Crushing Blow, War Cry, and Cleave, once per fight.",
+    "6 special attacks can be unlocked with skill points on the Character sheet, alongside stats and perks."
+  ]},
+  { id:12, date:"2026-09-04", changes:[
+    "Added a Quest Board to every settlement — accept minor jobs like delivering a message for gold and XP.",
+    "Cities and Capitals now have a Notable Figure who offers one important task at a time, like clearing out bandits."
+  ]},
+  { id:13, date:"2026-09-04", changes:[
+    "Notable Figures now stay in one place — Captain Aldric Vane, Yselle Thorn, Elder Bram Oswick, Scoutmaster Priska Ren, and Sir Corwin Hale each call a specific city home, and will vanish if it's ever conquered.",
+    "The Quest Board now also offers Deliver Cargo jobs, and a Notable Figure whose home is at war will ask you to Drive Off the Raiders instead of dealing with bandits — for a bigger reward."
+  ]},
+  { id:14, date:"2026-09-04", changes:[
+    "Kingdoms now defend themselves with only their own forces, not the combined strength of every kingdom sharing their race — raids and Guard House numbers now reflect that one kingdom alone."
+  ]},
+  { id:15, date:"2026-09-04", changes:[
+    "The Palace can now offer a Petition for Troops — convince a peaceful kingdom's court to reinforce an allied kingdom under attack, for gold and XP."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -702,6 +744,7 @@ checkForUpdate();
 // regardless of who's currently occupying any one of its settlements.
 const TERRITORY_KEY = "goblinwar_territoryControl";
 const WARSTATE_KEY = "goblinwar_warState";
+const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
 const WAR_TICK_INTERVAL_DAYS = 7;   // faction AI only rolls once per in-game week
 const WAR_DECLARE_CHANCE = 0.06;    // per kingdom, per tick, while at peace
@@ -720,16 +763,39 @@ function buildFactionData(){
   ALL_KINGDOMS = Object.keys(KINGDOM_RACE);
 }
 
+// goblinwar_territoryControl overrides store the specific conquering KINGDOM now (e.g.
+// "Kingdom of Warg"), not just its race — this is what lets getArmyStrength (below) credit a
+// captured settlement's population to the one kingdom that actually holds it, instead of
+// pooling it across every kingdom that happens to share its race. getControllerKingdom is the
+// kingdom-level accessor; getController derives the race from it (KINGDOM_RACE) and is kept
+// around because most of the codebase — onMapTap, showLocationView, buildGuardHouseStats'
+// label, getFigureForBurg — only ever needed "which race holds this," not which kingdom.
+//
+// Backward-compat note: saves from before this change stored a bare race string here (e.g.
+// "ork") instead of a kingdom name. getController still resolves those correctly (a stored
+// value that's a real ALLIANCE key is treated as an already-race value). getArmyStrength can't
+// recover which specific kingdom made that old capture, though — a legacy-format override
+// simply won't match any kingdom's name, so that settlement's population stops counting toward
+// any kingdom's strength until it's captured again (which writes the new kingdom-name format).
+// Self-healing, not silently wrong — worth knowing if regional strength ever looks light on an
+// old save.
 function getTerritoryControl(){ try{ return JSON.parse(localStorage.getItem(TERRITORY_KEY)) || {}; }catch(e){ return {}; } }
-function getController(burgId){
+function getControllerKingdom(burgId){
   const overrides = getTerritoryControl();
   if(overrides[burgId]) return overrides[burgId];
   const b = graph.burgs[burgId];
+  return b ? b.state : null;
+}
+function getController(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  if(kingdom && ALLIANCE[kingdom]) return kingdom; // legacy save: this was already a race string
+  if(kingdom) return KINGDOM_RACE[kingdom] || 'neutral';
+  const b = graph.burgs[burgId];
   return b ? b.race : null;
 }
-function setController(burgId, race){
+function setController(burgId, kingdom){
   const overrides = getTerritoryControl();
-  overrides[burgId] = race;
+  overrides[burgId] = kingdom;
   localStorage.setItem(TERRITORY_KEY, JSON.stringify(overrides));
 }
 
@@ -773,11 +839,36 @@ function setPopulation(burgId, pop){
 }
 function formatPopulation(pop){ return Math.round(pop*1000).toLocaleString(); }
 
-// Total population a race currently controls, times MILITARY_FRACTION — what attemptRaid
-// compares attacker vs. defender with. Deliberately not capped to any one settlement's local
-// garrison; a kingdom's whole territory backs up any single raid.
-function getArmyStrength(race){
-  return Object.keys(graph.burgs).reduce((sum,id)=> getController(id)===race ? sum+getPopulation(id) : sum, 0) * MILITARY_FRACTION;
+// Alliance reinforcement — the one deliberate exception to "every kingdom stands entirely
+// alone militarily" (see getArmyStrength below). Petitioning at a Palace (see
+// buildPalacePetitionHTML) grants a temporary strength bonus to a threatened allied kingdom,
+// sourced from a specific *other*, currently-peaceful kingdom's own strength — never pooled
+// automatically, always triggered by the player convincing a court to send troops. One active
+// reinforcement per kingdom at a time; a new petition overwrites rather than stacks, so this
+// can't be farmed into an ever-growing bonus.
+const REINFORCEMENT_FRACTION = 0.25;  // the petitioned kingdom sends this fraction of its own strength
+const REINFORCEMENT_DURATION_DAYS = 14;
+function getReinforcements(){ try{ return JSON.parse(localStorage.getItem(REINFORCE_KEY)) || {}; }catch(e){ return {}; } }
+function setReinforcement(kingdom, amount, fromKingdom){
+  const map = getReinforcements();
+  map[kingdom] = { amount, expiresDay: gameDay + REINFORCEMENT_DURATION_DAYS, fromKingdom };
+  localStorage.setItem(REINFORCE_KEY, JSON.stringify(map));
+}
+function getReinforcementBonus(kingdom){
+  const r = getReinforcements()[kingdom];
+  if(!r || gameDay > r.expiresDay) return 0;
+  return r.amount;
+}
+
+// Total population one specific kingdom currently controls, times MILITARY_FRACTION, plus any
+// active reinforcement bonus (above) — what attemptRaid compares attacker vs. defender with.
+// Deliberately not capped to any one settlement's local garrison — a kingdom's whole territory
+// backs up any single raid — but scoped to that kingdom alone otherwise: other kingdoms of the
+// same race (even allied ones) contribute nothing automatically. See the comment on
+// getController/getControllerKingdom above for why.
+function getArmyStrength(kingdom){
+  const base = Object.keys(graph.burgs).reduce((sum,id)=> getControllerKingdom(id)===kingdom ? sum+getPopulation(id) : sum, 0) * MILITARY_FRACTION;
+  return base + getReinforcementBonus(kingdom);
 }
 
 // Closest settlement whose kingdom is currently at peace — where a burg's refugees go.
@@ -816,7 +907,9 @@ const WAR_BUY_MULTIPLIER = 1.5;
 const WAR_SELL_BONUS_MULT = 1.2;
 const PEACE_SELL_FRACTION = 0.5;
 function isWarRelevant(mi){ return !!mi.slot || mi.name === "Firewood"; }
-function getBuyPrice(mi, burgId){ return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1)); }
+function getBuyPrice(mi, burgId){
+  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1));
+}
 function getSellPrice(mi, burgId){
   return (isWarRelevant(mi) && isAtWarAt(burgId))
     ? Math.round(mi.price * WAR_SELL_BONUS_MULT)
@@ -826,33 +919,38 @@ function getSellPrice(mi, burgId){
 // Picks one enemy-alliance settlement to raid, biased toward the attacker's own territory
 // (nearest RAID_CANDIDATE_POOL enemy-held settlements to the centroid of what the attacking
 // kingdom currently controls) rather than a uniformly random settlement anywhere on the map.
+// "The attacking kingdom currently controls" means literally that one kingdom, via
+// getControllerKingdom — not every kingdom that shares its race — so both the raid's staging
+// centroid and (below) its strength calculation are regional, not race-pooled.
 function attemptRaid(attackerKingdom){
   const attackerRace = KINGDOM_RACE[attackerKingdom];
   const attackerAlliance = ALLIANCE[attackerRace];
-  const ownBurgs = Object.values(graph.burgs).filter(b => getController(b.id) === attackerRace);
+  const ownBurgs = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === attackerKingdom);
   if(!ownBurgs.length) return null;
   const cx = ownBurgs.reduce((s,b)=>s+b.x,0) / ownBurgs.length;
   const cy = ownBurgs.reduce((s,b)=>s+b.y,0) / ownBurgs.length;
   const enemyBurgs = Object.values(graph.burgs).filter(b=>{
-    const race = getController(b.id);
+    const race = getController(b.id); // race is still all that matters for alliance targeting
     return race && race !== 'neutral' && ALLIANCE[race] && ALLIANCE[race] !== attackerAlliance;
   });
   if(!enemyBurgs.length) return null;
   enemyBurgs.sort((a,b)=> Math.hypot(a.x-cx,a.y-cy) - Math.hypot(b.x-cx,b.y-cy));
   const candidates = enemyBurgs.slice(0, RAID_CANDIDATE_POOL);
   const target = candidates[Math.floor(Math.random()*candidates.length)];
-  const targetRace = getController(target.id);
+  const targetKingdom = getControllerKingdom(target.id);
 
   // Raid odds come from each side's real (population-derived) military strength, not a flat
-  // coin flip — but still clamped so no kingdom is ever a guaranteed win or loss.
-  const attackerStrength = getArmyStrength(attackerRace);
-  const defenderStrength = getArmyStrength(targetRace);
+  // coin flip — but still clamped so no kingdom is ever a guaranteed win or loss. Strength is
+  // scoped to the two specific kingdoms actually fighting, not their whole race — see
+  // getArmyStrength.
+  const attackerStrength = getArmyStrength(attackerKingdom);
+  const defenderStrength = getArmyStrength(targetKingdom);
   const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
   const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
   const success = Math.random() < successChance;
 
   applyWarLoss(target.id, RAID_DAMAGE_RATE); // a raid costs the target lives either way
-  if(success) setController(target.id, attackerRace);
+  if(success) setController(target.id, attackerKingdom);
   return { success, target, attackerKingdom, attackerRace, successChance };
 }
 
@@ -902,6 +1000,12 @@ const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
+const LEVEL_KEY = "goblinwar_level";
+const XP_KEY = "goblinwar_xp";
+const SKILLPOINTS_KEY = "goblinwar_skillPoints";
+const STATS_KEY = "goblinwar_stats";
+const SKILLS_KEY = "goblinwar_skills";
+const QUEST_KEY = "goblinwar_quests";
 const FOOD_NAME = "Food";
 const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACITY
 const FOOD_PRICE = 2;     // gold per unit of Food at the Marketplace
@@ -940,18 +1044,39 @@ function setEquippedSlot(slot, itemName){
 }
 function getEquipDamageBonus(){
   const eq = getEquipped();
-  return EQUIP_SLOTS.reduce((sum, slot) => {
+  const base = EQUIP_SLOTS.reduce((sum, slot) => {
     const stats = eq[slot] && ITEM_STATS[eq[slot]];
     return sum + (stats ? stats.dmg : 0);
   }, 0);
+  return base + (hasPerk('power_strike') ? 2 : 0);
 }
 function getEquipDefenseBonus(){
   const eq = getEquipped();
-  return EQUIP_SLOTS.reduce((sum, slot) => {
+  const base = EQUIP_SLOTS.reduce((sum, slot) => {
     const stats = eq[slot] && ITEM_STATS[eq[slot]];
     return sum + (stats ? stats.def : 0);
   }, 0);
+  return base + (hasPerk('iron_skin') ? 1 : 0);
 }
+
+// Passive perks unlocked with a skill point (see character.html) — each gated on a raw stat
+// threshold so points and perks stay entangled rather than being two disconnected currencies.
+// See context/roadmap.md for the full design; this array is duplicated in character.html
+// per the no-modules convention.
+const PERKS = [
+  { id:"power_strike",  name:"Power Strike",  stat:"str", req:2, desc:"+2 flat damage on attack." },
+  { id:"iron_skin",     name:"Iron Skin",     stat:"str", req:2, desc:"-1 flat damage taken." },
+  { id:"pack_mule",     name:"Pack Mule",     stat:"str", req:4, desc:"+10 carry capacity." },
+  { id:"evasion",       name:"Evasion",       stat:"agi", req:2, desc:"15% chance to fully dodge an enemy's counter-attack." },
+  { id:"second_wind",   name:"Second Wind",   stat:"agi", req:2, desc:"25% chance an attack costs no stamina." },
+  { id:"sure_feet",     name:"Sure Feet",     stat:"agi", req:4, desc:"-10% ambush chance while traveling or camping." },
+  { id:"silver_tongue", name:"Silver Tongue", stat:"int", req:2, desc:"-10% Marketplace buy prices." },
+  { id:"scavenger",     name:"Scavenger",     stat:"int", req:2, desc:"+20% gold from combat victories." },
+  { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Food cost while traveling." },
+];
+function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
+function hasPerk(id){ return !!getUnlockedSkills()[id]; }
+function getCarryCapacity(){ return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0); }
 
 function initPlayerStateIfMissing(){
   if(localStorage.getItem(MAXHEALTH_KEY) === null) localStorage.setItem(MAXHEALTH_KEY, "100");
@@ -961,9 +1086,16 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(AGE_KEY) === null) localStorage.setItem(AGE_KEY, "24");
   if(localStorage.getItem(GOLD_KEY) === null) localStorage.setItem(GOLD_KEY, "50");
   if(localStorage.getItem(INV_KEY) === null) localStorage.setItem(INV_KEY, JSON.stringify(DEFAULT_INVENTORY));
+  if(localStorage.getItem(LEVEL_KEY) === null) localStorage.setItem(LEVEL_KEY, "1");
+  if(localStorage.getItem(XP_KEY) === null) localStorage.setItem(XP_KEY, "0");
+  if(localStorage.getItem(SKILLPOINTS_KEY) === null) localStorage.setItem(SKILLPOINTS_KEY, "0");
+  if(localStorage.getItem(STATS_KEY) === null) localStorage.setItem(STATS_KEY, JSON.stringify({str:0,agi:0,int:0}));
+  if(localStorage.getItem(SKILLS_KEY) === null) localStorage.setItem(SKILLS_KEY, JSON.stringify({}));
+  if(localStorage.getItem(QUEST_KEY) === null) localStorage.setItem(QUEST_KEY, JSON.stringify([]));
   if(localStorage.getItem(EQUIPPED_KEY) === null) localStorage.setItem(EQUIPPED_KEY, JSON.stringify({}));
   if(localStorage.getItem(TERRITORY_KEY) === null) localStorage.setItem(TERRITORY_KEY, JSON.stringify({}));
   if(localStorage.getItem(WARSTATE_KEY) === null) localStorage.setItem(WARSTATE_KEY, JSON.stringify({}));
+  if(localStorage.getItem(REINFORCE_KEY) === null) localStorage.setItem(REINFORCE_KEY, JSON.stringify({}));
   if(localStorage.getItem(LASTWARTICK_KEY) === null) localStorage.setItem(LASTWARTICK_KEY, "0");
   if(localStorage.getItem(POPULATION_KEY) === null) localStorage.setItem(POPULATION_KEY, JSON.stringify({}));
 }
@@ -974,6 +1106,9 @@ let playerMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY), 10);
 let playerStamina = parseInt(localStorage.getItem(STAMINA_KEY), 10);
 let playerMaxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY), 10);
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
+let playerLevel = parseInt(localStorage.getItem(LEVEL_KEY), 10);
+let playerXp = parseInt(localStorage.getItem(XP_KEY), 10);
+let playerSkillPoints = parseInt(localStorage.getItem(SKILLPOINTS_KEY), 10);
 let playerInventory = [];
 try{ playerInventory = JSON.parse(localStorage.getItem(INV_KEY)) || []; }catch(e){ playerInventory = []; }
 
@@ -990,7 +1125,7 @@ function getCarriedWeight(){ return playerInventory.reduce((sum, it) => sum + it
 // carried weight over CARRY_CAPACITY.
 function addItem(name, qty, weightEach, valueEach){
   const addedWeight = weightEach * qty;
-  if(getCarriedWeight() + addedWeight > CARRY_CAPACITY) return false;
+  if(getCarriedWeight() + addedWeight > getCarryCapacity()) return false;
   const existing = getItem(name);
   if(existing) existing.qty += qty;
   else playerInventory.push({ name, qty, weight:weightEach, value:valueEach });
@@ -1021,6 +1156,36 @@ function setGold(v){
   localStorage.setItem(GOLD_KEY, String(playerGold));
   refreshPlayerStatUI();
 }
+// XP needed to go from `level` to `level+1` — not cumulative; playerXp tracks progress
+// within the current level and resets (carrying any overshoot) on level-up.
+function xpForLevel(level){ return Math.round(40 * Math.pow(level, 1.5)); }
+// Grants XP, handling one or more level-ups in the same call (a big reward could clear more
+// than one threshold at once). Each level-up grants a skill point and a flat Health/Stamina
+// bump so leveling feels good before any point is spent — see context/roadmap.md. Returns
+// true if at least one level-up happened, so callers can show a distinct toast/log line.
+function addXp(amount){
+  playerXp += amount;
+  let leveledUp = false;
+  while(playerXp >= xpForLevel(playerLevel)){
+    playerXp -= xpForLevel(playerLevel);
+    playerLevel += 1;
+    playerSkillPoints += 1;
+    playerMaxHealth += 8;
+    playerMaxStamina += 4;
+    playerHealth = Math.min(playerMaxHealth, playerHealth + 8);
+    playerStamina = Math.min(playerMaxStamina, playerStamina + 4);
+    leveledUp = true;
+  }
+  localStorage.setItem(LEVEL_KEY, String(playerLevel));
+  localStorage.setItem(XP_KEY, String(playerXp));
+  localStorage.setItem(SKILLPOINTS_KEY, String(playerSkillPoints));
+  localStorage.setItem(MAXHEALTH_KEY, String(playerMaxHealth));
+  localStorage.setItem(MAXSTAMINA_KEY, String(playerMaxStamina));
+  localStorage.setItem(HEALTH_KEY, String(playerHealth));
+  localStorage.setItem(STAMINA_KEY, String(playerStamina));
+  refreshPlayerStatUI();
+  return leveledUp;
+}
 function refreshPlayerStatUI(){
   const hp = document.getElementById('stat-hp');
   const sp = document.getElementById('stat-stamina');
@@ -1032,7 +1197,7 @@ function refreshPlayerStatUI(){
   if(gp) gp.textContent = playerGold;
 }
 // ===================== COMBAT (minimal turn-based, one enemy type) =====================
-let combat = null; // {enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd}
+let combat = null; // {enemyName, enemyHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange, xpRewardRange}
 const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest refills it
 
 function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min; }
@@ -1048,27 +1213,29 @@ function randRange([min,max]){ return Math.floor(Math.random()*(max-min+1))+min;
 // PNG in assets/enemies/, no other code changes.
 const ENEMY_VARIANTS = {
   bandit: [
-    { name:"Bandit", hp:30, enemyDmgRange:[5,12], goldRange:[8,20], art:"assets/enemies/bandit.png" },
+    { name:"Bandit", hp:30, enemyDmgRange:[5,12], goldRange:[8,20], xpRange:[8,14], art:"assets/enemies/bandit.png" },
   ],
   goblin: [
-    { name:"Goblin Raider",       hp:35, enemyDmgRange:[7,14],  goldRange:[10,22], art:"assets/enemies/goblin-raider.png" },
-    { name:"Goblin Shieldbearer", hp:45, enemyDmgRange:[6,12],  goldRange:[10,22], art:"assets/enemies/goblin-shieldbearer.png" },
-    { name:"Goblin Skirmisher",   hp:30, enemyDmgRange:[9,16],  goldRange:[12,24], art:"assets/enemies/goblin-skirmisher.png" },
-    { name:"Goblin Archer",       hp:25, enemyDmgRange:[7,13],  goldRange:[8,18],  art:"assets/enemies/goblin-archer.png" },
+    { name:"Goblin Raider",       hp:35, enemyDmgRange:[7,14],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-raider.png" },
+    { name:"Goblin Shieldbearer", hp:45, enemyDmgRange:[6,12],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-shieldbearer.png" },
+    { name:"Goblin Skirmisher",   hp:30, enemyDmgRange:[9,16],  goldRange:[12,24], xpRange:[12,18], art:"assets/enemies/goblin-skirmisher.png" },
+    { name:"Goblin Archer",       hp:25, enemyDmgRange:[7,13],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-archer.png" },
   ],
   ork: [
-    { name:"Ork Raider",     hp:55, enemyDmgRange:[11,20], goldRange:[15,30], art:"assets/enemies/ork-raider.png" },
-    { name:"Ork Berserker",  hp:45, enemyDmgRange:[12,22], goldRange:[16,28], art:"assets/enemies/ork-berserker.png" },
-    { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], art:"assets/enemies/ork-warlord.png" },
+    { name:"Ork Raider",     hp:55, enemyDmgRange:[11,20], goldRange:[15,30], xpRange:[16,24], art:"assets/enemies/ork-raider.png" },
+    { name:"Ork Berserker",  hp:45, enemyDmgRange:[12,22], goldRange:[16,28], xpRange:[16,24], art:"assets/enemies/ork-berserker.png" },
+    { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], xpRange:[20,30], art:"assets/enemies/ork-warlord.png" },
   ],
 };
 
-function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, artPath, goldRewardRange){
-  combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange: goldRewardRange || [8,20] };
+function startCombat(enemyName, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, artPath, goldRewardRange, xpRewardRange, race){
+  combat = { enemyName, enemyHp: enemyMaxHp, enemyMaxHp, enemyDmgRange, playerDmgRange, onEnd, goldRewardRange: goldRewardRange || [8,20], xpRewardRange: xpRewardRange || [5,10], usedMoves: {}, race };
   document.getElementById('combat-title').textContent = `${enemyName} Ambush!`;
   document.getElementById('combat-enemy-name').textContent = enemyName;
   document.getElementById('combat-enemy-icon').innerHTML = `<img src="${artPath}" alt="${enemyName}">`;
   document.getElementById('combat-log').innerHTML = `<div>${enemyName} block${enemyName.endsWith('s')?'':'s'} your path!</div>`;
+  document.getElementById('combat-specials-panel').classList.remove('show');
+  document.getElementById('combat-special-btn').classList.remove('active');
   updateCombatUI();
   document.getElementById('combat-view').classList.add('show');
 }
@@ -1082,6 +1249,7 @@ function updateCombatUI(){
   document.getElementById('combat-player-stamina-bar').style.width = Math.max(0, Math.round((playerStamina/playerMaxStamina)*100)) + '%';
   document.getElementById('combat-player-stamina-text').textContent = `${playerStamina}/${playerMaxStamina}`;
   document.getElementById('combat-attack-btn').disabled = playerStamina < STAMINA_COST_PER_ATTACK;
+  renderSpecialsPanel();
 }
 
 function combatLog(msg){
@@ -1092,6 +1260,19 @@ function combatLog(msg){
   log.scrollTop = log.scrollHeight;
 }
 
+// Shared by combatAttack and every special move except Reckless Swing (which deliberately
+// bypasses both Evasion and defense — see MOVES below). Doesn't end the fight itself; callers
+// check playerHealth<=0 afterward, same as they already checked combat.enemyHp<=0 before calling.
+function enemyCounter(){
+  if(hasPerk('evasion') && Math.random() < 0.15){
+    combatLog(`You dodge the ${combat.enemyName}'s counter-attack entirely.`);
+  } else {
+    const edmg = Math.max(1, randRange(combat.enemyDmgRange) - getEquipDefenseBonus());
+    setHealth(playerHealth - edmg);
+    combatLog(`The ${combat.enemyName} hits you for ${edmg} damage.`);
+  }
+}
+
 function combatAttack(){
   if(!combat) return;
   if(playerStamina < STAMINA_COST_PER_ATTACK){
@@ -1099,20 +1280,125 @@ function combatAttack(){
     updateCombatUI();
     return;
   }
-  setStamina(playerStamina - STAMINA_COST_PER_ATTACK);
+  const freeAttack = hasPerk('second_wind') && Math.random() < 0.25;
+  if(!freeAttack) setStamina(playerStamina - STAMINA_COST_PER_ATTACK);
   const dmg = randRange(combat.playerDmgRange) + getEquipDamageBonus();
   combat.enemyHp -= dmg;
-  combatLog(`You hit the ${combat.enemyName} for ${dmg} damage.`);
+  combatLog(`You hit the ${combat.enemyName} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : ''));
   if(combat.enemyHp <= 0){
     updateCombatUI();
     endCombat('victory');
     return;
   }
-  const edmg = Math.max(1, randRange(combat.enemyDmgRange) - getEquipDefenseBonus());
-  setHealth(playerHealth - edmg);
-  combatLog(`The ${combat.enemyName} hits you for ${edmg} damage.`);
+  enemyCounter();
   updateCombatUI();
   if(playerHealth <= 0){ endCombat('defeat'); }
+}
+
+// Active special attacks — unlocked with a skill point (character.html) same as PERKS, gated
+// on a stat threshold, but usable in combat rather than always-on. Each costs more stamina
+// than a basic Attack and is usable once per fight (combat.usedMoves), reset when a new fight
+// starts (see startCombat). Duplicated in character.html (unlock UI only) per the no-modules
+// convention — the effects below are the only place they actually do anything.
+//
+// Cleave is written to loop over every current enemy so it's ready for multi-enemy encounters
+// (see context/roadmap.md) without changes — today combat is always exactly one enemy, so it
+// plays out identically to a single reduced-damage hit.
+const MOVES = [
+  { id:"crushing_blow",   name:"Crushing Blow",   stat:"str", req:2, cost:35, desc:"2x damage, single hit." },
+  { id:"reckless_swing",  name:"Reckless Swing",  stat:"str", req:4, cost:30, desc:"2.5x damage, but the enemy's counter-hit ignores your armor and Evasion this turn." },
+  { id:"precise_shot",    name:"Precise Shot",    stat:"agi", req:2, cost:25, desc:"Always deals your maximum damage roll instead of a random one." },
+  { id:"adrenaline_rush", name:"Adrenaline Rush", stat:"agi", req:4, cost:15, desc:"A free extra attack this turn, at no extra stamina cost." },
+  { id:"war_cry",         name:"War Cry",         stat:"int", req:2, cost:20, desc:"Cuts the enemy's damage by 30% for the rest of the fight. Deals no damage itself." },
+  { id:"cleave",          name:"Cleave",          stat:"str", req:6, cost:40, desc:"Hits every enemy in the fight for 60% damage. Only one enemy exists today, so this plays like a weaker attack until multi-enemy fights ship." },
+];
+function canUseMove(move){
+  return !!combat && hasPerk(move.id) && !combat.usedMoves[move.id] && playerStamina >= move.cost;
+}
+function combatSpecial(moveId){
+  if(!combat) return;
+  const move = MOVES.find(m => m.id === moveId);
+  if(!move || !canUseMove(move)) return;
+  combat.usedMoves[moveId] = true;
+  setStamina(playerStamina - move.cost);
+
+  let dmg = 0;
+  switch(moveId){
+    case 'crushing_blow':
+      dmg = randRange(combat.playerDmgRange)*2 + getEquipDamageBonus();
+      combat.enemyHp -= dmg;
+      combatLog(`Crushing Blow! You hit the ${combat.enemyName} for ${dmg} damage.`);
+      break;
+    case 'reckless_swing':
+      dmg = Math.round(randRange(combat.playerDmgRange)*2.5) + getEquipDamageBonus();
+      combat.enemyHp -= dmg;
+      combatLog(`Reckless Swing! You hit the ${combat.enemyName} for ${dmg} damage, leaving yourself wide open.`);
+      break;
+    case 'precise_shot':
+      dmg = combat.playerDmgRange[1] + getEquipDamageBonus();
+      combat.enemyHp -= dmg;
+      combatLog(`Precise Shot! You hit the ${combat.enemyName} for ${dmg} damage.`);
+      break;
+    case 'adrenaline_rush':
+      dmg = randRange(combat.playerDmgRange) + getEquipDamageBonus();
+      combat.enemyHp -= dmg;
+      combatLog(`Adrenaline Rush! A free extra strike hits the ${combat.enemyName} for ${dmg} damage.`);
+      break;
+    case 'war_cry':
+      combat.enemyDmgRange = [Math.max(1,Math.round(combat.enemyDmgRange[0]*0.7)), Math.max(1,Math.round(combat.enemyDmgRange[1]*0.7))];
+      combatLog(`War Cry! The ${combat.enemyName}'s attacks are weaker for the rest of the fight.`);
+      break;
+    case 'cleave':
+      dmg = Math.round(randRange(combat.playerDmgRange)*0.6) + getEquipDamageBonus();
+      combat.enemyHp -= dmg;
+      combatLog(`Cleave! You strike the ${combat.enemyName} for ${dmg} damage.`);
+      break;
+  }
+
+  if(combat.enemyHp <= 0){
+    updateCombatUI();
+    endCombat('victory');
+    return;
+  }
+
+  if(moveId === 'reckless_swing'){
+    const edmg = randRange(combat.enemyDmgRange);
+    setHealth(playerHealth - edmg);
+    combatLog(`The ${combat.enemyName} makes you pay for it — ${edmg} damage, ignoring your armor.`);
+  } else {
+    enemyCounter();
+  }
+
+  document.getElementById('combat-specials-panel').classList.remove('show');
+  document.getElementById('combat-special-btn').classList.remove('active');
+  updateCombatUI();
+  if(playerHealth <= 0){ endCombat('defeat'); }
+}
+function renderSpecialsPanel(){
+  const panel = document.getElementById('combat-specials-panel');
+  if(!combat){ panel.innerHTML = ''; return; }
+  const usable = MOVES.filter(m => hasPerk(m.id));
+  if(usable.length === 0){
+    panel.innerHTML = `<div class="special-empty-note">No special attacks unlocked yet — spend skill points on the Character sheet.</div>`;
+    return;
+  }
+  panel.innerHTML = usable.map(m => {
+    const used = combat.usedMoves[m.id];
+    const disabled = used || playerStamina < m.cost;
+    const status = used ? ' (used this fight)' : '';
+    return `
+      <button class="special-move-btn" data-move="${m.id}" ${disabled ? 'disabled' : ''}>
+        <div>
+          <div class="special-move-name">${m.name}${status}</div>
+          <div class="special-move-desc">${m.desc}</div>
+        </div>
+        <span class="special-move-cost">${m.cost} STA</span>
+      </button>
+    `;
+  }).join('');
+  panel.querySelectorAll('.special-move-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=> combatSpecial(btn.dataset.move));
+  });
 }
 
 function combatFlee(){
@@ -1125,6 +1411,8 @@ function endCombat(result){
   const enemyName = combat ? combat.enemyName : 'enemy';
   const onEnd = combat ? combat.onEnd : null;
   const goldRewardRange = combat ? combat.goldRewardRange : [8,20];
+  const xpRewardRange = combat ? combat.xpRewardRange : [5,10];
+  const enemyRace = combat ? combat.race : null;
   // Nulled synchronously (not inside the setTimeout below) so a click during the
   // victory/defeat delay hits combatAttack/combatFlee's `if(!combat) return;` guard
   // instead of re-entering — without this, mashing Attack right as the killing blow
@@ -1134,9 +1422,38 @@ function endCombat(result){
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
     if(result === 'victory'){
-      const reward = randRange(goldRewardRange);
+      let reward = randRange(goldRewardRange);
+      if(hasPerk('scavenger')) reward = Math.round(reward * 1.2);
       setGold(playerGold + reward);
-      showToast(`Victory! You defeated the ${enemyName} and found ${reward} gold.`);
+      const xpGain = randRange(xpRewardRange);
+      let anyLevelUp = addXp(xpGain);
+      let msg = `Victory! You defeated the ${enemyName}, found ${reward} gold, and gained ${xpGain} XP.`;
+
+      // Notable Figure kill-quests complete on the next matching victory anywhere — Kill
+      // Bandits wants a Bandit, Drive Off the Raiders wants a Goblin or Ork (see
+      // context/quests.md). Only one can ever be active (checked by source, not type, in
+      // showNotableFigurePanel), so there's at most one to resolve here regardless of race.
+      if(enemyRace){
+        const questMatchesRace = q =>
+          (q.type==='kill_bandits' && enemyRace==='bandit') ||
+          (q.type==='kill_raiders' && (enemyRace==='goblin' || enemyRace==='ork'));
+        const quests = getQuests();
+        const remaining = [];
+        let questReward = null;
+        quests.forEach(q => {
+          if(!questReward && q.status==='active' && questMatchesRace(q)) questReward = q;
+          else remaining.push(q);
+        });
+        if(questReward){
+          setGold(playerGold + questReward.reward.gold);
+          if(addXp(questReward.reward.xp)) anyLevelUp = true;
+          saveQuests(remaining);
+          msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.`;
+        }
+      }
+
+      if(anyLevelUp) msg += ` Level up! You are now level ${playerLevel}.`;
+      showToast(msg);
     } else if(result === 'defeat'){
       setHealth(10);
       showToast(`You were beaten badly but managed to escape with your life.`);
@@ -1149,6 +1466,10 @@ function endCombat(result){
 
 document.getElementById('combat-attack-btn').addEventListener('click', combatAttack);
 document.getElementById('combat-flee-btn').addEventListener('click', combatFlee);
+document.getElementById('combat-special-btn').addEventListener('click', ()=>{
+  document.getElementById('combat-specials-panel').classList.toggle('show');
+  document.getElementById('combat-special-btn').classList.toggle('active');
+});
 
 const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed regardless of who they're fighting
 // Picks a random variant from ENEMY_VARIANTS[race] and starts that fight — see the comment on
@@ -1158,7 +1479,7 @@ const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed reg
 function triggerEnemyFight(race, onEnd){
   const variants = ENEMY_VARIANTS[race] || ENEMY_VARIANTS.bandit;
   const v = variants[Math.floor(Math.random()*variants.length)];
-  startCombat(v.name, v.hp, v.enemyDmgRange, PLAYER_DMG_RANGE, onEnd || (()=>{}), v.art, v.goldRange);
+  startCombat(v.name, v.hp, v.enemyDmgRange, PLAYER_DMG_RANGE, onEnd || (()=>{}), v.art, v.goldRange, v.xpRange, race);
 }
 const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
 // Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement
@@ -1299,13 +1620,20 @@ const FOOD_PER_DAY = 1;
 const HOURS_PER_DAY = 24;
 const AMBUSH_CHANCE_PER_DAY = 0.12; // chance per day of travel that bandits ambush the road
 const NIGHT_AMBUSH_CHANCE = 0.15;   // chance bandits strike an exposed camp overnight
-function rollAmbush(hours){ const days = hours/HOURS_PER_DAY; return Math.random() < 1 - Math.pow(1-AMBUSH_CHANCE_PER_DAY, days); }
+function rollAmbush(hours){
+  const days = hours/HOURS_PER_DAY;
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * (hasPerk('sure_feet') ? 0.9 : 1);
+  return Math.random() < 1 - Math.pow(1-chancePerDay, days);
+}
 // Trips are timed in hours, not days, so a short hop is over in an afternoon rather
 // than eating a full day off the calendar — only genuinely long treks (many hours)
 // advance the date or cost more than the minimum 1 Food. Both derived from the same
 // ROAD_PACE/OFFROAD_PACE "miles per day" numbers, just read as hours instead of days.
 function hoursToDaysElapsed(hours){ return Math.floor(hours/HOURS_PER_DAY); }
-function hoursToFoodCost(hours){ return Math.max(1, Math.ceil((hours/HOURS_PER_DAY)*FOOD_PER_DAY)); }
+function hoursToFoodCost(hours){
+  const mult = hasPerk('field_rations') ? 0.9 : 1;
+  return Math.max(1, Math.ceil((hours/HOURS_PER_DAY)*FOOD_PER_DAY*mult));
+}
 
 function computeTravel(toId){
   const fromXY = getCurrentXY(), fromCell = getCurrentCell();
@@ -1814,7 +2142,7 @@ function showCampView(destId, destName, partialHours){
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
     }
-    if(Math.random() < NIGHT_AMBUSH_CHANCE){
+    if(Math.random() < NIGHT_AMBUSH_CHANCE * (hasPerk('sure_feet') ? 0.9 : 1)){
       triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();
@@ -1833,9 +2161,271 @@ function showCampView(destId, destName, partialHours){
   document.getElementById('location-view').classList.add('show');
 }
 
+// ===================== QUESTS =====================
+// See context/quests.md. Two sources, per design: the Quest Board (any settlement, minor
+// "Deliver a Message" offers, several at once) and a Notable Figure (City/Capital only, one
+// important "Kill Bandits" offer at a time, capped globally at one active regardless of type).
+// Offers aren't persisted — they're regenerated deterministically from burgId+gameDay (and an
+// offer index) via a seeded PRNG, so reopening the same panel the same day shows the same
+// offers without needing separate storage, the same way Work's cooldown reuses gameDay rather
+// than a real-world timer.
+function getQuests(){ try{ return JSON.parse(localStorage.getItem(QUEST_KEY)) || []; }catch(e){ return []; } }
+function saveQuests(quests){ localStorage.setItem(QUEST_KEY, JSON.stringify(quests)); }
+function getActiveQuests(){ return getQuests().filter(q => q.status === 'active'); }
+
+// mulberry32 — small, deterministic, good enough for flavor generation (not cryptographic).
+function seededRandom(seed){
+  let t = seed += 0x6D2B79F5;
+  t = Math.imul(t ^ t >>> 15, t | 1);
+  t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+function hashSeed(str){
+  let h = 0;
+  for(let i=0;i<str.length;i++){ h = Math.imul(31,h) + str.charCodeAt(i) | 0; }
+  return h >>> 0;
+}
+
+function questTitle(q){
+  if(q.type === 'deliver_message') return 'Deliver a Message';
+  if(q.type === 'deliver_cargo') return 'Deliver Cargo';
+  if(q.type === 'kill_bandits') return 'Deal with the Bandits';
+  if(q.type === 'kill_raiders') return 'Drive Off the Raiders';
+  return 'Quest';
+}
+function questDesc(q){
+  if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.`;
+  if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.`;
+  if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
+  if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
+  return '';
+}
+
+const BOARD_OFFERS_PER_DAY = 2;
+// Minor, board-sourced offers — regenerated fresh each call, filtered against what's already
+// active so accepting one doesn't leave a duplicate sitting on the board the same day. Each
+// slot is independently seeded as either a Deliver a Message or a heavier-paying Deliver Cargo
+// — both complete identically on arrival (see checkQuestTurnIns), only the flavor and reward
+// differ, per quests.md's "mostly a new offer-generator, not new architecture" pattern.
+function generateBoardOffers(burgId){
+  const active = getActiveQuests();
+  const burgIds = Object.keys(graph.burgs).filter(id => id !== burgId);
+  const offers = [];
+  for(let i=0;i<BOARD_OFFERS_PER_DAY;i++){
+    const targetId = burgIds[Math.floor(seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_t`)) * burgIds.length)];
+    const target = graph.burgs[targetId];
+    const isCargo = seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_type`)) < 0.5;
+    const type = isCargo ? 'deliver_cargo' : 'deliver_message';
+    const gold = (isCargo ? 15 : 10) + Math.floor(seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_g`)) * 16); // 15-30 cargo, 10-25 message
+    const xp = 8 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_x`)) * 13); // 8-20
+    const alreadyActive = active.some(q => q.type===type && q.giverBurgId===burgId && q.targetBurgId===targetId);
+    if(!alreadyActive){
+      offers.push({ offerId:`board_${burgId}_${gameDay}_${i}`, type, source:'board',
+        giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:targetId, targetName:target.name,
+        reward:{gold, xp} });
+    }
+  }
+  return offers;
+}
+
+// A recurring cast for the important, character-given quest — no portraits or dialogue yet,
+// just a name and a line, same spirit as the Inn's RUMOURS/Guard House's flavor lines. Each is
+// pinned to one real settlement (`homeBurgId`) rather than being randomly assigned per day —
+// they stay put, they don't roam between cities. All five sit in Good-alliance (human/dwarf)
+// territory to match their names/flavor: Bary and Yeone (human, Kingdom of Bary/Duchy of
+// Pendalbor) plus Stothers (human, Duchy of Skipia), Mosver and Sodoy (dwarf, Grand Duchy of
+// Mevia/Republic of Fjeland).
+const NOTABLE_FIGURES = [
+  { name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:"5" },
+  { name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:"3" },
+  { name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:"1" },
+  { name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:"24" },
+  { name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:"11" },
+];
+// Returns the figure whose home this is, or null if there's no figure here at all, or their
+// home has been captured by another race since — the "they disappear if their city falls"
+// rule the project owner asked for. Original race/state never changes (see
+// factions-and-territory.md), so comparing the home's *current* controller against its
+// original race is exactly the "still theirs" check.
+function getFigureForBurg(burgId){
+  const figure = NOTABLE_FIGURES.find(f => f.homeBurgId === burgId);
+  if(!figure) return null;
+  const home = graph.burgs[figure.homeBurgId];
+  if(!home || getController(figure.homeBurgId) !== home.race) return null;
+  return figure;
+}
+// Which task a figure offers reacts to real game state rather than being random: at peace,
+// Bandits are the region's actual problem; once the figure's home kingdom is at war (see
+// factions-and-territory.md), the real Goblin War threat takes over as the ask, with a bigger
+// reward reflecting the bigger danger. Same reactive-world spirit as Marketplace pricing and
+// pickAmbushEnemy already reacting to war state.
+function generateNotableFigureOffer(burgId){
+  const figure = getFigureForBurg(burgId);
+  if(!figure) return null;
+  const atWar = isAtWarAt(figure.homeBurgId);
+  const type = atWar ? 'kill_raiders' : 'kill_bandits';
+  const seed = hashSeed(`figure_${figure.name}_${gameDay}`);
+  const gold = (atWar ? 35 : 20) + Math.floor(seededRandom(seed+1) * (atWar ? 26 : 21)); // 35-60 raiders, 20-40 bandits
+  const xp = (atWar ? 25 : 18) + Math.floor(seededRandom(seed+2) * (atWar ? 21 : 13));   // 25-45 raiders, 18-30 bandits
+  return { figure, type, gold, xp };
+}
+
+// Both delivery types (Deliver a Message, Deliver Cargo) complete identically — the moment the
+// player reaches the quest's target settlement. Called at the top of showLocationView so it
+// fires on arrival, on re-entering, even after a Back from a sub-panel; harmless to call
+// repeatedly since a completed quest is removed immediately.
+const DELIVERY_QUEST_TYPES = ['deliver_message', 'deliver_cargo'];
+function checkQuestTurnIns(burgId){
+  const quests = getQuests();
+  const remaining = [];
+  let anyCompleted = false;
+  quests.forEach(q => {
+    if(q.status === 'active' && DELIVERY_QUEST_TYPES.includes(q.type) && q.targetBurgId === burgId){
+      setGold(playerGold + q.reward.gold);
+      const leveledUp = addXp(q.reward.xp);
+      const verb = q.type === 'deliver_cargo' ? 'Cargo delivered!' : 'Delivered!';
+      showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
+        + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+      anyCompleted = true;
+    } else {
+      remaining.push(q);
+    }
+  });
+  if(anyCompleted) saveQuests(remaining);
+}
+
+function showQuestBoardPanel(burgId){
+  const b = graph.burgs[burgId];
+  const active = getActiveQuests();
+  const offers = generateBoardOffers(burgId);
+
+  const activeHTML = active.length ? active.map(q => `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(q)}</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5;">${questDesc(q)}</div>
+      <div style="font-size:12px; color:#7fbf6a; font-weight:700; margin-top:8px;">${q.reward.gold}g &middot; ${q.reward.xp} XP</div>
+    </div>
+  `).join('') : `<div style="font-size:12.5px; color:#a9926a; font-style:italic; text-align:center; padding:6px 0 14px;">No quests in progress.</div>`;
+
+  const offersHTML = offers.length ? offers.map(o => `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(o)}</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${questDesc(o)}</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${o.reward.gold}g &middot; ${o.reward.xp} XP</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" data-offer="${o.offerId}">Accept</button>
+      </div>
+    </div>
+  `).join('') : `<div style="font-size:12.5px; color:#a9926a; font-style:italic; text-align:center; padding:6px 0;">Nothing posted today — check back tomorrow.</div>`;
+
+  const list = document.getElementById('loc-action-list');
+  list.innerHTML = `
+    <button class="loc-action" id="quest-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Your Active Quests</div>
+    ${activeHTML}
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">On the Board</div>
+    ${offersHTML}
+  `;
+  document.getElementById('quest-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+  list.querySelectorAll('[data-offer]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const offer = offers.find(o => o.offerId === btn.dataset.offer);
+      if(!offer) return;
+      const quests = getQuests();
+      quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type:offer.type, source:offer.source,
+        giverBurgId:offer.giverBurgId, giverName:offer.giverName, targetBurgId:offer.targetBurgId, targetName:offer.targetName,
+        reward:offer.reward, acceptedDay:gameDay, status:'active' });
+      saveQuests(quests);
+      showToast(`Accepted: ${questTitle(offer)} to ${offer.targetName}.`);
+      showQuestBoardPanel(burgId);
+    });
+  });
+}
+
+// Only reachable from a settlement that's home to one of NOTABLE_FIGURES (see
+// getFigureForBurg) — showLocationView only offers the action there in the first place. Still
+// defensive here: a settlement can change hands between opening the location view and tapping
+// this action (e.g. re-opening after a Back), so this re-checks rather than trusting the
+// caller. Capped at one active notable-figure quest globally (checked by `source`, not `type`,
+// so the cap still holds once a second important quest type exists) — these are meant to feel
+// like a real ask from a real person, not a stack of odd jobs.
+function showNotableFigurePanel(burgId){
+  const b = graph.burgs[burgId];
+  const list = document.getElementById('loc-action-list');
+  const figure = getFigureForBurg(burgId);
+  const activeFigureQuest = getActiveQuests().find(q => q.source === 'notable_figure');
+
+  let bodyHTML;
+  if(!figure){
+    bodyHTML = `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13px; color:#a9926a; font-style:italic;">
+        This place has changed hands. Whoever once sought your help here is gone.
+      </div>
+    `;
+  } else if(activeFigureQuest && activeFigureQuest.giverBurgId === burgId){
+    bodyHTML = `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(activeFigureQuest)}</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5;">${questDesc(activeFigureQuest)}</div>
+        <div style="font-size:12px; color:#7fbf6a; font-weight:700; margin-top:8px;">${activeFigureQuest.reward.gold}g &middot; ${activeFigureQuest.reward.xp} XP &mdash; paid out on your next ${activeFigureQuest.type === 'kill_raiders' ? 'goblin or ork kill' : 'bandit kill'}</div>
+      </div>
+    `;
+  } else if(activeFigureQuest){
+    bodyHTML = `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13px; color:#a9926a; line-height:1.5;">
+        You already have a task in progress for ${activeFigureQuest.giverName}. ${figure.name} has nothing more to ask of you right now.
+      </div>
+    `;
+  } else {
+    const { type, gold, xp } = generateNotableFigureOffer(burgId);
+    const ask = type === 'kill_raiders'
+      ? 'the goblin and ork raiders threatening the region — the war has reached these roads'
+      : 'the bandits plaguing the roads';
+    bodyHTML = `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${figure.name}</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${figure.title}, in ${b.name}, asks for your help dealing with ${ask}.</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${gold}g &middot; ${xp} XP</span>
+          <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="notable-accept-btn">Accept</button>
+        </div>
+      </div>
+    `;
+  }
+
+  list.innerHTML = `
+    <button class="loc-action" id="notable-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Notable Figure</div>
+    ${bodyHTML}
+  `;
+  document.getElementById('notable-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+  const acceptBtn = document.getElementById('notable-accept-btn');
+  if(acceptBtn){
+    acceptBtn.addEventListener('click', ()=>{
+      const offer = generateNotableFigureOffer(burgId);
+      if(!offer) { showNotableFigurePanel(burgId); return; } // home was captured between render and click
+      const { figure, type, gold, xp } = offer;
+      const quests = getQuests();
+      quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type, source:'notable_figure',
+        giverBurgId:burgId, giverName:figure.name, targetBurgId:null, targetName:null,
+        reward:{gold, xp}, acceptedDay:gameDay, status:'active' });
+      saveQuests(quests);
+      showToast(`${figure.name} is counting on you.`);
+      showNotableFigurePanel(burgId);
+    });
+  }
+}
+
 function showLocationView(burgId){
   const b = graph.burgs[burgId];
   if(!b) return;
+  checkQuestTurnIns(burgId);
   document.getElementById('loc-heading').textContent = b.name;
   const controller = getController(burgId);
   const controlNote = (controller !== b.race) ? ` · ${RACE_LABEL[controller]}-controlled` : '';
@@ -1850,12 +2440,20 @@ function showLocationView(burgId){
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market' },
     { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : "Take on odd jobs for a few hours' pay", action:'work', disabled:workedToday },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'stub' },
+    { icon:`<path d="M6 3h12v4H6z"/><path d="M9 7v14M9 9h6M9 12h6M9 15h4"/>`, title:"Quest Board", desc:"See what work needs doing", action:'questboard' },
   ];
-  // City/Capital settlements get extra actions on top of the base four, so a big
+  // City/Capital settlements get extra actions on top of the base five, so a big
   // settlement actually feels bigger rather than just carrying a fancier building icon.
   if(b.tier === 'city' || b.tier === 'capital'){
     actions.push({ icon:`<path d="M12 3l2.5 4.5H20l-4 4 1.5 5.5L12 14l-5.5 3 1.5-5.5-4-4h5.5z"/>`, title:"Temple", desc:"Seek a blessing", action:'temple' });
     actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/>`, title:"Guard House", desc:"Hear how the watch is holding the walls", action:'guardhouse' });
+    // Not every City/Capital gets this one — only the handful that are home to a
+    // NOTABLE_FIGURES entry, and only while that figure's home hasn't been captured
+    // (see getFigureForBurg). Most settlements simply won't show it, same as most
+    // settlements don't have a Palace.
+    if(getFigureForBurg(burgId)){
+      actions.push({ icon:`<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>`, title:"Notable Figure", desc:"Someone here wants a word", action:'notable_figure' });
+    }
   }
   if(b.tier === 'capital'){
     actions.push({ icon:`<path d="M4 21h16"/><path d="M5 21V9l3-3 4 3 4-3 3 3v12"/><path d="M12 21v-6"/>`, title:"The Palace", desc:"Learn of the ruling court", action:'palace' });
@@ -1872,9 +2470,15 @@ function showLocationView(burgId){
       if(btn.dataset.action === 'inn') showInnPanel(burgId);
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
+      else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
       else if(btn.dataset.action === 'guardhouse') showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId));
-      else if(btn.dataset.action === 'palace') showFlavorPanel(burgId, 'The Palace', PALACE_LINES);
+      else if(btn.dataset.action === 'palace'){
+        showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId));
+        const petitionBtn = document.getElementById('petition-accept-btn');
+        if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
+      }
+      else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else showToast("Not built yet — coming in a future update.");
     });
   });
@@ -1958,17 +2562,76 @@ function showFlavorPanel(burgId, title, lines, extraHTML){
 }
 
 // Guard House shows real numbers alongside its flavor line — local population and the
-// current controller's total mustered strength, both population-derived (see attemptRaid).
+// current controlling *kingdom's own* mustered strength (not its whole race — see
+// getArmyStrength), both population-derived (see attemptRaid).
 function buildGuardHouseStats(burgId){
-  const controller = getController(burgId);
+  const controllerKingdom = getControllerKingdom(burgId);
   const pop = getPopulation(burgId);
-  const army = getArmyStrength(controller);
+  const army = getArmyStrength(controllerKingdom);
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
-      <div style="display:flex; justify-content:space-between;"><span>${RACE_LABEL[controller]||'Unknown'} forces (kingdom-wide)</span><b>${formatPopulation(army)}</b></div>
+      <div style="display:flex; justify-content:space-between;"><span>${controllerKingdom || 'Unknown'} forces</span><b>${formatPopulation(army)}</b></div>
     </div>
   `;
+}
+
+// Petition for Troops — the player-facing trigger for alliance reinforcement (see
+// getArmyStrength/setReinforcement above). Only offered at a Capital that (a) still belongs to
+// its own original court (not captured — a captured capital has no court of its own left to
+// petition) and (b) is currently at peace, when (c) at least one allied kingdom (same
+// ALLIANCE, any race) is at war and could use the help. Picks whichever qualifying ally has
+// the *least* current reinforcement — so repeat petitions (at different Capitals, or the same
+// one after the last grant expires) spread help around rather than always favoring one ally.
+function findAllyNeedingReinforcement(kingdom){
+  const alliance = ALLIANCE[KINGDOM_RACE[kingdom]];
+  if(getWarState(kingdom) !== 'peace') return null; // can't spare troops while fighting your own war
+  const allies = ALL_KINGDOMS.filter(k => k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] === alliance && getWarState(k) === 'war');
+  if(!allies.length) return null;
+  allies.sort((a,b) => getReinforcementBonus(a) - getReinforcementBonus(b));
+  return allies[0];
+}
+// Regenerated fresh each call, seeded by kingdom+gameDay like the Quest Board/Notable Figure
+// offers — reopening the Palace the same day shows the same numbers, a new day rerolls them.
+function generatePetitionOffer(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  const ally = findAllyNeedingReinforcement(kingdom);
+  if(!ally) return null;
+  const seed = hashSeed(`petition_${kingdom}_${gameDay}`);
+  const gold = 20 + Math.floor(seededRandom(seed+1) * 21); // 20-40
+  const xp = 15 + Math.floor(seededRandom(seed+2) * 11);   // 15-25
+  return { kingdom, ally, gold, xp };
+}
+function buildPalacePetitionHTML(burgId){
+  const offer = generatePetitionOffer(burgId);
+  if(!offer) return '';
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Petition for Troops</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} stands at peace while ${offer.ally} fights on. Urge the court to send reinforcements.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${offer.gold}g &middot; ${offer.xp} XP</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="petition-accept-btn">Petition</button>
+      </div>
+    </div>
+  `;
+}
+// Resolves instantly — no travel or turn-in step, unlike Deliver/Kill quests. The trip to this
+// specific Capital already *is* the "go there" part; convincing the court is one conversation,
+// not a multi-stage task, so accepting immediately applies the reinforcement and pays out.
+function acceptPetition(burgId){
+  const offer = generatePetitionOffer(burgId);
+  if(!offer) { showLocationView(burgId); return; } // war/peace state shifted since the panel opened
+  setReinforcement(offer.ally, getArmyStrength(offer.kingdom) * REINFORCEMENT_FRACTION, offer.kingdom);
+  setGold(playerGold + offer.gold);
+  const leveledUp = addXp(offer.xp);
+  showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
+    + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId));
+  const petitionBtn = document.getElementById('petition-accept-btn');
+  if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
 }
 
 function showInnPanel(burgId){
@@ -2013,7 +2676,7 @@ function showMarketPanel(burgId){
       const sellPrice = getSellPrice(mi, burgId);
       const carried = getItem(mi.name);
       const affordableQty = buyPrice > 0 ? Math.floor(playerGold / buyPrice) : MAX_SLIDER_QTY;
-      const capacityQty = mi.weight > 0 ? Math.floor((CARRY_CAPACITY - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
+      const capacityQty = mi.weight > 0 ? Math.floor((getCarryCapacity() - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
       const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
       const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#d9a15a;">wartime demand</span>' : '';
       return `
@@ -2040,7 +2703,7 @@ function showMarketPanel(burgId){
       </button>
       <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0; font-size:13.5px; color:var(--parchment);">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${CARRY_CAPACITY}</b></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${getCarryCapacity()}</b></div>
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
       </div>
       ${itemRows}
@@ -2169,8 +2832,15 @@ function collectCharacterSnapshot(){
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    level: parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10),
+    xp: parseInt(localStorage.getItem(XP_KEY) || "0", 10),
+    skillPoints: parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10),
+    stats: localStorage.getItem(STATS_KEY) || JSON.stringify({str:0,agi:0,int:0}),
+    skills: localStorage.getItem(SKILLS_KEY) || "{}",
+    quests: localStorage.getItem(QUEST_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     warState: localStorage.getItem(WARSTATE_KEY) || "{}",
+    reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",
     lastWarTick: parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10),
     population: localStorage.getItem(POPULATION_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})

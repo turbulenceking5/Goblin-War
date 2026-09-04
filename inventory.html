@@ -135,6 +135,14 @@ const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const CARRY_CAPACITY = 40;
+const SKILLS_KEY = "goblinwar_skills";
+// Mirrors index.html's getCarryCapacity() — only Pack Mule affects capacity, so this doesn't
+// need the full PERKS table, just the one flag (duplicated per the no-modules convention).
+function getCarryCapacity(){
+  let unlocked = {};
+  try{ unlocked = JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){}
+  return CARRY_CAPACITY + (unlocked.pack_mule ? 10 : 0);
+}
 const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
 const SLOT_LABEL = { head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket" };
 // Mirrors index.html's MARKET_ITEMS slot/dmg/def data for the items that are actually
@@ -173,8 +181,9 @@ try{ items = JSON.parse(localStorage.getItem(INV_KEY) || "[]"); }catch(e){ items
 function render(){
   const carriedWeight = items.reduce((sum, it) => sum + (it.weight||0)*it.qty, 0);
   const weightCard = document.getElementById('weight-card');
-  document.getElementById('weight-value').textContent = `${carriedWeight} / ${CARRY_CAPACITY}`;
-  weightCard.classList.toggle('over', carriedWeight > CARRY_CAPACITY);
+  const capacity = getCarryCapacity();
+  document.getElementById('weight-value').textContent = `${carriedWeight} / ${capacity}`;
+  weightCard.classList.toggle('over', carriedWeight > capacity);
 
   const equipped = getEquipped();
   const list = document.getElementById('item-list');

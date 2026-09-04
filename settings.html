@@ -136,8 +136,15 @@ const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const TERRITORY_KEY = "goblinwar_territoryControl";
 const WARSTATE_KEY = "goblinwar_warState";
+const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
 const POPULATION_KEY = "goblinwar_population";
+const LEVEL_KEY = "goblinwar_level";
+const XP_KEY = "goblinwar_xp";
+const SKILLPOINTS_KEY = "goblinwar_skillPoints";
+const STATS_KEY = "goblinwar_stats";
+const SKILLS_KEY = "goblinwar_skills";
+const QUEST_KEY = "goblinwar_quests";
 const DEFAULT_INVENTORY = [
   { name:"Food", qty:10, weight:1, value:2 },
   { name:"Waterskin", qty:1, weight:2, value:3 },
@@ -200,8 +207,15 @@ function collectCharacterSnapshot(){
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    level: parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10),
+    xp: parseInt(localStorage.getItem(XP_KEY) || "0", 10),
+    skillPoints: parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10),
+    stats: localStorage.getItem(STATS_KEY) || JSON.stringify({str:0,agi:0,int:0}),
+    skills: localStorage.getItem(SKILLS_KEY) || "{}",
+    quests: localStorage.getItem(QUEST_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     warState: localStorage.getItem(WARSTATE_KEY) || "{}",
+    reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",
     lastWarTick: parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10),
     population: localStorage.getItem(POPULATION_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})

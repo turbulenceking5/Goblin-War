@@ -9,7 +9,7 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | File | Role |
 |---|---|
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
-| [character.html](character.html) | Hero sheet (HP/stamina/gold/food/weight/age/location) — mostly read-only, but Equipment can be unequipped from here. |
+| [character.html](character.html) | Hero sheet (HP/stamina/gold/food/weight/age/location) — mostly read-only, but Equipment can be unequipped and skill points spent on Strength/Agility/Intelligence from here (see [context/player-state.md](context/player-state.md)). |
 | [inventory.html](inventory.html) | Bag contents, gold, and carried weight — and where equippable items get equipped (see [context/player-state.md](context/player-state.md)). |
 | [party.html](party.html) | Stub — no companion system yet. |
 | [settings.html](settings.html) | The active character's current status, Save Now / Switch Character / Log Out, a Change Log menu item linking out to changelog.html, and Delete This Character. No local save slots anymore — see [context/characters.md](context/characters.md). |
@@ -37,6 +37,7 @@ Each covers one system in depth — read the relevant one before changing that p
 - [context/player-state.md](context/player-state.md) — health/stamina/food/weight/gold/age/inventory: the `localStorage` keys every page shares.
 - [context/combat.md](context/combat.md) — the turn-based bandit encounter system and how it's triggered.
 - [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Inn, Marketplace, etc.) and the camp screen.
+- [context/quests.md](context/quests.md) — the Quest Board (minor, board-sourced) and Notable Figure (important, character-given) quest systems, and how to add a new quest type.
 - [context/factions-and-territory.md](context/factions-and-territory.md) — the weekly faction AI tick, settlement conquest, and war-driven Marketplace pricing.
 - [context/accounts.md](context/accounts.md) — the mandatory login gate, login.html, and the shared `assets/auth-gate-sync.js`/`assets/auth-client.js` scripts.
 - [context/characters.md](context/characters.md) — one save per character, chosen at login: the `characters` table, characters.html, autosave in index.html, and Settings' Save Now/Switch Character/Delete This Character.

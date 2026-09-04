@@ -15,11 +15,18 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_gold` | Gold carried | `50` | index.html, character.html, inventory.html, settings.html |
 | `goblinwar_inventory` | JSON array of `{name, qty, weight}` | see `DEFAULT_INVENTORY` below | index.html, character.html, inventory.html, settings.html |
 | `goblinwar_equipped` | JSON object `{slot: itemName \| null}` | `{}` | index.html, character.html, inventory.html, settings.html |
+| `goblinwar_level` | Character level | `1` | index.html, character.html |
+| `goblinwar_xp` | XP progress toward the *next* level (not cumulative) | `0` | index.html, character.html |
+| `goblinwar_skillPoints` | Unspent skill points | `0` | index.html, character.html |
+| `goblinwar_stats` | JSON object `{str, agi, int}` | `{str:0,agi:0,int:0}` | index.html (persists only), character.html |
+| `goblinwar_skills` | JSON object `{skillId: true}` — unlocked perks/moves | `{}` | index.html (persists only) — nothing reads it yet, see below |
+| `goblinwar_quests` | JSON array of accepted quests | `[]` | index.html only — see [quests.md](quests.md) |
 | `goblinwar_currentBurg` | Burg id (string) of last-arrived settlement | `"5"` (Bary) | index.html, character.html, settings.html |
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |
-| `goblinwar_territoryControl` | JSON object `{burgId: race}` — sparse, only conquered settlements | `{}` | index.html only |
+| `goblinwar_territoryControl` | JSON object `{burgId: kingdomName}` — sparse, only conquered settlements (older saves may hold a bare race string instead — see [factions-and-territory.md](factions-and-territory.md)) | `{}` | index.html only |
 | `goblinwar_warState` | JSON object `{kingdomName: "war"\|"peace"}` — sparse, missing = peace | `{}` | index.html only |
+| `goblinwar_reinforcements` | JSON object `{kingdomName: {amount, expiresDay, fromKingdom}}` — sparse, a temporary strength bonus from a Palace petition | `{}` | index.html only — see [factions-and-territory.md](factions-and-territory.md) |
 | `goblinwar_lastWarTick` | `gameDay` the faction AI last ran | `0` | index.html only |
 | `goblinwar_population` | JSON object `{burgId: population}` — sparse, in thousands (Azgaar's unit); missing = `graph.burgs[id].population` | `{}` | index.html only |
 
@@ -59,6 +66,37 @@ index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARK
 
 **Where equipping happens:** inventory.html is the only place to *equip* something — every equippable item row gets an Equip/Unequip button that toggles `goblinwar_equipped[slot]` between that item's name and `null`. character.html's Equipment grid is read-only for equipping but supports *un*-equipping by tapping a filled slot (both pages re-render immediately after any change, no reload needed — see [secondary-pages.md](secondary-pages.md)). The Accessories grid (8 slots, character.html only) is a separate, still-entirely-cosmetic block — no accessory-type items exist yet, see [roadmap.md](roadmap.md).
 
+## Leveling & stats
+
+Core loop only, no mechanical effects wired in yet — see [roadmap.md](roadmap.md) for the full perks/special-attacks design this is a foundation for. `addXp(amount)` (index.html) is called from `endCombat('victory')` with a per-`ENEMY_VARIANTS`-variant `xpRange` roll (same pattern as `goldRange`, see [combat.md](combat.md)). `xpForLevel(level)` (`Math.round(40 * level^1.5)`) is the XP needed to clear the *current* level, not a cumulative total — `goblinwar_xp` resets (carrying any overshoot) on level-up, which can loop more than once if a single reward clears multiple thresholds. Each level-up grants 1 skill point and a flat `+8 maxHealth`/`+4 maxStamina` (current health/stamina rise by the same amount, not fully refilled), so leveling feels good before any point is spent.
+
+character.html is the only place to spend a skill point — either a "+" button next to Strength/Agility/Intelligence in `goblinwar_stats`, or an Unlock button on one of the 9 perks in `goblinwar_skills` (`{skillId: true}`), gated on that perk's stat threshold (see index.html's `PERKS` array, duplicated in character.html per the no-modules convention). Both cost 1 skill point; a perk can't be re-locked once unlocked. The perks' actual mechanical effects live entirely in index.html (`hasPerk(id)` checked wherever relevant):
+
+| Perk | Stat req | Effect | Where it's checked |
+|---|---|---|---|
+| Power Strike | Str 2 | +2 flat damage on attack | `getEquipDamageBonus()` |
+| Iron Skin | Str 2 | -1 flat damage taken | `getEquipDefenseBonus()` |
+| Pack Mule | Str 4 | +10 carry capacity | `getCarryCapacity()` (replaces the flat `CARRY_CAPACITY` constant everywhere it was read — index.html, character.html, inventory.html) |
+| Evasion | Agi 2 | 15% chance to fully dodge the enemy's counter-attack | `combatAttack()` |
+| Second Wind | Agi 2 | 25% chance an attack costs no stamina | `combatAttack()` |
+| Sure Feet | Agi 4 | -10% ambush chance (relative) | `rollAmbush()` and the camp's night-ambush roll |
+| Silver Tongue | Int 2 | -10% Marketplace buy prices | `getBuyPrice()` |
+| Scavenger | Int 2 | +20% gold from combat victories | `endCombat('victory')` |
+| Field Rations | Int 4 | -10% Food cost while traveling | `hoursToFoodCost()` |
+
+A skill point can also unlock an active special attack instead of a perk — same `goblinwar_skills` storage, same stat-threshold gating, but usable in combat rather than always-on. index.html's `MOVES` array is the source of truth; character.html's Special Attacks card (duplicated `MOVES`, per the no-modules convention) is the only place to unlock one. In combat, a "Specials" button (`#combat-special-btn`) toggles `#combat-specials-panel`, which lists whichever moves are unlocked; `combatSpecial(moveId)` (index.html) runs the effect. Each move costs more stamina than a plain Attack and is usable once per fight — tracked in `combat.usedMoves`, reset whenever `startCombat` runs:
+
+| Move | Stat req | Stamina cost | Effect |
+|---|---|---|---|
+| Crushing Blow | Str 2 | 35 | 2x damage, single hit |
+| Reckless Swing | Str 4 | 30 | 2.5x damage, but the enemy's counter that turn ignores both armor and Evasion |
+| Precise Shot | Agi 2 | 25 | Always rolls maximum damage instead of random (the game has no miss chance to guarantee against, so this is the meaningful equivalent) |
+| Adrenaline Rush | Agi 4 | 15 | A free extra attack this turn, no stamina cost |
+| War Cry | Int 2 | 20 | Cuts the enemy's damage 30% for the rest of the fight; deals no damage itself |
+| Cleave | Str 6 | 40 | Hits every enemy for 60% damage — written as a loop so it's ready for multi-enemy fights (see [roadmap.md](roadmap.md)), but today there's always exactly one enemy, so it plays like a single reduced-damage hit |
+
+This resolved the naming collision noted in an earlier pass of [roadmap.md](roadmap.md): the active move is called **Crushing Blow**, kept distinct from the passive **Power Strike** perk (+2 flat damage, always on) above.
+
 ## Initialization
 
 Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every key above (except `goblinwar_characterName`, which characters.html always sets before index.html can load at all — see [characters.md](characters.md)) with its default *if and only if that key doesn't already exist*. In practice this rarely does anything now, since characters.html's create/play flow already writes every one of these keys explicitly — it exists mainly as a defensive fallback for a key added after some characters already have a save that predates it, same reasoning as the old save-slot system's guarded loads used to have. character.html, inventory.html, and settings.html never write defaults — they read with a `|| "fallback"` inline instead (e.g. `localStorage.getItem(HEALTH_KEY) || "100"`), which means if you ever open one of those pages before index.html has run once, the fallback is only a *display* value — it never gets persisted.
@@ -67,7 +105,7 @@ Only index.html calls `initPlayerStateIfMissing()` on load, which seeds every ke
 
 `setHealth(v)`, `setStamina(v)`, and `setGold(v)` clamp to a valid range (`0..max` for health/stamina, `0..∞` for gold), persist to `localStorage`, and call `refreshPlayerStatUI()`. Inventory has its own pair instead of a single setter, because items are a list, not a scalar:
 
-- `addItem(name, qty, weightEach, valueEach)` — creates the stack (or adds to an existing one), *unless* doing so would push total carried weight over `CARRY_CAPACITY` (`40`), in which case it changes nothing and returns `false`. Every call site (currently just the Marketplace, see [locations-and-camp.md](locations-and-camp.md)) must check that return value. `valueEach` is stored on the item purely for display (see `value` above) — it plays no part in the weight check.
+- `addItem(name, qty, weightEach, valueEach)` — creates the stack (or adds to an existing one), *unless* doing so would push total carried weight over `getCarryCapacity()` (see "Carry weight" below), in which case it changes nothing and returns `false`. Every call site (currently just the Marketplace, see [locations-and-camp.md](locations-and-camp.md)) must check that return value. `valueEach` is stored on the item purely for display (see `value` above) — it plays no part in the weight check.
 - `consumeItem(name, qty)` — subtracts, clamped at 0, and drops the stack entirely once it hits empty. Used for Food during travel; nothing currently removes non-Food items.
 - `getItem(name)`, `getFoodQty()`, `getCarriedWeight()` — read-only helpers built on the same in-memory `playerInventory` array, which both mutators keep in sync with `localStorage` via `saveInventory()`.
 
@@ -85,7 +123,7 @@ Unlike the old stamina system, **resting does not refill Food** — the Inn and 
 
 ## Carry weight
 
-`CARRY_CAPACITY` (`40`) is a fixed constant, not a stat tied to anything else yet (no strength/character-build system exists — see [roadmap.md](roadmap.md)). `getCarriedWeight()` sums `weight * qty` across every item in the inventory array; `addItem` is the only enforcement point — buying more Food than you have room for fails with a toast rather than partially succeeding. There's no weight penalty to travel speed or anything else — exceeding capacity currently can't happen at all, since the only way to add weight (buying Food) is blocked at the limit.
+`CARRY_CAPACITY` (`40`) is the base value; `getCarryCapacity()` adds +10 on top of it if the Pack Mule perk is unlocked (see "Leveling & stats" above) — every read site (index.html's `addItem` check and Marketplace display, plus character.html's and inventory.html's own weight displays, each with their own duplicated copy of the function) goes through `getCarryCapacity()`, never the raw constant. `getCarriedWeight()` sums `weight * qty` across every item in the inventory array; `addItem` is the only enforcement point — buying more Food than you have room for fails with a toast rather than partially succeeding. There's no weight penalty to travel speed or anything else — exceeding capacity currently can't happen at all, since the only way to add weight (buying Food) is blocked at the limit.
 
 ## Stamina: a combat-only resource
 

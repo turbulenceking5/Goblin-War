@@ -119,6 +119,13 @@ function dateStr(dayCount){
 let burgNames = {}; // id -> name, for display only
 function locationName(burgId){ return burgNames[burgId] || `Location #${burgId}`; }
 
+// Character names are free-text the player chose themselves (see confirm-create-btn below) and
+// get rendered into innerHTML in loadCharacters() — escape before interpolating so a name like
+// "<img src=x onerror=...>" can't run script against the player's own account.
+function escapeHTML(str){
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 // A brand-new character's starting snapshot — same shape collectLiveState()/
 // applyLoadedState() in index.html and settings.html use, just built from scratch instead
 // of read off live localStorage keys. Matches initPlayerStateIfMissing()'s defaults in
@@ -142,37 +149,45 @@ function freshCharacterData(name){
   };
 }
 
-// Writes a character snapshot onto the live goblinwar_* keys index.html and friends read —
-// same field set and same defensive `if(defined)` guards as settings.html's applyLoadedState.
+// Writes a character snapshot onto the live goblinwar_* keys index.html and friends read.
+// Merged onto freshCharacterData(data.name) first, rather than conditionally patching whatever
+// currently sits in localStorage — a save made before some mechanic existed (e.g. an old
+// character predating Hunger/Thirst or the war-relations system) simply lacks that field in its
+// own `data`, and without this reset it would silently keep whatever the *previously active*
+// character on this device left behind instead of falling back to a sane default. This was a
+// real cross-character bleed bug: switching from a character with, say, sieges underway to an
+// older character with no `sieges` field at all left that same siege data active for the second
+// character too.
 function applyCharacterData(data){
-  localStorage.setItem("goblinwar_characterName", data.name || "Unnamed Hero");
-  localStorage.setItem("goblinwar_currentBurg", data.burgId);
-  localStorage.setItem("goblinwar_gameDay", String(data.day));
-  localStorage.setItem("goblinwar_heading", String(data.heading));
-  if(data.health!==undefined) localStorage.setItem("goblinwar_health", String(data.health));
-  if(data.maxHealth!==undefined) localStorage.setItem("goblinwar_maxHealth", String(data.maxHealth));
-  if(data.stamina!==undefined) localStorage.setItem("goblinwar_stamina", String(data.stamina));
-  if(data.maxStamina!==undefined) localStorage.setItem("goblinwar_maxStamina", String(data.maxStamina));
-  if(data.hunger!==undefined) localStorage.setItem("goblinwar_hunger", String(data.hunger));
-  if(data.thirst!==undefined) localStorage.setItem("goblinwar_thirst", String(data.thirst));
-  if(data.age!==undefined) localStorage.setItem("goblinwar_age", String(data.age));
-  if(data.gold!==undefined) localStorage.setItem("goblinwar_gold", String(data.gold));
-  if(data.inventory) localStorage.setItem("goblinwar_inventory", data.inventory);
-  if(data.equipped) localStorage.setItem("goblinwar_equipped", data.equipped);
-  if(data.level!==undefined) localStorage.setItem("goblinwar_level", String(data.level));
-  if(data.xp!==undefined) localStorage.setItem("goblinwar_xp", String(data.xp));
-  if(data.skillPoints!==undefined) localStorage.setItem("goblinwar_skillPoints", String(data.skillPoints));
-  if(data.stats) localStorage.setItem("goblinwar_stats", data.stats);
-  if(data.skills) localStorage.setItem("goblinwar_skills", data.skills);
-  if(data.quests) localStorage.setItem("goblinwar_quests", data.quests);
-  if(data.territoryControl) localStorage.setItem("goblinwar_territoryControl", data.territoryControl);
-  if(data.relations) localStorage.setItem("goblinwar_relations", data.relations);
-  if(data.reinforcements) localStorage.setItem("goblinwar_reinforcements", data.reinforcements);
-  if(data.lastWarTick!==undefined) localStorage.setItem("goblinwar_lastWarTick", String(data.lastWarTick));
-  if(data.population) localStorage.setItem("goblinwar_population", data.population);
-  if(data.sieges) localStorage.setItem("goblinwar_sieges", data.sieges);
-  if(data.refugeeArrivals) localStorage.setItem("goblinwar_refugeeArrivals", data.refugeeArrivals);
-  if(data.siegeDefenseCooldowns) localStorage.setItem("goblinwar_siegeDefenseCooldowns", data.siegeDefenseCooldowns);
+  const merged = Object.assign(freshCharacterData(data.name || "Unnamed Hero"), data);
+  localStorage.setItem("goblinwar_characterName", merged.name);
+  localStorage.setItem("goblinwar_currentBurg", merged.burgId);
+  localStorage.setItem("goblinwar_gameDay", String(merged.day));
+  localStorage.setItem("goblinwar_heading", String(merged.heading));
+  localStorage.setItem("goblinwar_health", String(merged.health));
+  localStorage.setItem("goblinwar_maxHealth", String(merged.maxHealth));
+  localStorage.setItem("goblinwar_stamina", String(merged.stamina));
+  localStorage.setItem("goblinwar_maxStamina", String(merged.maxStamina));
+  localStorage.setItem("goblinwar_hunger", String(merged.hunger));
+  localStorage.setItem("goblinwar_thirst", String(merged.thirst));
+  localStorage.setItem("goblinwar_age", String(merged.age));
+  localStorage.setItem("goblinwar_gold", String(merged.gold));
+  localStorage.setItem("goblinwar_inventory", merged.inventory);
+  localStorage.setItem("goblinwar_equipped", merged.equipped);
+  localStorage.setItem("goblinwar_level", String(merged.level));
+  localStorage.setItem("goblinwar_xp", String(merged.xp));
+  localStorage.setItem("goblinwar_skillPoints", String(merged.skillPoints));
+  localStorage.setItem("goblinwar_stats", merged.stats);
+  localStorage.setItem("goblinwar_skills", merged.skills);
+  localStorage.setItem("goblinwar_quests", merged.quests);
+  localStorage.setItem("goblinwar_territoryControl", merged.territoryControl);
+  localStorage.setItem("goblinwar_relations", merged.relations);
+  localStorage.setItem("goblinwar_reinforcements", merged.reinforcements);
+  localStorage.setItem("goblinwar_lastWarTick", String(merged.lastWarTick));
+  localStorage.setItem("goblinwar_population", merged.population);
+  localStorage.setItem("goblinwar_sieges", merged.sieges);
+  localStorage.setItem("goblinwar_refugeeArrivals", merged.refugeeArrivals);
+  localStorage.setItem("goblinwar_siegeDefenseCooldowns", merged.siegeDefenseCooldowns);
 }
 
 function targetPage(){
@@ -234,7 +249,7 @@ async function loadCharacters(){
     const hp = (d.health!==undefined) ? `${d.health}/${d.maxHealth||100} HP &middot; ` : '';
     return `
       <div class="char-card" data-id="${row.id}">
-        <div class="char-name">${row.name}</div>
+        <div class="char-name">${escapeHTML(row.name)}</div>
         <div class="char-summary">${hp}${locationName(d.burgId)} &middot; ${dateStr(d.day||0)}</div>
         <div class="char-actions">
           <button class="btn-danger" data-delete="${row.id}">Delete</button>

@@ -179,12 +179,14 @@ const CAL_KEY = "goblinwar_gameDay";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 const FOOD_NAME = "Food";
 const CARRY_CAPACITY = 40;
-// Mirrors index.html's getCarryCapacity() — only Pack Mule affects capacity (duplicated per
-// the no-modules convention).
+const SKILLS_KEY = "goblinwar_skills";
+// Mirrors index.html's getCarryCapacity()/getEquipDamageBonus()/getEquipDefenseBonus() — only
+// Pack Mule/Power Strike/Iron Skin matter here, so this doesn't need the full PERKS table, just
+// those three flags (duplicated per the no-modules convention).
+function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
+function hasPerk(id){ return !!getUnlockedSkills()[id]; }
 function getCarryCapacity(){
-  let unlocked = {};
-  try{ unlocked = JSON.parse(localStorage.getItem("goblinwar_skills")) || {}; }catch(e){}
-  return CARRY_CAPACITY + (unlocked.pack_mule ? 10 : 0);
+  return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0);
 }
 const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
 const SLOT_LABEL = { head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket" };
@@ -235,8 +237,11 @@ function renderEquipment(){
       renderEquipment();
     });
   });
-  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0);
-  const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0);
+  // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
+  // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/
+  // getEquipDefenseBonus), which is exactly what this line is meant to preview.
+  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
+  const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
   document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
     ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`
     : `No combat bonus equipped yet — equip gear from the Inventory screen.`;

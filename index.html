@@ -1413,7 +1413,7 @@ const PERKS = [
   { id:"sure_feet",     name:"Sure Feet",     stat:"agi", req:4, desc:"-10% ambush chance while traveling or camping." },
   { id:"silver_tongue", name:"Silver Tongue", stat:"int", req:2, desc:"-10% Marketplace buy prices." },
   { id:"scavenger",     name:"Scavenger",     stat:"int", req:2, desc:"+20% gold from combat victories." },
-  { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Food cost while traveling." },
+  { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Hunger/Thirst gained while traveling or waiting." },
 ];
 function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
 function hasPerk(id){ return !!getUnlockedSkills()[id]; }

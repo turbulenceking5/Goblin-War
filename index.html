@@ -63,7 +63,8 @@
     font-family:'Cinzel', serif; font-size:13px; color:var(--parchment);
   }
   .stat-pill svg{ width:14px; height:14px; color:var(--gold-lt); flex:none; }
-  .stat-pill.food-pill svg{ color:#c9924a; }
+  .stat-pill.hunger-pill svg{ color:#c9924a; }
+  .stat-pill.thirst-pill svg{ color:#5bb0c7; }
   .stat-pill.stamina-pill svg{ color:#5b8fc7; }
   .stat-pill:first-child svg{ color:#c0524f; }
   .zbtn{
@@ -396,7 +397,8 @@
     <div id="player-stats">
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
       <span class="stat-pill stamina-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg><b id="stat-stamina">100/100</b></span>
-      <span class="stat-pill food-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg><b id="stat-food">10</b></span>
+      <span class="stat-pill hunger-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg><b id="stat-hunger">0</b></span>
+      <span class="stat-pill thirst-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13z"/></svg><b id="stat-thirst">0</b></span>
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
     <div id="zoom-controls">
@@ -724,6 +726,11 @@ const CHANGELOG = [
   ]},
   { id:19, date:"2026-09-04", changes:[
     "Talk to Townsfolk is now a real action — settlement gossip that reacts to whether the place is at war, its size, and whether it's changed hands recently."
+  ]},
+  { id:20, date:"2026-09-05", changes:[
+    "Food and Waterskin now relieve new Hunger and Thirst meters instead of a per-trip Food cost — Eat and Drink from your Bag, and keep an eye on both, since fighting raises them and letting either run out too long will start costing you Health.",
+    "Added The Pub to cities and some towns — buy a Meal & Drink to fully satisfy Hunger and Thirst in one go.",
+    "Bedroll is now a pricier Marketplace purchase, but carrying one now also leaves you extra rested after sleeping, on top of its existing safer-camping effect."
   ]},
 ];
 
@@ -1316,6 +1323,8 @@ const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
 const STAMINA_KEY = "goblinwar_stamina";
 const MAXSTAMINA_KEY = "goblinwar_maxStamina";
+const HUNGER_KEY = "goblinwar_hunger";
+const THIRST_KEY = "goblinwar_thirst";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -1332,18 +1341,19 @@ const CARRY_CAPACITY = 40; // total weight (qty * weight-per-unit, summed across
 const DEFAULT_INVENTORY = [
   { name:FOOD_NAME, qty:10, weight:FOOD_WEIGHT, value:FOOD_PRICE },
   { name:"Waterskin", qty:1, weight:2, value:3 },
-  { name:"Bedroll", qty:1, weight:3, value:5 },
+  { name:"Bedroll", qty:1, weight:3, value:45 }, // matches MARKET_ITEMS' price now that it's an expensive, real purchase
 ];
 // Everything the Marketplace stocks beyond Food (see showMarketPanel). Items with a `slot`
 // are equippable (see EQUIP_SLOTS below) and carry a combat `dmg`/`def` bonus applied while
 // equipped — see getEquipDamageBonus()/getEquipDefenseBonus() near the combat code. Non-slot
-// items (Healing Potion, Books, Firewood) just sit in the bag. Waterskin is the one exception —
-// it's a real consumable now (see inventory.html's Drink button/WATERSKIN_STAMINA_RESTORE) so
-// it's stocked here to be re-buyable once the starting one's used up. Bedroll is deliberately
-// NOT stocked here — it's a passive possession (see NIGHT_AMBUSH_CHANCE below), never consumed,
-// so there's nothing to ever need to rebuy.
+// items (Healing Potion, Books, Firewood) just sit in the bag. Food and Waterskin are real
+// consumables (see inventory.html's Eat/Drink buttons) fighting Hunger/Thirst respectively — see
+// the HUNGER & THIRST section below — so they're stocked here to stay re-buyable. Bedroll is
+// priced well above everything else here, per the project owner: it's a one-time purchase (never
+// consumed, see BEDROLL_AMBUSH_MULT/BEDROLL_STAMINA_BONUS below) that pays for itself over a
+// long enough game, rather than an ongoing cost like Food/Waterskin.
 const MARKET_ITEMS = [
-  { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Keeps you fed on the road" },
+  { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Eat to ease your hunger" },
   { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4 },
   { name:"Shield", price:25, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3 },
   { name:"Leather Cap", price:8, weight:1, desc:"Simple boiled-leather headgear", slot:"head", def:1 },
@@ -1353,7 +1363,8 @@ const MARKET_ITEMS = [
   { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
   { name:"Books", price:7, weight:2, desc:"Lore and local history" },
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
-  { name:"Waterskin", price:8, weight:2, desc:"A quick drink to steady your legs mid-journey" },
+  { name:"Waterskin", price:8, weight:2, desc:"Drink to ease your thirst" },
+  { name:"Bedroll", price:45, weight:3, desc:"Quality bedding — safer camping, and a little extra rest" },
 ];
 // name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
 const ITEM_STATS = {};
@@ -1425,6 +1436,8 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(SIEGE_KEY) === null) localStorage.setItem(SIEGE_KEY, JSON.stringify({}));
   if(localStorage.getItem(REFUGEE_ARRIVAL_KEY) === null) localStorage.setItem(REFUGEE_ARRIVAL_KEY, JSON.stringify({}));
   if(localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) === null) localStorage.setItem(SIEGE_DEFENSE_COOLDOWN_KEY, JSON.stringify({}));
+  if(localStorage.getItem(HUNGER_KEY) === null) localStorage.setItem(HUNGER_KEY, "0");
+  if(localStorage.getItem(THIRST_KEY) === null) localStorage.setItem(THIRST_KEY, "0");
 }
 initPlayerStateIfMissing();
 
@@ -1432,6 +1445,8 @@ let playerHealth = parseInt(localStorage.getItem(HEALTH_KEY), 10);
 let playerMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY), 10);
 let playerStamina = parseInt(localStorage.getItem(STAMINA_KEY), 10);
 let playerMaxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY), 10);
+let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY), 10);
+let playerThirst = parseInt(localStorage.getItem(THIRST_KEY), 10);
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
 let playerLevel = parseInt(localStorage.getItem(LEVEL_KEY), 10);
 let playerXp = parseInt(localStorage.getItem(XP_KEY), 10);
@@ -1478,6 +1493,19 @@ function setStamina(v){
   localStorage.setItem(STAMINA_KEY, String(playerStamina));
   refreshPlayerStatUI();
 }
+// Shared by the Inn's "Rest for the Night" and Camp's "Rest"/finishRest — both always fully
+// restore Health, and Stamina too, or a bit more than full when a Bedroll is carried (see
+// BEDROLL_STAMINA_BONUS). Deliberately bypasses setStamina's own clamp for this one write, so
+// the bonus genuinely shows as playerStamina > playerMaxStamina right after resting rather than
+// being immediately clipped back down — it then erodes back toward normal as Stamina is spent in
+// combat via the usual setStamina(playerStamina - cost) calls, which never raise the value.
+function restFully(){
+  setHealth(playerMaxHealth);
+  const bonus = getItem('Bedroll') ? BEDROLL_STAMINA_BONUS : 0;
+  playerStamina = playerMaxStamina + bonus;
+  localStorage.setItem(STAMINA_KEY, String(playerStamina));
+  refreshPlayerStatUI();
+}
 function setGold(v){
   playerGold = Math.max(0, v);
   localStorage.setItem(GOLD_KEY, String(playerGold));
@@ -1516,11 +1544,13 @@ function addXp(amount){
 function refreshPlayerStatUI(){
   const hp = document.getElementById('stat-hp');
   const sp = document.getElementById('stat-stamina');
-  const fp = document.getElementById('stat-food');
+  const hup = document.getElementById('stat-hunger');
+  const tp = document.getElementById('stat-thirst');
   const gp = document.getElementById('stat-gold');
   if(hp) hp.textContent = `${playerHealth}/${playerMaxHealth}`;
   if(sp) sp.textContent = `${playerStamina}/${playerMaxStamina}`;
-  if(fp) fp.textContent = getFoodQty();
+  if(hup) hup.textContent = playerHunger;
+  if(tp) tp.textContent = playerThirst;
   if(gp) gp.textContent = playerGold;
 }
 // ===================== COMBAT (minimal turn-based, 1-3 enemies) =====================
@@ -1850,6 +1880,10 @@ function endCombat(result){
   // lands could re-trigger endCombat('victory') again before every enemy's hp<=0 stopped
   // aliveEnemies().length===0 from re-passing, stacking duplicate gold rewards and onEnd calls.
   combat = null;
+  // Fighting works up a real appetite and thirst regardless of how it ends — victory, defeat,
+  // or fleeing are all real exertion, per the project owner.
+  addHunger(COMBAT_HUNGER_GAIN);
+  addThirst(COMBAT_THIRST_GAIN);
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
     if(result === 'victory'){
@@ -2067,42 +2101,89 @@ function getCurrentCell(){ return campPos ? campPos.cell : graph.burgs[currentBu
 function getCurrentXY(){ return campPos ? {x:campPos.x, y:campPos.y} : {x:graph.burgs[currentBurg].x, y:graph.burgs[currentBurg].y}; }
 function getCurrentDisplayName(){ return campPos ? `the road near ${campPos.name}` : graph.burgs[currentBurg].name; }
 
-const FOOD_PER_DAY = 1;
 const HOURS_PER_DAY = 24;
 const AMBUSH_CHANCE_PER_DAY = 0.12; // chance per day of travel that bandits ambush the road
 const NIGHT_AMBUSH_CHANCE = 0.15;   // chance bandits strike an exposed camp overnight
 // A carried Bedroll is never consumed — real shelter isn't used up by sleeping in it once — it's
-// a passive possession that makes camping itself safer, same "stacks with the perk" treatment as
-// hasPerk('sure_feet') gets below. There's no headroom to improve *what* camping restores (rest
-// already fully heals Health/Stamina every time, see camp-rest-btn's finishRest below), so this
-// is the one lever a Bedroll can meaningfully pull.
-const BEDROLL_AMBUSH_MULT = 0.85;   // 15% safer camping while a Bedroll is carried
+// a passive possession with two effects: camping itself is safer (stacks with hasPerk('sure_feet')
+// below), and resting with one leaves the player a little *more* than fully rested — see
+// BEDROLL_STAMINA_BONUS and restFully() below.
+const BEDROLL_AMBUSH_MULT = 0.85;    // 15% safer camping while a Bedroll is carried
+const BEDROLL_STAMINA_BONUS = 15;    // resting with a Bedroll fills Stamina to max+this, not just max
 function rollAmbush(hours){
   const days = hours/HOURS_PER_DAY;
   const chancePerDay = AMBUSH_CHANCE_PER_DAY * (hasPerk('sure_feet') ? 0.9 : 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
-// Trips are timed in hours, not days, so a short hop is over in an afternoon rather
-// than eating a full day off the calendar — only genuinely long treks (many hours)
-// advance the date or cost more than the minimum 1 Food. Both derived from the same
-// ROAD_PACE/OFFROAD_PACE "miles per day" numbers, just read as hours instead of days.
+// Trips are timed in hours, not days, so a short hop is over in an afternoon rather than
+// eating a full day off the calendar — only genuinely long treks (many hours) advance the date.
+// Derived from the same ROAD_PACE/OFFROAD_PACE "miles per day" numbers, just read as hours
+// instead of days.
 function hoursToDaysElapsed(hours){ return Math.floor(hours/HOURS_PER_DAY); }
-function hoursToFoodCost(hours){
+
+// ===================== HUNGER & THIRST =====================
+// Replaces the old "Food is silently spent per trip" model. Travel, waiting, and combat all
+// raise these two 0-100 meters instead of consuming Food/Waterskin items directly — the player
+// has to proactively eat/drink (see inventory.html's Eat/Drink buttons) to bring them back down.
+// Letting either one max out doesn't just sit there looking bad: any amount that would push a
+// meter past 100 becomes real Health damage instead (see addHunger/addThirst below), floored so
+// starvation alone can never be fatal on its own — combat is still the only way to actually
+// reach 0 HP. Per the project owner: Food and Waterskin no longer restore Stamina at all: their
+// only job now is fighting Hunger/Thirst. HUNGER_KEY/THIRST_KEY and playerHunger/playerThirst
+// themselves live up near playerHealth/playerStamina (initPlayerStateIfMissing needs them
+// before this point in the file executes) — just the rest of the mechanic lives here.
+const HUNGER_PER_DAY = 20;   // hunger gained per full day of travel/waiting
+const THIRST_PER_DAY = 25;   // thirst gained per full day — rises faster than hunger
+const COMBAT_HUNGER_GAIN = 8;    // flat bump per fight, any outcome — exertion either way
+const COMBAT_THIRST_GAIN = 10;
+const HUNGER_OVERFLOW_HEALTH_MULT = 0.5; // Health lost per point of hunger that would exceed 100
+const THIRST_OVERFLOW_HEALTH_MULT = 0.8; // thirst overflow hurts more — dehydration is more urgent
+const STARVATION_HEALTH_FLOOR = 1;       // hunger/thirst overflow alone can never drop you below this
+// hasPerk('field_rations') used to cut travel's Food cost 10% (see roadmap.md's Skills &
+// Progression section) — now that travel raises Hunger/Thirst instead of spending Food
+// directly, its discount carries over to these instead, its natural equivalent.
+function hoursToHungerGain(hours){
   const mult = hasPerk('field_rations') ? 0.9 : 1;
-  return Math.max(1, Math.ceil((hours/HOURS_PER_DAY)*FOOD_PER_DAY*mult));
+  return Math.max(2, Math.round((hours/HOURS_PER_DAY)*HUNGER_PER_DAY*mult));
+}
+function hoursToThirstGain(hours){
+  const mult = hasPerk('field_rations') ? 0.9 : 1;
+  return Math.max(2, Math.round((hours/HOURS_PER_DAY)*THIRST_PER_DAY*mult));
+}
+
+// Shared by both meters: clamps to [0,100], persists, and — only when amount is positive and
+// pushes the raw total past 100 — converts the excess into Health damage rather than just
+// clipping it away. A negative amount (eating/drinking) never triggers this, since raw-100 is
+// negative whenever the meter isn't already maxed.
+function addHunger(amount){
+  const raw = playerHunger + amount;
+  playerHunger = Math.max(0, Math.min(100, raw));
+  localStorage.setItem(HUNGER_KEY, String(playerHunger));
+  const overflow = raw - 100;
+  if(overflow > 0) setHealth(Math.max(STARVATION_HEALTH_FLOOR, playerHealth - Math.round(overflow * HUNGER_OVERFLOW_HEALTH_MULT)));
+  refreshPlayerStatUI();
+}
+function addThirst(amount){
+  const raw = playerThirst + amount;
+  playerThirst = Math.max(0, Math.min(100, raw));
+  localStorage.setItem(THIRST_KEY, String(playerThirst));
+  const overflow = raw - 100;
+  if(overflow > 0) setHealth(Math.max(STARVATION_HEALTH_FLOOR, playerHealth - Math.round(overflow * THIRST_OVERFLOW_HEALTH_MULT)));
+  refreshPlayerStatUI();
 }
 
 // "Wait here" — lets the player pass time at their current location, via Play/Pause/3x
 // controls (bottom-left, alongside Find Me/Make Camp), without needing to travel anywhere.
 // Deliberately a *safe* fast-forward, per the project owner: unlike travel or camping, it never
 // rolls an ambush and never runs the weekly faction AI tick — advanceCalendarQuietly (below) is
-// advanceDays() without that side effect. It does still cost Food, at the exact same effective
-// rate travel does (hoursToFoodCost), just accrued incrementally in real time instead of as one
-// lump sum, and only ever debited for the *new* hours crossed since the last tick so it can't
-// double-charge.
+// advanceDays() without that side effect. It does still raise Hunger/Thirst at the exact same
+// effective rate travel does, just accrued incrementally in real time instead of as one lump
+// sum, and only ever applied for the *new* hours crossed since the last tick so it can't
+// double-apply. No affordability gate — unlike the old Food system, there's nothing stopping the
+// player from waiting indefinitely; ignoring the meters just costs Health via addHunger/addThirst.
 const WAIT_HOURS_PER_TICK = 2; // in-game hours advanced per real-time tick, at 1x
 const WAIT_TICK_MS = 1000;
-let waitState = null; // {speed, totalHours, foodDeducted, daysAdvanced, intervalId}
+let waitState = null; // {speed, totalHours, hungerApplied, thirstApplied, daysAdvanced, intervalId}
 
 function advanceCalendarQuietly(days){
   if(days <= 0) return;
@@ -2120,23 +2201,18 @@ function updateWaitUI(){
   if(playBtn) playBtn.classList.toggle('active', active);
   if(pauseBtn) pauseBtn.disabled = !active;
   if(speedBtn) speedBtn.classList.toggle('active', active && waitState.speed === 3);
-  if(status) status.textContent = active ? `Waiting… ${getFoodQty()} food` : 'Wait here';
+  if(status) status.textContent = active ? `Waiting… H${playerHunger} T${playerThirst}` : 'Wait here';
 }
 
 function waitTick(){
   if(!waitState) return;
   waitState.totalHours += WAIT_HOURS_PER_TICK * (waitState.speed === 3 ? 3 : 1);
-  const costSoFar = hoursToFoodCost(waitState.totalHours);
-  const newCost = costSoFar - waitState.foodDeducted;
-  if(newCost > 0){
-    if(newCost > getFoodQty()){
-      showToast("You've run out of food and must stop waiting.");
-      stopWaiting();
-      return;
-    }
-    consumeItem(FOOD_NAME, newCost);
-    waitState.foodDeducted = costSoFar;
-  }
+  const hungerSoFar = hoursToHungerGain(waitState.totalHours);
+  const thirstSoFar = hoursToThirstGain(waitState.totalHours);
+  const newHunger = hungerSoFar - waitState.hungerApplied;
+  const newThirst = thirstSoFar - waitState.thirstApplied;
+  if(newHunger > 0){ addHunger(newHunger); waitState.hungerApplied = hungerSoFar; }
+  if(newThirst > 0){ addThirst(newThirst); waitState.thirstApplied = thirstSoFar; }
   const daysSoFar = hoursToDaysElapsed(waitState.totalHours);
   if(daysSoFar > waitState.daysAdvanced){
     advanceCalendarQuietly(daysSoFar - waitState.daysAdvanced);
@@ -2147,7 +2223,7 @@ function waitTick(){
 
 function startWaiting(){
   if(waitState || activeTravel) return;
-  waitState = { speed: 1, totalHours: 0, foodDeducted: 0, daysAdvanced: 0, intervalId: null };
+  waitState = { speed: 1, totalHours: 0, hungerApplied: 0, thirstApplied: 0, daysAdvanced: 0, intervalId: null };
   waitState.intervalId = setInterval(waitTick, WAIT_TICK_MS);
   updateWaitUI();
 }
@@ -2178,13 +2254,13 @@ function computeTravel(toId){
     const miles = Math.round(route.miles / DISTANCE_SCALE);
     const hours = Math.max(1, Math.ceil(miles/ROAD_PACE));
     const bySea = route.edges.some(s=>s.edge.kind==='sea');
-    return { miles, hours, foodCost: hoursToFoodCost(hours), edges: route.edges, viaRoad:true, bySea };
+    return { miles, hours, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours), edges: route.edges, viaRoad:true, bySea };
   }
   // No route connects them at all (very rare now) — still travelable, just slower.
   const straight = (Math.hypot(fromXY.x-toBurg.x, fromXY.y-toBurg.y) * 3) / DISTANCE_SCALE;
   const miles = Math.round(straight);
   const hours = Math.max(1, Math.ceil(miles/OFFROAD_PACE));
-  return { miles, hours, foodCost: hoursToFoodCost(hours), edges:null, viaRoad:false, bySea:false };
+  return { miles, hours, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours), edges:null, viaRoad:false, bySea:false };
 }
 function formatDuration(hours){
   if(hours < HOURS_PER_DAY) return `${hours} hour${hours===1?'':'s'}`;
@@ -2465,19 +2541,14 @@ function onMapTap(burgId){
     if(!t){
       travelDiv.textContent = "Distance unknown.";
       travelBtn.style.display = 'none';
-    } else if(t.foodCost > getFoodQty()){
-      const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
-      travelDiv.innerHTML = (t.viaRoad
-        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`
-        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`)
-        + `<br><span style="color:#e2857f;">Not enough food to make it there (need ${t.foodCost}, have ${getFoodQty()}). Buy more at a Marketplace first.</span>`;
-      travelBtn.style.display = 'none';
-      if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
     } else {
+      // No affordability gate anymore — travel is never blocked by Food/Waterskin item count.
+      // Hunger/Thirst just rise (see HUNGER_PER_DAY/THIRST_PER_DAY); ignoring them too long
+      // costs Health instead, via addHunger/addThirst's overflow handling.
       const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
       travelDiv.innerHTML = t.viaRoad
-        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`
-        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>${t.foodCost} food</b>.`;
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>+${t.hungerGain} hunger</b>, <b>+${t.thirstGain} thirst</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>+${t.hungerGain} hunger</b>, <b>+${t.thirstGain} thirst</b>.`;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
       travelBtn.textContent = `Travel Here (${t.hours}h)`;
@@ -2500,30 +2571,30 @@ function hideTravelControls(){
   document.getElementById('wait-controls').classList.remove('hide');
 }
 
-// Food is only ever actually deducted (consumeItem) at arrival or at a mid-journey
-// interruption (campMidTravel) — see those call sites — but the header's #stat-food used to
-// sit frozen at its pre-travel value for the whole animation, then jump straight to the
-// post-cost number the instant a trip ended, which read as if travel cost nothing until it
-// suddenly did. This repaints #stat-food every animation frame with a smooth linear interpolation
-// from the food count at departure down to exactly what it'll actually be on arrival
-// (startFood - totalCost, reached precisely at frac=1, so there's no discontinuity with the real
-// consumeItem call that follows) — display-only, never touches playerInventory itself, so it
-// can't cause a double deduction no matter how it's called.
-function updateLiveFoodDisplay(startFood, totalCost, frac){
-  const fp = document.getElementById('stat-food');
-  if(fp) fp.textContent = Math.max(0, Math.round(startFood - totalCost*frac));
+// Hunger/Thirst are only ever actually applied (addHunger/addThirst) at arrival or at a
+// mid-journey interruption (campMidTravel) — see those call sites — but leaving the header's
+// #stat-hunger/#stat-thirst frozen at their pre-travel values for the whole animation, then
+// jumping straight to the post-trip numbers the instant it ended, would read as if travel cost
+// nothing until it suddenly did. This repaints them every animation frame with a smooth
+// linear interpolation from their values at departure up toward exactly what they'll actually be
+// on arrival (start + gain, reached precisely at frac=1, so there's no discontinuity with the
+// real addHunger/addThirst calls that follow) — display-only, never touches the real meters
+// itself, so it can't cause a double application no matter how it's called. Capped at 100 for
+// display even though the real addHunger/addThirst calls at arrival can still register genuine
+// overflow past that (see their own Health-penalty handling).
+function updateLiveHungerThirstDisplay(startHunger, hungerGain, startThirst, thirstGain, frac){
+  const hp = document.getElementById('stat-hunger');
+  const tp = document.getElementById('stat-thirst');
+  if(hp) hp.textContent = Math.min(100, Math.round(startHunger + hungerGain*frac));
+  if(tp) tp.textContent = Math.min(100, Math.round(startThirst + thirstGain*frac));
 }
 
 function beginTravel(destId){
   stopWaiting();
   const t = computeTravel(destId);
   if(!t) return;
-  if(t.foodCost > getFoodQty()){
-    showToast("You don't have enough food to make it there. Buy more at a Marketplace first.");
-    return;
-  }
   const destName = graph.burgs[destId].name;
-  const startFood = getFoodQty();
+  const startHunger = playerHunger, startThirst = playerThirst;
   closeCard();
 
   const fromPos = { ...getCurrentXY(), cell:getCurrentCell() };
@@ -2542,7 +2613,8 @@ function beginTravel(destId){
     currentBurg = destId;
     localStorage.setItem(LOC_KEY, currentBurg);
     advanceDays(hoursToDaysElapsed(t.hours));
-    consumeItem(FOOD_NAME, t.foodCost);
+    addHunger(t.hungerGain);
+    addThirst(t.thirstGain);
     refreshReachability();
     if(rollAmbush(t.hours)){
       triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
@@ -2552,10 +2624,10 @@ function beginTravel(destId){
   }, (info)=>{
     if(!activeTravel) return;
     activeTravel.lastSnap = info;
-    updateLiveFoodDisplay(startFood, t.foodCost, info.frac);
+    updateLiveHungerThirstDisplay(startHunger, t.hungerGain, startThirst, t.thirstGain, info.frac);
   });
 
-  activeTravel = { controller, destId, destName, totalHours: t.hours, startFood, foodCost: t.foodCost, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
+  activeTravel = { controller, destId, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
 }
 
 // Cancels the current journey in place — the character stops exactly where the
@@ -2571,10 +2643,10 @@ function stopTravel(){
   positionPlayerMarker(campPos.x, campPos.y);
   centerOnLogical(campPos.x, campPos.y, view.scale);
   refreshReachability();
-  // No Food is actually spent on a plain Stop (unlike Camp) — the header's live depletion
-  // display (see updateLiveFoodDisplay) had been counting down purely as a preview of what
-  // arrival *would* cost, so it needs restoring to the real, untouched inventory value rather
-  // than being left showing a number that was never actually deducted.
+  // No Hunger/Thirst is actually gained on a plain Stop (unlike Camp) — the header's live
+  // display (see updateLiveHungerThirstDisplay) had been rising purely as a preview of what
+  // arrival *would* cost, so it needs restoring to the real, untouched meters rather than being
+  // left showing values that were never actually applied.
   refreshPlayerStatUI();
   showToast(`You stop on the road toward ${activeTravel.destName}.`);
   activeTravel = null;
@@ -2594,7 +2666,8 @@ function campMidTravel(){
   refreshReachability();
   const partialHours = Math.max(1, Math.round(activeTravel.totalHours * activeTravel.lastSnap.frac));
   advanceDays(hoursToDaysElapsed(partialHours));
-  consumeItem(FOOD_NAME, hoursToFoodCost(partialHours));
+  addHunger(hoursToHungerGain(partialHours));
+  addThirst(hoursToThirstGain(partialHours));
   showCampView(activeTravel.destId, activeTravel.destName, partialHours);
   activeTravel = null;
 }
@@ -2719,9 +2792,11 @@ function showCampView(destId, destName, partialHours){
       advanceDays(1);
       const healed = playerMaxHealth - playerHealth;
       const staminaBack = playerMaxStamina - playerStamina;
-      setHealth(playerMaxHealth);
-      setStamina(playerMaxStamina);
-      showToast((healed > 0 || staminaBack > 0) ? `You rest and recover your health and stamina.` : "You rest. Already fully rested.");
+      const hadBedroll = !!getItem('Bedroll');
+      restFully();
+      let msg = (healed > 0 || staminaBack > 0) ? `You rest and recover your health and stamina.` : "You rest. Already fully rested.";
+      if(hadBedroll) msg += ` Your bedroll leaves you extra rested.`;
+      showToast(msg);
       document.getElementById('loc-sub').textContent = standalone
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
@@ -3043,6 +3118,9 @@ function showLocationView(burgId){
   if(b.tier === 'capital'){
     actions.push({ icon:`<path d="M4 21h16"/><path d="M5 21V9l3-3 4 3 4-3 3 3v12"/><path d="M12 21v-6"/>`, title:"The Palace", desc:"Learn of the ruling court", action:'palace' });
   }
+  if(hasPub(burgId)){
+    actions.push({ icon:`<path d="M5 3h14l-1 9a6 6 0 0 1-12 0L5 3z"/><path d="M8 21h8"/><path d="M12 15v6"/>`, title:"The Pub", desc:"Buy a meal and a drink", action:'pub' });
+  }
   // Any settlement, any tier, can be under siege (advanceSiege doesn't restrict targeting by
   // tier) or have taken in refugees this week — both conditions are rare enough day-to-day that
   // showing the action only when it actually applies is worth the extra check.
@@ -3075,6 +3153,11 @@ function showLocationView(burgId){
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'talk') showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId));
+      else if(btn.dataset.action === 'pub'){
+        showFlavorPanel(burgId, 'The Pub', PUB_LINES, buildPubMealHTML());
+        const pubBtn = document.getElementById('pub-meal-btn');
+        if(pubBtn) pubBtn.addEventListener('click', ()=> acceptPubMeal(burgId));
+      }
       else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
       else if(btn.dataset.action === 'refugee_camp'){
         showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
@@ -3145,6 +3228,54 @@ const PALACE_LINES = [
   "Guards in ceremonial armour stand motionless beside the throne.",
   "Word in the court is that the war is weighing heavily on the ruler's mind.",
 ];
+
+// The Pub — City/Capital always, Town sometimes, per the project owner. "Sometimes" is a fixed
+// world fact rather than re-rolled every visit: hasPub() checks a seeded hash of the burg id
+// against PUB_TOWN_CHANCE, the same seeded-PRNG pattern quest offers use, so a given town either
+// always has a pub or never does. Ties directly into Hunger/Thirst (see that section above) —
+// buying a Meal & Drink here instantly satisfies both for gold, the convenient alternative to
+// carrying and consuming Food/Waterskin yourself.
+const PUB_TOWN_CHANCE = 0.4;
+function hasPub(burgId){
+  const b = graph.burgs[burgId];
+  if(!b) return false;
+  if(b.tier === 'city' || b.tier === 'capital') return true;
+  if(b.tier === 'town') return seededRandom(hashSeed(`pub_${burgId}`)) < PUB_TOWN_CHANCE;
+  return false;
+}
+const PUB_LINES = [
+  "A fiddler in the corner fights a losing battle against the noise.",
+  "Two patrons argue loudly over a card game neither of them seems to be winning.",
+  "The innkeeper's cat threads between table legs, begging scraps off anyone who'll look at it.",
+  "Someone's already three tankards in and telling the same story for the second time.",
+  "The air is thick with pipe smoke, spilled ale, and someone's attempt at singing.",
+];
+const PUB_MEAL_GOLD_COST = 12;
+const PUB_MEAL_HUNGER_RELIEF = 50;
+const PUB_MEAL_THIRST_RELIEF = 50;
+function buildPubMealHTML(){
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Meal &amp; Drink</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">A hot meal and a full tankard — eases both hunger and thirst on the spot.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">${PUB_MEAL_GOLD_COST}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="pub-meal-btn">Order</button>
+      </div>
+    </div>
+  `;
+}
+function acceptPubMeal(burgId){
+  if(playerGold < PUB_MEAL_GOLD_COST){ showToast("Not enough gold for a meal here."); return; }
+  setGold(playerGold - PUB_MEAL_GOLD_COST);
+  addHunger(-PUB_MEAL_HUNGER_RELIEF);
+  addThirst(-PUB_MEAL_THIRST_RELIEF);
+  showToast(`You settle in for a proper meal and a drink.`);
+  showFlavorPanel(burgId, 'The Pub', PUB_LINES, buildPubMealHTML());
+  const pubBtn = document.getElementById('pub-meal-btn');
+  if(pubBtn) pubBtn.addEventListener('click', ()=> acceptPubMeal(burgId));
+}
+
 // Refugee Camp — shown only at a settlement with a recent refugee arrival (see
 // hasRecentRefugeeArrival/applyWarLoss's flee path). Same pure-flavor-line-plus-extraHTML
 // pattern as Guard House/Palace.
@@ -3485,9 +3616,11 @@ function showInnPanel(burgId){
     advanceDays(1);
     const healed = playerMaxHealth - playerHealth;
     const staminaBack = playerMaxStamina - playerStamina;
-    setHealth(playerMaxHealth);
-    setStamina(playerMaxStamina);
-    showToast((healed > 0 || staminaBack > 0) ? `You rest for the night and recover your health and stamina.` : "You rest for the night. Already fully rested.");
+    const hadBedroll = !!getItem('Bedroll');
+    restFully();
+    let msg = (healed > 0 || staminaBack > 0) ? `You rest for the night and recover your health and stamina.` : "You rest for the night. Already fully rested.";
+    if(hadBedroll) msg += ` Your bedroll leaves you extra rested.`;
+    showToast(msg);
     document.getElementById('inn-rumour').textContent = `"${RUMOURS[Math.floor(Math.random()*RUMOURS.length)]}"`;
   });
 }
@@ -3658,6 +3791,8 @@ function collectCharacterSnapshot(){
     maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
     stamina: parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10),
     maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
+    hunger: parseInt(localStorage.getItem(HUNGER_KEY) || "0", 10),
+    thirst: parseInt(localStorage.getItem(THIRST_KEY) || "0", 10),
     age: localStorage.getItem(AGE_KEY) || "24",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),

@@ -130,6 +130,8 @@ const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
 const STAMINA_KEY = "goblinwar_stamina";
 const MAXSTAMINA_KEY = "goblinwar_maxStamina";
+const HUNGER_KEY = "goblinwar_hunger";
+const THIRST_KEY = "goblinwar_thirst";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -151,7 +153,7 @@ const QUEST_KEY = "goblinwar_quests";
 const DEFAULT_INVENTORY = [
   { name:"Food", qty:10, weight:1, value:2 },
   { name:"Waterskin", qty:1, weight:2, value:3 },
-  { name:"Bedroll", qty:1, weight:3, value:5 },
+  { name:"Bedroll", qty:1, weight:3, value:45 }, // matches index.html's MARKET_ITEMS price
 ];
 const ACTIVE_CHAR_KEY = "goblinwar_activeCharacterId";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
@@ -206,6 +208,8 @@ function collectCharacterSnapshot(){
     maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
     stamina: parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10),
     maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
+    hunger: parseInt(localStorage.getItem(HUNGER_KEY) || "0", 10),
+    thirst: parseInt(localStorage.getItem(THIRST_KEY) || "0", 10),
     age: localStorage.getItem(AGE_KEY) || "24",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),

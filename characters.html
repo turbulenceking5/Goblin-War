@@ -106,7 +106,7 @@ const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 const DEFAULT_INVENTORY = [
   { name:"Food", qty:10, weight:1, value:2 },
   { name:"Waterskin", qty:1, weight:2, value:3 },
-  { name:"Bedroll", qty:1, weight:3, value:5 },
+  { name:"Bedroll", qty:1, weight:3, value:45 }, // matches index.html's MARKET_ITEMS price
 ];
 
 function dateStr(dayCount){
@@ -129,6 +129,7 @@ function freshCharacterData(name){
     burgId: "5", day: 0, heading: 0,
     health: 100, maxHealth: 100,
     stamina: 100, maxStamina: 100,
+    hunger: 0, thirst: 0,
     age: "24", gold: 50,
     inventory: JSON.stringify(DEFAULT_INVENTORY),
     equipped: "{}",
@@ -152,6 +153,8 @@ function applyCharacterData(data){
   if(data.maxHealth!==undefined) localStorage.setItem("goblinwar_maxHealth", String(data.maxHealth));
   if(data.stamina!==undefined) localStorage.setItem("goblinwar_stamina", String(data.stamina));
   if(data.maxStamina!==undefined) localStorage.setItem("goblinwar_maxStamina", String(data.maxStamina));
+  if(data.hunger!==undefined) localStorage.setItem("goblinwar_hunger", String(data.hunger));
+  if(data.thirst!==undefined) localStorage.setItem("goblinwar_thirst", String(data.thirst));
   if(data.age!==undefined) localStorage.setItem("goblinwar_age", String(data.age));
   if(data.gold!==undefined) localStorage.setItem("goblinwar_gold", String(data.gold));
   if(data.inventory) localStorage.setItem("goblinwar_inventory", data.inventory);

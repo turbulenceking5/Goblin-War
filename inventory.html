@@ -50,7 +50,8 @@
   }
   .weight-card b{ font-family:'Cinzel Decorative', serif; font-size:15px; letter-spacing:0; text-transform:none; color:var(--parchment); }
   .weight-card.over b{ color:#e2857f; }
-  .stamina-card{ margin-bottom:18px; }
+  .meter-card{ margin-bottom:10px; }
+  .meter-card:last-of-type{ margin-bottom:18px; }
   .item-note{ font-size:11.5px; color:#a9926a; font-style:italic; margin-top:2px; }
 
   .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:6px 0 10px; }
@@ -122,9 +123,14 @@
       <b id="weight-value">0 / 0</b>
     </div>
 
-    <div class="weight-card stamina-card">
-      <span>Stamina</span>
-      <b id="stamina-value">0 / 0</b>
+    <div class="weight-card meter-card">
+      <span>Hunger</span>
+      <b id="hunger-value">0 / 100</b>
+    </div>
+
+    <div class="weight-card meter-card">
+      <span>Thirst</span>
+      <b id="thirst-value">0 / 100</b>
     </div>
 
     <div class="stat-label">Carried Items</div>
@@ -144,13 +150,13 @@ const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const CARRY_CAPACITY = 40;
 const SKILLS_KEY = "goblinwar_skills";
-const STAMINA_KEY = "goblinwar_stamina";
-const MAXSTAMINA_KEY = "goblinwar_maxStamina";
-// Waterskin is the one consumable with a real effect (see the item-list special case below) —
-// a quick drink restoring a meaningful chunk of Stamina, distinct from Camp/Inn's full-restore
-// so it's useful mid-exploration without replacing resting entirely. 40 offsets two Attacks'
-// worth of the 20-per-hit cost in combat.md's STAMINA_COST_PER_ATTACK.
-const WATERSKIN_STAMINA_RESTORE = 40;
+const HUNGER_KEY = "goblinwar_hunger";
+const THIRST_KEY = "goblinwar_thirst";
+// Food and Waterskin are the game's two real consumables (see the item-list special cases
+// below) — eating/drinking fights Hunger/Thirst (see index.html's HUNGER & THIRST section),
+// not Stamina; per the project owner, neither item touches Stamina at all anymore.
+const FOOD_HUNGER_RESTORE = 35;
+const WATERSKIN_THIRST_RESTORE = 35;
 // Mirrors index.html's getCarryCapacity() — only Pack Mule affects capacity, so this doesn't
 // need the full PERKS table, just the one flag (duplicated per the no-modules convention).
 function getCarryCapacity(){
@@ -187,11 +193,18 @@ function setEquippedSlot(slot, itemName){
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
 
-let playerStamina = parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10);
-let playerMaxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10);
-function setStamina(v){
-  playerStamina = Math.max(0, Math.min(playerMaxStamina, v));
-  localStorage.setItem(STAMINA_KEY, String(playerStamina));
+let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY) || "0", 10);
+let playerThirst = parseInt(localStorage.getItem(THIRST_KEY) || "0", 10);
+// Simple clamped setters — unlike index.html's addHunger/addThirst, this page only ever reduces
+// either meter (eating/drinking), so there's no "overflow past 100 costs Health" case to handle
+// here at all; that logic lives entirely in index.html, the only place either meter ever rises.
+function setHunger(v){
+  playerHunger = Math.max(0, Math.min(100, v));
+  localStorage.setItem(HUNGER_KEY, String(playerHunger));
+}
+function setThirst(v){
+  playerThirst = Math.max(0, Math.min(100, v));
+  localStorage.setItem(THIRST_KEY, String(playerThirst));
 }
 function getItem(name){ return items.find(it => it.name === name); }
 function consumeItem(name, qty){
@@ -208,10 +221,11 @@ document.getElementById('gold-value').textContent = gold;
 let items = [];
 try{ items = JSON.parse(localStorage.getItem(INV_KEY) || "[]"); }catch(e){ items = []; }
 
-// Bedroll has no button — its effect is passive, just from being carried (see index.html's
-// BEDROLL_AMBUSH_MULT) — so this is purely informational, same spot an equip stat-line would go.
+// Bedroll has no button — both its effects are passive, just from being carried (see
+// index.html's BEDROLL_AMBUSH_MULT/BEDROLL_STAMINA_BONUS) — so this is purely informational,
+// the same spot an equip stat-line would go.
 const ITEM_NOTES = {
-  "Bedroll": "Makes camping safer — reduces the chance of a night ambush while it's carried.",
+  "Bedroll": "Makes camping safer, and leaves you a little extra rested afterward — both just from being carried.",
 };
 
 function render(){
@@ -220,7 +234,8 @@ function render(){
   const capacity = getCarryCapacity();
   document.getElementById('weight-value').textContent = `${carriedWeight} / ${capacity}`;
   weightCard.classList.toggle('over', carriedWeight > capacity);
-  document.getElementById('stamina-value').textContent = `${playerStamina} / ${playerMaxStamina}`;
+  document.getElementById('hunger-value').textContent = `${playerHunger} / 100`;
+  document.getElementById('thirst-value').textContent = `${playerThirst} / 100`;
 
   const equipped = getEquipped();
   const list = document.getElementById('item-list');
@@ -231,11 +246,12 @@ function render(){
       const stats = ITEM_STATS[it.name];
       const isEquipped = stats && equipped[stats.slot] === it.name;
       const statLine = stats ? `${stats.dmg ? `+${stats.dmg} dmg` : `-${stats.def} dmg taken`} while equipped` : '';
+      const isFood = it.name === 'Food';
       const isWaterskin = it.name === 'Waterskin';
-      const atFullStamina = playerStamina >= playerMaxStamina;
       let actionHTML = '';
       if(stats) actionHTML = `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`;
-      else if(isWaterskin) actionHTML = `<button class="equip-btn" id="drink-waterskin-btn" ${atFullStamina ? 'disabled' : ''}>${atFullStamina ? 'Full Stamina' : `Drink (+${WATERSKIN_STAMINA_RESTORE} Stamina)`}</button>`;
+      else if(isFood) actionHTML = `<button class="equip-btn" id="eat-food-btn" ${playerHunger <= 0 ? 'disabled' : ''}>${playerHunger <= 0 ? 'Not Hungry' : `Eat (-${FOOD_HUNGER_RESTORE} Hunger)`}</button>`;
+      else if(isWaterskin) actionHTML = `<button class="equip-btn" id="drink-waterskin-btn" ${playerThirst <= 0 ? 'disabled' : ''}>${playerThirst <= 0 ? 'Not Thirsty' : `Drink (-${WATERSKIN_THIRST_RESTORE} Thirst)`}</button>`;
       return `
       <div class="item-row ${isEquipped ? 'equipped' : ''}">
         <svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -262,14 +278,25 @@ function render(){
         render();
       });
     });
+    const eatBtn = document.getElementById('eat-food-btn');
+    if(eatBtn){
+      eatBtn.addEventListener('click', ()=>{
+        if(playerHunger <= 0){ showToast("You're not hungry right now."); return; }
+        const relief = Math.min(FOOD_HUNGER_RESTORE, playerHunger);
+        setHunger(playerHunger - relief);
+        consumeItem('Food', 1);
+        showToast(`You eat. -${relief} Hunger.`);
+        render();
+      });
+    }
     const drinkBtn = document.getElementById('drink-waterskin-btn');
     if(drinkBtn){
       drinkBtn.addEventListener('click', ()=>{
-        if(playerStamina >= playerMaxStamina){ showToast("You're already at full Stamina."); return; }
-        const restored = Math.min(WATERSKIN_STAMINA_RESTORE, playerMaxStamina - playerStamina);
-        setStamina(playerStamina + restored);
+        if(playerThirst <= 0){ showToast("You're not thirsty right now."); return; }
+        const relief = Math.min(WATERSKIN_THIRST_RESTORE, playerThirst);
+        setThirst(playerThirst - relief);
         consumeItem('Waterskin', 1);
-        showToast(`You take a long drink. +${restored} Stamina.`);
+        showToast(`You take a long drink. -${relief} Thirst.`);
         render();
       });
     }

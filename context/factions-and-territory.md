@@ -83,7 +83,7 @@ Four constants near `isAtWarAt`: `WAR_BUY_MULTIPLIER` (1.5), `WAR_SELL_BONUS_MUL
 
 `showMarketPanel` calls both on every render — the war/peace banner at the top of the panel (`"{kingdom} — At war — prices up"` / `"At peace"`) reads `isAtWarAt(burgId)` directly, and every item row's Buy slider/button and Sell button price off `getBuyPrice`/`getSellPrice` rather than the flat `mi.price`.
 
-Waterskin and Bedroll aren't in `MARKET_ITEMS`, so they're never sellable — same as they were never buyable.
+Waterskin isn't in `MARKET_ITEMS`, so it's never sellable — same as it was never buyable. Bedroll *is* now a `MARKET_ITEMS` entry (see [player-state.md](player-state.md)'s Hunger & Thirst section for why it became an expensive purchase), so it prices and sells like any other item here — it just isn't `isWarRelevant`, so it never gets the wartime sell premium.
 
 ## Alliance reinforcement — the one exception to "every kingdom stands alone"
 

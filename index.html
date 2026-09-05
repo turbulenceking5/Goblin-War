@@ -738,6 +738,9 @@ const CHANGELOG = [
     "Added The Pub to cities and some towns — buy a Meal & Drink to fully satisfy Hunger and Thirst in one go.",
     "Bedroll is now a pricier Marketplace purchase, but carrying one now also leaves you extra rested after sleeping, on top of its existing safer-camping effect."
   ]},
+  { id:22, date:"2026-09-05", changes:[
+    "Goblin raiding parties can now include a Goblin Chieftain (their toughest, best-paying variant) or a Goblin Shaman, and Ork raiding parties can now include an Ork Shaman — three new enemy portraits in the mix."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1583,11 +1586,21 @@ const ENEMY_VARIANTS = {
     { name:"Goblin Shieldbearer", hp:45, enemyDmgRange:[6,12],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-shieldbearer.png" },
     { name:"Goblin Skirmisher",   hp:30, enemyDmgRange:[9,16],  goldRange:[12,24], xpRange:[12,18], art:"assets/enemies/goblin-skirmisher.png" },
     { name:"Goblin Archer",       hp:25, enemyDmgRange:[7,13],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-archer.png" },
+    // The commanding leader of the pack — tougher than every other goblin variant (bone
+    // headdress, ceremonial blade, gold jewelry befitting rank), the goblin-side counterpart
+    // to Ork Warlord's "toughest fight" role, with the best goblin payout to match.
+    { name:"Goblin Chieftain",    hp:50, enemyDmgRange:[8,15],  goldRange:[14,26], xpRange:[14,20], art:"assets/enemies/goblin-chieftain.png" },
+    // A frail caster rather than a melee brute — lowest HP of any goblin (even under Archer),
+    // but its bone-staff bolt hits harder than a Raider's blade to compensate.
+    { name:"Goblin Shaman",       hp:28, enemyDmgRange:[8,15],  goldRange:[10,20], xpRange:[10,16], art:"assets/enemies/goblin-shaman.png" },
   ],
   ork: [
     { name:"Ork Raider",     hp:55, enemyDmgRange:[11,20], goldRange:[15,30], xpRange:[16,24], art:"assets/enemies/ork-raider.png" },
     { name:"Ork Berserker",  hp:45, enemyDmgRange:[12,22], goldRange:[16,28], xpRange:[16,24], art:"assets/enemies/ork-berserker.png" },
     { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], xpRange:[20,30], art:"assets/enemies/ork-warlord.png" },
+    // Sits between Raider and Warlord — a caster's totem-staff bolt hits ork-tier hard, but an
+    // Ork Shaman isn't built for melee like a Warlord, so its own HP stays well under it.
+    { name:"Ork Shaman",     hp:50, enemyDmgRange:[12,20], goldRange:[17,30], xpRange:[17,26], art:"assets/enemies/ork-shaman.png" },
   ],
 };
 

@@ -48,7 +48,7 @@ Stamina exists again as of this pass, but scoped only to combat — see "Stamina
 ]
 ```
 
-`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). `value` is also per single unit, gold, display-only right now (shown in inventory.html as "Ng each") — there's no sell-back mechanic, so it doesn't do anything mechanical yet, it's just what the item would cost to (re-)buy. Food is consumed by travel; Waterskin and Bedroll are pure flavor/weight; everything else the Marketplace sells (see [locations-and-camp.md](locations-and-camp.md)) is either equippable (see "Equipment" below) or, like Healing Potion/Books/Firewood, still just sits in the bag.
+`weight` is per single unit — a stack's total contribution to carried weight is `weight * qty` (see "Carry weight" below). `value` is per single unit, gold, shown in inventory.html as "Ng each" — it's the base the Marketplace's `getBuyPrice`/`getSellPrice` (see [factions-and-territory.md](factions-and-territory.md)) scale from, not just decorative. Food is consumed by travel; Waterskin is a real consumable now (`inventory.html`'s **Drink** button restores Stamina, see [secondary-pages.md](secondary-pages.md) and [roadmap.md](roadmap.md)); Bedroll is a passive possession that makes camping safer just by being carried (`BEDROLL_AMBUSH_MULT`, index.html); everything else the Marketplace sells (see [locations-and-camp.md](locations-and-camp.md)) is either equippable (see "Equipment" below) or, like Healing Potion/Books/Firewood, still just sits in the bag.
 
 ## Equipment
 

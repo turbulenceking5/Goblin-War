@@ -1337,7 +1337,11 @@ const DEFAULT_INVENTORY = [
 // Everything the Marketplace stocks beyond Food (see showMarketPanel). Items with a `slot`
 // are equippable (see EQUIP_SLOTS below) and carry a combat `dmg`/`def` bonus applied while
 // equipped — see getEquipDamageBonus()/getEquipDefenseBonus() near the combat code. Non-slot
-// items (Healing Potion, Books, Firewood) just sit in the bag, same as Waterskin/Bedroll.
+// items (Healing Potion, Books, Firewood) just sit in the bag. Waterskin is the one exception —
+// it's a real consumable now (see inventory.html's Drink button/WATERSKIN_STAMINA_RESTORE) so
+// it's stocked here to be re-buyable once the starting one's used up. Bedroll is deliberately
+// NOT stocked here — it's a passive possession (see NIGHT_AMBUSH_CHANCE below), never consumed,
+// so there's nothing to ever need to rebuy.
 const MARKET_ITEMS = [
   { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Keeps you fed on the road" },
   { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4 },
@@ -1349,6 +1353,7 @@ const MARKET_ITEMS = [
   { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
   { name:"Books", price:7, weight:2, desc:"Lore and local history" },
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
+  { name:"Waterskin", price:8, weight:2, desc:"A quick drink to steady your legs mid-journey" },
 ];
 // name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
 const ITEM_STATS = {};
@@ -2066,6 +2071,12 @@ const FOOD_PER_DAY = 1;
 const HOURS_PER_DAY = 24;
 const AMBUSH_CHANCE_PER_DAY = 0.12; // chance per day of travel that bandits ambush the road
 const NIGHT_AMBUSH_CHANCE = 0.15;   // chance bandits strike an exposed camp overnight
+// A carried Bedroll is never consumed — real shelter isn't used up by sleeping in it once — it's
+// a passive possession that makes camping itself safer, same "stacks with the perk" treatment as
+// hasPerk('sure_feet') gets below. There's no headroom to improve *what* camping restores (rest
+// already fully heals Health/Stamina every time, see camp-rest-btn's finishRest below), so this
+// is the one lever a Bedroll can meaningfully pull.
+const BEDROLL_AMBUSH_MULT = 0.85;   // 15% safer camping while a Bedroll is carried
 function rollAmbush(hours){
   const days = hours/HOURS_PER_DAY;
   const chancePerDay = AMBUSH_CHANCE_PER_DAY * (hasPerk('sure_feet') ? 0.9 : 1);
@@ -2715,7 +2726,7 @@ function showCampView(destId, destName, partialHours){
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
     }
-    if(Math.random() < NIGHT_AMBUSH_CHANCE * (hasPerk('sure_feet') ? 0.9 : 1)){
+    if(Math.random() < NIGHT_AMBUSH_CHANCE * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1)){
       triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();

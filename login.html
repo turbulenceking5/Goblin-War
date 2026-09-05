@@ -49,6 +49,7 @@
     font-size:13.5px; text-decoration:underline; cursor:pointer; padding:6px 0; text-align:center;
   }
   .check-icon{ font-size:34px; text-align:center; margin-bottom:2px; }
+  .hint-body{ font-size:13px; color:#a9926a; line-height:1.5; text-align:center; }
 </style>
 </head>
 <body>
@@ -94,6 +95,7 @@
       <div class="check-icon">✅</div>
       <div class="card-title">You're authenticated!</div>
       <div class="card-body">Logged in as <b id="authed-email"></b>. Your account is confirmed and ready.</div>
+      <div class="hint-body" id="authed-app-hint" style="display:none;">If you've added Goblin War to your Home Screen, open it from there to continue — a browser tab can't launch an already-installed app for you directly.</div>
       <button class="btn btn-primary" id="continue-btn">Continue to the Game</button>
     </div>
   </div>
@@ -164,15 +166,31 @@ document.getElementById('signup-btn').addEventListener('click', async ()=>{
 
 document.getElementById('continue-btn').addEventListener('click', ()=> location.replace(targetPage()));
 
+// True only when this page is itself running as the installed Home Screen app (manifest.json's
+// display:standalone) rather than a normal browser tab. There is no web API on either iOS or
+// Android that lets a page in a regular browser tab launch an *already-installed* PWA instead —
+// browsers deliberately don't expose that, the same way a website can't launch other apps on
+// your device — so this is used only to adjust the messaging/button below, never to attempt an
+// actual handoff.
+function isStandaloneApp(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
 // Landed here already logged in — either a stale link to login.html, or (more likely) the
 // confirmation email's link just handed supabase-js a session via the URL hash. Either way,
 // this stays a static confirmation the player has to act on themselves (Continue button above)
 // rather than auto-redirecting into the game — per the project owner, a confirmation link
 // should read as "you're authenticated," not silently continue on into character select/the
-// game on its own after a pause.
+// game on its own after a pause. Email links always open in the ordinary browser, never the
+// installed app, even when one exists — so if this page isn't itself running standalone, the
+// hint text nudges the player to switch to their Home Screen icon, while the button still works
+// as a same-browser fallback for anyone who hasn't installed it at all.
 sb.auth.getSession().then(({ data: { session } })=>{
   if(!session) return;
   document.getElementById('authed-email').textContent = session.user.email;
+  if(!isStandaloneApp()){
+    document.getElementById('authed-app-hint').style.display = 'block';
+  }
   showView('view-authenticated');
 });
 </script>

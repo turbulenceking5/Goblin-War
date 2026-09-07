@@ -9,7 +9,7 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | File | Role |
 |---|---|
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
-| [character.html](character.html) | Hero sheet — identity, Health/Stamina, Equipment (unequip from here), Accessories (placeholder), Purse, and basic info (age/location/day/food/weight). Mostly read-only. Level, stats, perks, and special attacks live on [skills.html](skills.html), not here. |
+| [character.html](character.html) | Hero sheet — identity, Health/Stamina, Equipment (unequip from here), Accessories (unequip from here too — 8 real slots), Purse, and basic info (age/location/day/food/weight). Mostly read-only. Level, stats, perks, and special attacks live on [skills.html](skills.html), not here. |
 | [skills.html](skills.html) | Level/XP, Strength/Agility/Intelligence (spend skill points here), the 9 passive perks, and the 6 active special attacks — see [context/player-state.md](context/player-state.md)'s "Leveling & stats". Split out from character.html into its own toolbar tab so the two screens don't compete for space. |
 | [inventory.html](inventory.html) | Bag contents, gold, and carried weight — and where equippable items get equipped (see [context/player-state.md](context/player-state.md)). |
 | [party.html](party.html) | Stub — no companion system yet. |

@@ -125,18 +125,18 @@
 
     <div class="weight-card meter-card">
       <span>Hunger</span>
-      <b id="hunger-value">0 / 100</b>
+      <b id="hunger-value">100 / 100</b>
     </div>
 
     <div class="weight-card meter-card">
       <span>Thirst</span>
-      <b id="thirst-value">0 / 100</b>
+      <b id="thirst-value">100 / 100</b>
     </div>
 
     <div class="stat-label">Carried Items</div>
     <div id="item-list"></div>
 
-    <div class="stat-label" style="margin-top:20px;">Equipment</div>
+    <div class="stat-label" style="margin-top:20px;">Equipment &amp; Accessories</div>
     <div class="slot-grid" id="equip-grid"></div>
     <div class="combat-bonus" id="combat-bonus"></div>
   </main>
@@ -165,8 +165,14 @@ function hasPerk(id){ return !!getUnlockedSkills()[id]; }
 function getCarryCapacity(){
   return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0);
 }
-const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
-const SLOT_LABEL = { head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket" };
+// The last 8 are the Accessories slots (character.html) — same equip pattern, smaller bonuses.
+const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket",
+  "ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
+const SLOT_LABEL = {
+  head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket",
+  ring_left:"Ring L", ring_right:"Ring R", amulet:"Amulet", cloak:"Cloak",
+  belt:"Belt", bracers:"Bracers", earring:"Earring", charm:"Charm",
+};
 // Mirrors index.html's MARKET_ITEMS slot/dmg/def data for the items that are actually
 // equippable — duplicated per the no-modules convention (see CLAUDE.md).
 const ITEM_STATS = {
@@ -176,6 +182,14 @@ const ITEM_STATS = {
   "Leather Armour": { slot:"chest", dmg:0, def:2 },
   "Leather Boots": { slot:"legs", dmg:0, def:1 },
   "Lucky Charm": { slot:"trinket", dmg:1, def:0 },
+  "Ring of Vigor": { slot:"ring_left", dmg:1, def:0 },
+  "Band of Warding": { slot:"ring_right", dmg:0, def:1 },
+  "Amulet of the Wilds": { slot:"amulet", dmg:0, def:2 },
+  "Clasp of the Wayfarer": { slot:"cloak", dmg:0, def:1 },
+  "Warbelt": { slot:"belt", dmg:2, def:0 },
+  "Iron Bracers": { slot:"bracers", dmg:0, def:1 },
+  "Silver Earring": { slot:"earring", dmg:1, def:0 },
+  "Sigil Charm": { slot:"charm", dmg:1, def:0 },
 };
 
 let toastTimer;
@@ -194,11 +208,11 @@ function setEquippedSlot(slot, itemName){
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
 
-let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY) || "0", 10);
-let playerThirst = parseInt(localStorage.getItem(THIRST_KEY) || "0", 10);
-// Simple clamped setters — unlike index.html's addHunger/addThirst, this page only ever reduces
-// either meter (eating/drinking), so there's no "overflow past 100 costs Health" case to handle
-// here at all; that logic lives entirely in index.html, the only place either meter ever rises.
+let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY) || "100", 10);
+let playerThirst = parseInt(localStorage.getItem(THIRST_KEY) || "100", 10);
+// Simple clamped setters — unlike index.html's addHunger/addThirst, this page only ever raises
+// either meter (eating/drinking), so there's no "underflow past 0 costs Health" case to handle
+// here at all; that logic lives entirely in index.html, the only place either meter ever drains.
 function setHunger(v){
   playerHunger = Math.max(0, Math.min(100, v));
   localStorage.setItem(HUNGER_KEY, String(playerHunger));
@@ -251,8 +265,8 @@ function render(){
       const isWaterskin = it.name === 'Waterskin';
       let actionHTML = '';
       if(stats) actionHTML = `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`;
-      else if(isFood) actionHTML = `<button class="equip-btn" id="eat-food-btn" ${playerHunger <= 0 ? 'disabled' : ''}>${playerHunger <= 0 ? 'Not Hungry' : `Eat (-${FOOD_HUNGER_RESTORE} Hunger)`}</button>`;
-      else if(isWaterskin) actionHTML = `<button class="equip-btn" id="drink-waterskin-btn" ${playerThirst <= 0 ? 'disabled' : ''}>${playerThirst <= 0 ? 'Not Thirsty' : `Drink (-${WATERSKIN_THIRST_RESTORE} Thirst)`}</button>`;
+      else if(isFood) actionHTML = `<button class="equip-btn" id="eat-food-btn" ${playerHunger >= 100 ? 'disabled' : ''}>${playerHunger >= 100 ? 'Not Hungry' : `Eat (+${FOOD_HUNGER_RESTORE} Hunger)`}</button>`;
+      else if(isWaterskin) actionHTML = `<button class="equip-btn" id="drink-waterskin-btn" ${playerThirst >= 100 ? 'disabled' : ''}>${playerThirst >= 100 ? 'Not Thirsty' : `Drink (+${WATERSKIN_THIRST_RESTORE} Thirst)`}</button>`;
       return `
       <div class="item-row ${isEquipped ? 'equipped' : ''}">
         <svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -282,22 +296,22 @@ function render(){
     const eatBtn = document.getElementById('eat-food-btn');
     if(eatBtn){
       eatBtn.addEventListener('click', ()=>{
-        if(playerHunger <= 0){ showToast("You're not hungry right now."); return; }
-        const relief = Math.min(FOOD_HUNGER_RESTORE, playerHunger);
-        setHunger(playerHunger - relief);
+        if(playerHunger >= 100){ showToast("You're not hungry right now."); return; }
+        const relief = Math.min(FOOD_HUNGER_RESTORE, 100 - playerHunger);
+        setHunger(playerHunger + relief);
         consumeItem('Food', 1);
-        showToast(`You eat. -${relief} Hunger.`);
+        showToast(`You eat. +${relief} Hunger.`);
         render();
       });
     }
     const drinkBtn = document.getElementById('drink-waterskin-btn');
     if(drinkBtn){
       drinkBtn.addEventListener('click', ()=>{
-        if(playerThirst <= 0){ showToast("You're not thirsty right now."); return; }
-        const relief = Math.min(WATERSKIN_THIRST_RESTORE, playerThirst);
-        setThirst(playerThirst - relief);
+        if(playerThirst >= 100){ showToast("You're not thirsty right now."); return; }
+        const relief = Math.min(WATERSKIN_THIRST_RESTORE, 100 - playerThirst);
+        setThirst(playerThirst + relief);
         consumeItem('Waterskin', 1);
-        showToast(`You take a long drink. -${relief} Thirst.`);
+        showToast(`You take a long drink. +${relief} Thirst.`);
         render();
       });
     }

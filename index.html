@@ -84,6 +84,10 @@
   #overlay{ position:absolute; inset:0; width:10240px; height:5108px; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
+  .map-label{
+    font-family:'Cinzel', serif; text-anchor:middle;
+    fill:var(--gold-lt); paint-order:stroke; stroke:#1c150c; stroke-width:.6px; stroke-linejoin:round;
+  }
   #highlight-ring{
     fill:none; stroke:var(--gold-lt); stroke-width:3;
     opacity:0; transition:opacity .15s;
@@ -397,8 +401,8 @@
     <div id="player-stats">
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
       <span class="stat-pill stamina-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg><b id="stat-stamina">100/100</b></span>
-      <span class="stat-pill hunger-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg><b id="stat-hunger">0</b></span>
-      <span class="stat-pill thirst-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13z"/></svg><b id="stat-thirst">0</b></span>
+      <span class="stat-pill hunger-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg><b id="stat-hunger">100</b></span>
+      <span class="stat-pill thirst-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13z"/></svg><b id="stat-thirst">100</b></span>
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
     <div id="zoom-controls">
@@ -413,6 +417,7 @@
       <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
         <path id="route-preview"/>
         <g id="hitzones"></g>
+        <g id="labels" style="pointer-events:none"></g>
         <g id="city-icons" style="pointer-events:none"></g>
         <g id="frontline-markers" style="pointer-events:none"></g>
         <g id="player-layer"></g>
@@ -740,6 +745,15 @@ const CHANGELOG = [
   ]},
   { id:22, date:"2026-09-05", changes:[
     "Goblin raiding parties can now include a Goblin Chieftain (their toughest, best-paying variant) or a Goblin Shaman, and Ork raiding parties can now include an Ork Shaman — three new enemy portraits in the mix."
+  ]},
+  { id:23, date:"2026-09-05", changes:[
+    "The Accessories grid on your Hero Sheet is live — 8 new rings, amulets, and trinkets are in the Marketplace, equip them from your Bag just like weapons and armour."
+  ]},
+  { id:24, date:"2026-09-07", changes:[
+    "The world map has a brand new hand-painted look — real coastlines, forests, rivers, and mountains rendered straight from the map data, replacing the old flat raster."
+  ]},
+  { id:25, date:"2026-09-07", changes:[
+    "Hunger and Thirst now start full at 100 and drain toward 0 as you travel, wait, and fight — same direction as Health and Stamina. Eat and Drink from your Bag top them back up."
   ]},
 ];
 
@@ -1369,6 +1383,16 @@ const MARKET_ITEMS = [
   { name:"Leather Armour", price:15, weight:4, desc:"A padded leather jerkin", slot:"chest", def:2 },
   { name:"Leather Boots", price:6, weight:2, desc:"Sturdy travelling boots", slot:"legs", def:1 },
   { name:"Lucky Charm", price:10, weight:0, desc:"Said to favour the wearer in a fight", slot:"trinket", dmg:1 },
+  // The 8 Accessories slots (character.html) — same equip pattern as the gear above, just a
+  // second tier of smaller bonuses so the grid stops being pure decoration. See roadmap.md.
+  { name:"Ring of Vigor", price:12, weight:0, desc:"A simple band said to steady the striking arm", slot:"ring_left", dmg:1 },
+  { name:"Band of Warding", price:12, weight:0, desc:"A plain ring, cool to the touch", slot:"ring_right", def:1 },
+  { name:"Amulet of the Wilds", price:20, weight:1, desc:"Carved bone on a leather cord", slot:"amulet", def:2 },
+  { name:"Clasp of the Wayfarer", price:10, weight:0, desc:"Fastens a cloak against a blade's glance", slot:"cloak", def:1 },
+  { name:"Warbelt", price:18, weight:1, desc:"A stout leather belt, built for a fight", slot:"belt", dmg:2 },
+  { name:"Iron Bracers", price:12, weight:1, desc:"Simple forearm guards", slot:"bracers", def:1 },
+  { name:"Silver Earring", price:9, weight:0, desc:"Said to sharpen a wearer's focus", slot:"earring", dmg:1 },
+  { name:"Sigil Charm", price:14, weight:0, desc:"A small trinket etched with an old ward", slot:"charm", dmg:1 },
   { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
   { name:"Books", price:7, weight:2, desc:"Lore and local history" },
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
@@ -1378,7 +1402,12 @@ const MARKET_ITEMS = [
 // name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
 const ITEM_STATS = {};
 MARKET_ITEMS.forEach(mi => { if(mi.slot) ITEM_STATS[mi.name] = { slot:mi.slot, dmg:mi.dmg||0, def:mi.def||0 }; });
-const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
+// First 6 are the Equipment grid (character.html/inventory.html); the 8 after are Accessories
+// (character.html only) — same goblinwar_equipped map, same combat bonus math, just a second
+// grid on the display side. See roadmap.md.
+const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket",
+  "ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
+const ACCESSORY_SLOTS = ["ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
 const EQUIPPED_KEY = "goblinwar_equipped";
 function getEquipped(){ try{ return JSON.parse(localStorage.getItem(EQUIPPED_KEY)) || {}; }catch(e){ return {}; } }
 function setEquippedSlot(slot, itemName){
@@ -1416,7 +1445,7 @@ const PERKS = [
   { id:"sure_feet",     name:"Sure Feet",     stat:"agi", req:4, desc:"-10% ambush chance while traveling or camping." },
   { id:"silver_tongue", name:"Silver Tongue", stat:"int", req:2, desc:"-10% Marketplace buy prices." },
   { id:"scavenger",     name:"Scavenger",     stat:"int", req:2, desc:"+20% gold from combat victories." },
-  { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Hunger/Thirst gained while traveling or waiting." },
+  { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Hunger/Thirst lost while traveling or waiting." },
 ];
 function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
 function hasPerk(id){ return !!getUnlockedSkills()[id]; }
@@ -1445,8 +1474,8 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(SIEGE_KEY) === null) localStorage.setItem(SIEGE_KEY, JSON.stringify({}));
   if(localStorage.getItem(REFUGEE_ARRIVAL_KEY) === null) localStorage.setItem(REFUGEE_ARRIVAL_KEY, JSON.stringify({}));
   if(localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) === null) localStorage.setItem(SIEGE_DEFENSE_COOLDOWN_KEY, JSON.stringify({}));
-  if(localStorage.getItem(HUNGER_KEY) === null) localStorage.setItem(HUNGER_KEY, "0");
-  if(localStorage.getItem(THIRST_KEY) === null) localStorage.setItem(THIRST_KEY, "0");
+  if(localStorage.getItem(HUNGER_KEY) === null) localStorage.setItem(HUNGER_KEY, "100");
+  if(localStorage.getItem(THIRST_KEY) === null) localStorage.setItem(THIRST_KEY, "100");
 }
 initPlayerStateIfMissing();
 
@@ -2142,24 +2171,26 @@ function hoursToDaysElapsed(hours){ return Math.floor(hours/HOURS_PER_DAY); }
 
 // ===================== HUNGER & THIRST =====================
 // Replaces the old "Food is silently spent per trip" model. Travel, waiting, and combat all
-// raise these two 0-100 meters instead of consuming Food/Waterskin items directly — the player
-// has to proactively eat/drink (see inventory.html's Eat/Drink buttons) to bring them back down.
-// Letting either one max out doesn't just sit there looking bad: any amount that would push a
-// meter past 100 becomes real Health damage instead (see addHunger/addThirst below), floored so
-// starvation alone can never be fatal on its own — combat is still the only way to actually
-// reach 0 HP. Per the project owner: Food and Waterskin no longer restore Stamina at all: their
-// only job now is fighting Hunger/Thirst. HUNGER_KEY/THIRST_KEY and playerHunger/playerThirst
-// themselves live up near playerHealth/playerStamina (initPlayerStateIfMissing needs them
-// before this point in the file executes) — just the rest of the mechanic lives here.
-const HUNGER_PER_DAY = 20;   // hunger gained per full day of travel/waiting
-const THIRST_PER_DAY = 25;   // thirst gained per full day — rises faster than hunger
-const COMBAT_HUNGER_GAIN = 8;    // flat bump per fight, any outcome — exertion either way
+// drain these two 0-100 meters (100 = full/hydrated, 0 = starving/parched — same "starts full,
+// depletes with use" convention as Health/Stamina) instead of consuming Food/Waterskin items
+// directly — the player has to proactively eat/drink (see inventory.html's Eat/Drink buttons) to
+// bring them back up. Letting either one bottom out doesn't just sit there looking bad: any
+// amount that would push a meter below 0 becomes real Health damage instead (see
+// addHunger/addThirst below), floored so starvation alone can never be fatal on its own — combat
+// is still the only way to actually reach 0 HP. Per the project owner: Food and Waterskin no
+// longer restore Stamina at all: their only job now is fighting off Hunger/Thirst depletion.
+// HUNGER_KEY/THIRST_KEY and playerHunger/playerThirst themselves live up near
+// playerHealth/playerStamina (initPlayerStateIfMissing needs them before this point in the file
+// executes) — just the rest of the mechanic lives here.
+const HUNGER_PER_DAY = 20;   // hunger lost per full day of travel/waiting
+const THIRST_PER_DAY = 25;   // thirst lost per full day — drains faster than hunger
+const COMBAT_HUNGER_GAIN = 8;    // flat drain per fight, any outcome — exertion either way
 const COMBAT_THIRST_GAIN = 10;
-const HUNGER_OVERFLOW_HEALTH_MULT = 0.5; // Health lost per point of hunger that would exceed 100
+const HUNGER_OVERFLOW_HEALTH_MULT = 0.5; // Health lost per point of hunger that would drop below 0
 const THIRST_OVERFLOW_HEALTH_MULT = 0.8; // thirst overflow hurts more — dehydration is more urgent
 const STARVATION_HEALTH_FLOOR = 1;       // hunger/thirst overflow alone can never drop you below this
 // hasPerk('field_rations') used to cut travel's Food cost 10% (see roadmap.md's Skills &
-// Progression section) — now that travel raises Hunger/Thirst instead of spending Food
+// Progression section) — now that travel drains Hunger/Thirst instead of spending Food
 // directly, its discount carries over to these instead, its natural equivalent.
 function hoursToHungerGain(hours){
   const mult = hasPerk('field_rations') ? 0.9 : 1;
@@ -2171,23 +2202,23 @@ function hoursToThirstGain(hours){
 }
 
 // Shared by both meters: clamps to [0,100], persists, and — only when amount is positive and
-// pushes the raw total past 100 — converts the excess into Health damage rather than just
-// clipping it away. A negative amount (eating/drinking) never triggers this, since raw-100 is
-// negative whenever the meter isn't already maxed.
+// pushes the raw total below 0 — converts the shortfall into Health damage rather than just
+// clipping it away. A negative amount (eating/drinking) never triggers this, since raw is always
+// >= 0 whenever the meter isn't already empty.
 function addHunger(amount){
-  const raw = playerHunger + amount;
+  const raw = playerHunger - amount;
   playerHunger = Math.max(0, Math.min(100, raw));
   localStorage.setItem(HUNGER_KEY, String(playerHunger));
-  const overflow = raw - 100;
-  if(overflow > 0) setHealth(Math.max(STARVATION_HEALTH_FLOOR, playerHealth - Math.round(overflow * HUNGER_OVERFLOW_HEALTH_MULT)));
+  const underflow = -raw;
+  if(underflow > 0) setHealth(Math.max(STARVATION_HEALTH_FLOOR, playerHealth - Math.round(underflow * HUNGER_OVERFLOW_HEALTH_MULT)));
   refreshPlayerStatUI();
 }
 function addThirst(amount){
-  const raw = playerThirst + amount;
+  const raw = playerThirst - amount;
   playerThirst = Math.max(0, Math.min(100, raw));
   localStorage.setItem(THIRST_KEY, String(playerThirst));
-  const overflow = raw - 100;
-  if(overflow > 0) setHealth(Math.max(STARVATION_HEALTH_FLOOR, playerHealth - Math.round(overflow * THIRST_OVERFLOW_HEALTH_MULT)));
+  const underflow = -raw;
+  if(underflow > 0) setHealth(Math.max(STARVATION_HEALTH_FLOOR, playerHealth - Math.round(underflow * THIRST_OVERFLOW_HEALTH_MULT)));
   refreshPlayerStatUI();
 }
 
@@ -2195,7 +2226,7 @@ function addThirst(amount){
 // controls (bottom-left, alongside Find Me/Make Camp), without needing to travel anywhere.
 // Deliberately a *safe* fast-forward, per the project owner: unlike travel or camping, it never
 // rolls an ambush and never runs the weekly faction AI tick — advanceCalendarQuietly (below) is
-// advanceDays() without that side effect. It does still raise Hunger/Thirst at the exact same
+// advanceDays() without that side effect. It does still drain Hunger/Thirst at the exact same
 // effective rate travel does, just accrued incrementally in real time instead of as one lump
 // sum, and only ever applied for the *new* hours crossed since the last tick so it can't
 // double-apply. No affordability gate — unlike the old Food system, there's nothing stopping the
@@ -2464,13 +2495,38 @@ function buildHitzones(){
   }
 }
 
+// ---- settlement name labels, drawn as real SVG text instead of being baked into
+// world-raster.jpg. Offset below each point so it doesn't sit on top of the tap-zone/
+// player-marker at that same spot; sized and weighted by tier so capitals read as more
+// important than villages. Only meaningful once world-raster.jpg no longer has Azgaar's
+// own labels burned into it — with the current raster this will double up with the baked
+// text until that art is regenerated label-free.
+const LABEL_FONT_SIZE = { village:4, town:5, city:6.5, capital:8 };
+const LABEL_OFFSET_Y = { village:11, town:14, city:18, capital:22 };
+function buildLabels(){
+  const g = document.getElementById('labels');
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  for(const id in graph.burgs){
+    const b = graph.burgs[id];
+    const t = document.createElementNS(ns, "text");
+    t.setAttribute("class", "map-label");
+    t.setAttribute("x", b.x);
+    t.setAttribute("y", b.y + (LABEL_OFFSET_Y[b.tier] || 11));
+    t.setAttribute("font-size", LABEL_FONT_SIZE[b.tier] || 4);
+    t.setAttribute("font-weight", b.tier === 'capital' ? '700' : '500');
+    t.textContent = b.name;
+    g.appendChild(t);
+  }
+}
+
 // ---- castle-medallion image marking City/Capital-tier settlements, offset just above the
 // settlement's own point, so major cities read at a glance while zoomed out without
-// covering the settlement's name. It can't truly draw *behind* the name — the map's
-// labels are baked into world-raster.jpg, a flat image with no separate DOM layer to
-// z-order against (see labelElByBurg's comment) — and testing at high zoom showed
-// Azgaar centers each label directly ON the point (not offset below/beside it, as
-// originally assumed), so a real vertical gap above the point is needed to clear it.
+// covering the settlement's name. It can't truly draw *behind* the name — world-raster.jpg
+// still has Azgaar's own labels baked into its pixels (until that art is regenerated
+// label-free, see buildLabels() above), and testing at high zoom showed Azgaar centers
+// each baked label directly ON the point (not offset below/beside it, as originally
+// assumed), so a real vertical gap above the point is needed to clear it.
 // That offset alone isn't enough in dense clusters, though: two settlements can sit close
 // enough that one's *offset* icon lands on top of a *different* settlement's label. Rather
 // than chase that per-pair, buildCityIcons() checks each candidate icon position against
@@ -2562,12 +2618,12 @@ function onMapTap(burgId){
       travelBtn.style.display = 'none';
     } else {
       // No affordability gate anymore — travel is never blocked by Food/Waterskin item count.
-      // Hunger/Thirst just rise (see HUNGER_PER_DAY/THIRST_PER_DAY); ignoring them too long
+      // Hunger/Thirst just drain (see HUNGER_PER_DAY/THIRST_PER_DAY); ignoring them too long
       // costs Health instead, via addHunger/addThirst's overflow handling.
       const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
       travelDiv.innerHTML = t.viaRoad
-        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>+${t.hungerGain} hunger</b>, <b>+${t.thirstGain} thirst</b>.`
-        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>+${t.hungerGain} hunger</b>, <b>+${t.thirstGain} thirst</b>.`;
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
       travelBtn.textContent = `Travel Here (${t.hours}h)`;
@@ -2595,17 +2651,17 @@ function hideTravelControls(){
 // #stat-hunger/#stat-thirst frozen at their pre-travel values for the whole animation, then
 // jumping straight to the post-trip numbers the instant it ended, would read as if travel cost
 // nothing until it suddenly did. This repaints them every animation frame with a smooth
-// linear interpolation from their values at departure up toward exactly what they'll actually be
-// on arrival (start + gain, reached precisely at frac=1, so there's no discontinuity with the
+// linear interpolation from their values at departure down toward exactly what they'll actually
+// be on arrival (start - drain, reached precisely at frac=1, so there's no discontinuity with the
 // real addHunger/addThirst calls that follow) — display-only, never touches the real meters
-// itself, so it can't cause a double application no matter how it's called. Capped at 100 for
+// itself, so it can't cause a double application no matter how it's called. Floored at 0 for
 // display even though the real addHunger/addThirst calls at arrival can still register genuine
-// overflow past that (see their own Health-penalty handling).
+// underflow past that (see their own Health-penalty handling).
 function updateLiveHungerThirstDisplay(startHunger, hungerGain, startThirst, thirstGain, frac){
   const hp = document.getElementById('stat-hunger');
   const tp = document.getElementById('stat-thirst');
-  if(hp) hp.textContent = Math.min(100, Math.round(startHunger + hungerGain*frac));
-  if(tp) tp.textContent = Math.min(100, Math.round(startThirst + thirstGain*frac));
+  if(hp) hp.textContent = Math.max(0, Math.round(startHunger - hungerGain*frac));
+  if(tp) tp.textContent = Math.max(0, Math.round(startThirst - thirstGain*frac));
 }
 
 function beginTravel(destId){
@@ -2662,8 +2718,8 @@ function stopTravel(){
   positionPlayerMarker(campPos.x, campPos.y);
   centerOnLogical(campPos.x, campPos.y, view.scale);
   refreshReachability();
-  // No Hunger/Thirst is actually gained on a plain Stop (unlike Camp) — the header's live
-  // display (see updateLiveHungerThirstDisplay) had been rising purely as a preview of what
+  // No Hunger/Thirst is actually lost on a plain Stop (unlike Camp) — the header's live
+  // display (see updateLiveHungerThirstDisplay) had been draining purely as a preview of what
   // arrival *would* cost, so it needs restoring to the real, untouched meters rather than being
   // left showing values that were never actually applied.
   refreshPlayerStatUI();
@@ -3758,6 +3814,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   }
 
   buildHitzones();
+  buildLabels();
   buildCityIcons();
   buildFrontlineMarkers();
   drawPlayerMarker();
@@ -3810,8 +3867,8 @@ function collectCharacterSnapshot(){
     maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),
     stamina: parseInt(localStorage.getItem(STAMINA_KEY) || "100", 10),
     maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
-    hunger: parseInt(localStorage.getItem(HUNGER_KEY) || "0", 10),
-    thirst: parseInt(localStorage.getItem(THIRST_KEY) || "0", 10),
+    hunger: parseInt(localStorage.getItem(HUNGER_KEY) || "100", 10),
+    thirst: parseInt(localStorage.getItem(THIRST_KEY) || "100", 10),
     age: localStorage.getItem(AGE_KEY) || "24",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),

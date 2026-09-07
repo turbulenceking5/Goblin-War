@@ -131,16 +131,7 @@
       <div class="combat-bonus" id="combat-bonus"></div>
 
       <div class="stat-label">Accessories</div>
-      <div class="slot-grid accessory">
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-        <div class="equip-slot"></div>
-      </div>
+      <div class="slot-grid accessory" id="accessory-grid"></div>
     </div>
 
     <div class="card">
@@ -189,7 +180,13 @@ function getCarryCapacity(){
   return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0);
 }
 const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
-const SLOT_LABEL = { head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket" };
+const ACCESSORY_SLOTS = ["ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
+const ALL_SLOTS = EQUIP_SLOTS.concat(ACCESSORY_SLOTS);
+const SLOT_LABEL = {
+  head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket",
+  ring_left:"Ring L", ring_right:"Ring R", amulet:"Amulet", cloak:"Cloak",
+  belt:"Belt", bracers:"Bracers", earring:"Earring", charm:"Charm",
+};
 // Mirrors index.html's MARKET_ITEMS slot/dmg/def data — duplicated per the no-modules convention.
 const ITEM_STATS = {
   "Sword": { slot:"weapon", dmg:4, def:0 },
@@ -198,6 +195,14 @@ const ITEM_STATS = {
   "Leather Armour": { slot:"chest", dmg:0, def:2 },
   "Leather Boots": { slot:"legs", dmg:0, def:1 },
   "Lucky Charm": { slot:"trinket", dmg:1, def:0 },
+  "Ring of Vigor": { slot:"ring_left", dmg:1, def:0 },
+  "Band of Warding": { slot:"ring_right", dmg:0, def:1 },
+  "Amulet of the Wilds": { slot:"amulet", dmg:0, def:2 },
+  "Clasp of the Wayfarer": { slot:"cloak", dmg:0, def:1 },
+  "Warbelt": { slot:"belt", dmg:2, def:0 },
+  "Iron Bracers": { slot:"bracers", dmg:0, def:1 },
+  "Silver Earring": { slot:"earring", dmg:1, def:0 },
+  "Sigil Charm": { slot:"charm", dmg:1, def:0 },
 };
 
 let toastTimer;
@@ -216,10 +221,10 @@ function setEquippedSlot(slot, itemName){
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
 
-function renderEquipment(){
+function renderSlotGrid(gridId, slots){
   const equipped = getEquipped();
-  const grid = document.getElementById('equip-grid');
-  grid.innerHTML = EQUIP_SLOTS.map(slot => {
+  const grid = document.getElementById(gridId);
+  grid.innerHTML = slots.map(slot => {
     const itemName = equipped[slot];
     return `
       <div class="equip-slot ${itemName ? 'filled' : ''}" data-slot="${slot}">
@@ -237,11 +242,16 @@ function renderEquipment(){
       renderEquipment();
     });
   });
+}
+function renderEquipment(){
+  renderSlotGrid('equip-grid', EQUIP_SLOTS);
+  renderSlotGrid('accessory-grid', ACCESSORY_SLOTS);
+  const equipped = getEquipped();
   // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
   // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/
   // getEquipDefenseBonus), which is exactly what this line is meant to preview.
-  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
-  const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
+  const dmgBonus = ALL_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
+  const defBonus = ALL_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
   document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
     ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`
     : `No combat bonus equipped yet — equip gear from the Inventory screen.`;

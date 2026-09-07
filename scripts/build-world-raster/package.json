@@ -1,0 +1,14 @@
+{
+  "name": "build-world-raster",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline tool that renders assets/world-raster.jpg as a painterly hand-drawn-style map straight from assets/game-map.json's real cell/biome/elevation/river/state data — vector-rendered then blurred for soft blending, with crisp coastline/rivers/trees/hachures on top. Not part of the game's runtime — see context/roadmap.md.",
+  "main": "render-painterly.js",
+  "scripts": {
+    "build": "node render-painterly.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "sharp": "^0.35.4"
+  }
+}

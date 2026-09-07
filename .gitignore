@@ -1,3 +1,13 @@
 # Raw Azgaar Fantasy Map Generator export — large (~9.5MB), not read at runtime.
 # travel-graph.json (the processed data the game actually fetches) stays tracked.
 assets/game-map.json
+
+# Offline world-map renderer (scripts/build-world-raster) — its own npm project, not part
+# of the game's runtime. See context/roadmap.md's "World map rebuilt as a painterly render"
+# section.
+scripts/build-world-raster/node_modules
+
+# A local test render of render-painterly.js's output — not the real asset. Regenerate with
+# `node scripts/build-world-raster/render-painterly.js`; only copy over assets/world-raster.jpg
+# once it looks right.
+assets/world-raster-preview.jpg

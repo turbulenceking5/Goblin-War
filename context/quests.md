@@ -39,7 +39,7 @@ Neither the Quest Board's offers nor the Notable Figure's offer are ever written
 
 ## The Quest Board — `showQuestBoardPanel(burgId)`
 
-A fifth entry in every settlement's action list (alongside Inn/Marketplace/Work/Talk to Townsfolk — see [locations-and-camp.md](locations-and-camp.md)), same `#loc-action-list`-replacement pattern as Market/Inn/flavor panels.
+A fifth entry in every settlement's action list (alongside Tavern/Marketplace/Work/Talk to Townsfolk — see [locations-and-camp.md](locations-and-camp.md)), same `#loc-action-list`-replacement pattern as Market/Tavern/flavor panels.
 
 - **Your Active Quests** — every quest in `getActiveQuests()`, regardless of source or which settlement it was given at. quests.html (above) is now the dedicated place to see and manage everything outstanding, but the Board still shows this same list too, so accepting and reviewing stays in one screen without a trip to another page.
 - **On the Board** — `generateBoardOffers(burgId)` returns up to `getBoardQuestCount(burgId)` offers this month: a settlement's tier caps how many it can *ever* show at once (`BOARD_MAX_QUESTS_BY_TIER`: village 1, town 2, city 2, capital 3), and the actual count for the current month is itself a seeded roll from 0 up to that cap inclusive — a village doesn't necessarily have its one possible job posted every month. Each slot independently seeds a coin flip between **Deliver a Message** and the heavier-paying **Deliver Cargo** — both are the same `deliver_*` mechanic underneath (see Turn-in below), only the flavor and reward differ. An offer already matching an active quest (same type + giver + target) is filtered out so accepting one doesn't leave a visible duplicate the same month.

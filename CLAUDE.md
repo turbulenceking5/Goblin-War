@@ -39,7 +39,7 @@ Each covers one system in depth — read the relevant one before changing that p
 - [context/travel-and-map.md](context/travel-and-map.md) — the map canvas, road-graph pathfinding, travel animation, camp/stop-mid-journey, calendar.
 - [context/player-state.md](context/player-state.md) — health/stamina/food/weight/gold/age/inventory: the `localStorage` keys every page shares.
 - [context/combat.md](context/combat.md) — the turn-based bandit encounter system and how it's triggered.
-- [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Inn, Marketplace, etc.) and the camp screen.
+- [context/locations-and-camp.md](context/locations-and-camp.md) — the settlement location-view (Tavern, Marketplace, Blacksmith, etc.) and the camp screen.
 - [context/quests.md](context/quests.md) — the Quest Board (minor, board-sourced) and Notable Figure (important, character-given) quest systems, and how to add a new quest type.
 - [context/factions-and-territory.md](context/factions-and-territory.md) — the weekly faction AI tick, settlement conquest, and war-driven Marketplace pricing.
 - [context/accounts.md](context/accounts.md) — the mandatory login gate, login.html, and the shared `assets/auth-gate-sync.js`/`assets/auth-client.js` scripts.

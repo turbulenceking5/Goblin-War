@@ -798,6 +798,10 @@ const CHANGELOG = [
     "Quest Board postings are now capped by settlement size (villages up to 1, towns and cities up to 2, capitals up to 3) and refresh once a month instead of daily.",
     "Quest Board deliveries no longer send you into enemy territory, and now pay better the farther the delivery — the quest description shows how long the trip will take."
   ]},
+  { id:32, date:"2026-09-09", changes:[
+    "The Inn and The Pub are now one location, The Tavern — rest, tavern talk, and a meal & drink are all offered together at every settlement.",
+    "Added The Blacksmith to every City and Capital — a second shop selling masterwork-tier weapons and armour, a real step up from what the Marketplace carries."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1443,6 +1447,19 @@ const MARKET_ITEMS = [
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
   { name:"Waterskin", price:8, weight:2, desc:"Drink to ease your thirst" },
   { name:"Bedroll", price:45, weight:3, desc:"Quality bedding — safer camping, and a little extra rest" },
+  // Blacksmith-exclusive tier-2 gear (see showBlacksmithPanel) — a masterwork counterpart to
+  // each of the 6 core Equipment slots above, roughly double the bonus at roughly triple the
+  // price. Tagged shop:'blacksmith' so showMarketPanel excludes them and showBlacksmithPanel
+  // shows only them; everything else about buying/selling/equipping is the exact same
+  // MARKET_ITEMS/ITEM_STATS/EQUIP_SLOTS machinery, no special-casing needed. This is the
+  // "no rarity/tier variation" gap from the Equipment section of roadmap.md's first real fix —
+  // a second fixed tier via a second item name, not a per-instance upgrade system.
+  { name:"Masterwork Sword", price:70, weight:6, desc:"A finely balanced blade, honed by a master smith", slot:"weapon", dmg:8, shop:"blacksmith" },
+  { name:"Reinforced Shield", price:75, weight:9, desc:"Iron-banded oak, built to turn a heavier blow", slot:"shield", def:6, shop:"blacksmith" },
+  { name:"Steel Helm", price:40, weight:2, desc:"A proper smith-forged helm", slot:"head", def:3, shop:"blacksmith" },
+  { name:"Plate Armour", price:65, weight:7, desc:"Fitted steel plate over a mail shirt", slot:"chest", def:5, shop:"blacksmith" },
+  { name:"Steel Greaves", price:35, weight:4, desc:"Articulated steel leg guards", slot:"legs", def:3, shop:"blacksmith" },
+  { name:"Warrior's Talisman", price:45, weight:0, desc:"Forge-blessed, said to steel the wearer's nerve", slot:"trinket", dmg:3, shop:"blacksmith" },
 ];
 // name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
 const ITEM_STATS = {};
@@ -3033,6 +3050,13 @@ const RUMOURS = [
   "Rumour has it the King's messengers have been riding harder than usual this month.",
   "A one-armed veteran drinks alone in the corner, muttering about 'the thing in the pass'.",
   "Two farmhands are arguing loudly about whose lord will call up levies first.",
+  // Merged in from the old, separate Pub flavor pool when the Tavern absorbed it — see the
+  // TAVERN section below for why Inn and Pub became one location.
+  "A fiddler in the corner fights a losing battle against the noise.",
+  "Two patrons argue loudly over a card game neither of them seems to be winning.",
+  "The innkeeper's cat threads between table legs, begging scraps off anyone who'll look at it.",
+  "Someone's already three tankards in and telling the same story for the second time.",
+  "The air is thick with pipe smoke, spilled ale, and someone's attempt at singing.",
 ];
 
 const CAMP_ART = `<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -3486,7 +3510,7 @@ function showLocationView(burgId){
 
   const workedToday = hasWorkedToday(burgId);
   const actions = [
-    { icon:`<circle cx="12" cy="12" r="9"/><path d="M9 10h6M9 14h4"/>`, title:"The Inn", desc:"Rest up and hear local rumours", action:'inn' },
+    { icon:`<path d="M5 3h14l-1 9a6 6 0 0 1-12 0L5 3z"/><path d="M8 21h8"/><path d="M12 15v6"/>`, title:"The Tavern", desc:"Rest up, hear local rumours, and buy a meal and a drink", action:'tavern' },
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market' },
     { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : "Take on odd jobs for a few hours' pay", action:'work', disabled:workedToday },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'talk' },
@@ -3497,6 +3521,7 @@ function showLocationView(burgId){
   if(b.tier === 'city' || b.tier === 'capital'){
     actions.push({ icon:`<path d="M12 3l2.5 4.5H20l-4 4 1.5 5.5L12 14l-5.5 3 1.5-5.5-4-4h5.5z"/>`, title:"Temple", desc:"Seek a blessing", action:'temple' });
     actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/>`, title:"Guard House", desc:"Hear how the watch is holding the walls", action:'guardhouse' });
+    actions.push({ icon:`<path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/>`, title:"Blacksmith", desc:"Buy masterwork weapons and armour", action:'blacksmith' });
     // Not every City/Capital gets this one — only the handful that are home to a
     // NOTABLE_FIGURES entry, and only while that figure's home hasn't been captured
     // (see getFigureForBurg). Most settlements simply won't show it, same as most
@@ -3507,9 +3532,6 @@ function showLocationView(burgId){
   }
   if(b.tier === 'capital'){
     actions.push({ icon:`<path d="M4 21h16"/><path d="M5 21V9l3-3 4 3 4-3 3 3v12"/><path d="M12 21v-6"/>`, title:"The Palace", desc:"Learn of the ruling court", action:'palace' });
-  }
-  if(hasPub(burgId)){
-    actions.push({ icon:`<path d="M5 3h14l-1 9a6 6 0 0 1-12 0L5 3z"/><path d="M8 21h8"/><path d="M12 15v6"/>`, title:"The Pub", desc:"Buy a meal and a drink", action:'pub' });
   }
   // Any settlement, any tier, can be under siege (advanceSiege doesn't restrict targeting by
   // tier) or have taken in refugees this week — both conditions are rare enough day-to-day that
@@ -3531,8 +3553,9 @@ function showLocationView(burgId){
   `).join('');
   list.querySelectorAll('.loc-action').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      if(btn.dataset.action === 'inn') showInnPanel(burgId);
+      if(btn.dataset.action === 'tavern') showTavernPanel(burgId);
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
+      else if(btn.dataset.action === 'blacksmith') showBlacksmithPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
@@ -3543,11 +3566,6 @@ function showLocationView(burgId){
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'talk') showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId));
-      else if(btn.dataset.action === 'pub'){
-        showFlavorPanel(burgId, 'The Pub', PUB_LINES, buildPubMealHTML());
-        const pubBtn = document.getElementById('pub-meal-btn');
-        if(pubBtn) pubBtn.addEventListener('click', ()=> acceptPubMeal(burgId));
-      }
       else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
       else if(btn.dataset.action === 'refugee_camp'){
         showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
@@ -3619,51 +3637,26 @@ const PALACE_LINES = [
   "Word in the court is that the war is weighing heavily on the ruler's mind.",
 ];
 
-// The Pub — City/Capital always, Town sometimes, per the project owner. "Sometimes" is a fixed
-// world fact rather than re-rolled every visit: hasPub() checks a seeded hash of the burg id
-// against PUB_TOWN_CHANCE, the same seeded-PRNG pattern quest offers use, so a given town either
-// always has a pub or never does. Ties directly into Hunger/Thirst (see that section above) —
-// buying a Meal & Drink here instantly satisfies both for gold, the convenient alternative to
-// carrying and consuming Food/Waterskin yourself.
-const PUB_TOWN_CHANCE = 0.4;
-function hasPub(burgId){
-  const b = graph.burgs[burgId];
-  if(!b) return false;
-  if(b.tier === 'city' || b.tier === 'capital') return true;
-  if(b.tier === 'town') return seededRandom(hashSeed(`pub_${burgId}`)) < PUB_TOWN_CHANCE;
-  return false;
-}
-const PUB_LINES = [
-  "A fiddler in the corner fights a losing battle against the noise.",
-  "Two patrons argue loudly over a card game neither of them seems to be winning.",
-  "The innkeeper's cat threads between table legs, begging scraps off anyone who'll look at it.",
-  "Someone's already three tankards in and telling the same story for the second time.",
-  "The air is thick with pipe smoke, spilled ale, and someone's attempt at singing.",
-];
-const PUB_MEAL_GOLD_COST = 12;
-const PUB_MEAL_HUNGER_RELIEF = 50;
-const PUB_MEAL_THIRST_RELIEF = 50;
-function buildPubMealHTML(){
+// The Tavern — one location, not two. Used to be a separate Inn (rest + rumours, every
+// settlement) and Pub (Meal & Drink, City/Capital always/Town sometimes via a seeded coin flip)
+// per the project owner's original ask; merged per a later call that having a settlement's rest
+// stop and its food-and-drink stop be two different buildings didn't make sense. Every
+// settlement's Tavern now offers all three — see showTavernPanel below — so hasPub()/
+// PUB_TOWN_CHANCE's tiered gating is gone too, not just the separate action button.
+const TAVERN_MEAL_GOLD_COST = 12;
+const TAVERN_MEAL_HUNGER_RELIEF = 50;
+const TAVERN_MEAL_THIRST_RELIEF = 50;
+function buildTavernMealHTML(){
   return `
-    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Meal &amp; Drink</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">A hot meal and a full tankard — eases both hunger and thirst on the spot.</div>
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:12px; color:#e0a860; font-weight:700;">${PUB_MEAL_GOLD_COST}g</span>
-        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="pub-meal-btn">Order</button>
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">${TAVERN_MEAL_GOLD_COST}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="tavern-meal-btn">Order</button>
       </div>
     </div>
   `;
-}
-function acceptPubMeal(burgId){
-  if(playerGold < PUB_MEAL_GOLD_COST){ showToast("Not enough gold for a meal here."); return; }
-  setGold(playerGold - PUB_MEAL_GOLD_COST);
-  addHunger(-PUB_MEAL_HUNGER_RELIEF);
-  addThirst(-PUB_MEAL_THIRST_RELIEF);
-  showToast(`You settle in for a proper meal and a drink.`);
-  showFlavorPanel(burgId, 'The Pub', PUB_LINES, buildPubMealHTML());
-  const pubBtn = document.getElementById('pub-meal-btn');
-  if(pubBtn) pubBtn.addEventListener('click', ()=> acceptPubMeal(burgId));
 }
 
 // Refugee Camp — shown only at a settlement with a recent refugee arrival (see
@@ -3983,36 +3976,52 @@ function resolveSiegeDefense(burgId, result){
   showLocationView(burgId);
 }
 
-function showInnPanel(burgId){
+// One panel for all three of the old Inn/Pub's services — see the TAVERN section above for why
+// they merged. Fully re-renders (render(), the same pattern showMarketPanel/showQuestBoardPanel
+// use) after either action rather than patching individual elements in place, since both Rest
+// and Meal & Drink now share one screen.
+function showTavernPanel(burgId){
   const b = graph.burgs[burgId];
-  const rumour = RUMOURS[Math.floor(Math.random()*RUMOURS.length)];
   const list = document.getElementById('loc-action-list');
-  list.innerHTML = `
-    <button class="loc-action" id="inn-back-btn">
-      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
-      <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
-    </button>
-    <button class="loc-action" id="inn-rest-btn">
-      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
-      <span class="li-text"><b>Rest for the Night</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
-    </button>
-    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0;">
-      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:8px;">Tavern Talk</div>
-      <div id="inn-rumour" style="font-size:14.5px; line-height:1.55; color:var(--parchment); font-style:italic;">"${rumour}"</div>
-    </div>
-  `;
-  document.getElementById('inn-back-btn').addEventListener('click', ()=> showLocationView(burgId));
-  document.getElementById('inn-rest-btn').addEventListener('click', ()=>{
-    advanceDays(1);
-    const healed = playerMaxHealth - playerHealth;
-    const staminaBack = playerMaxStamina - playerStamina;
-    const hadBedroll = !!getItem('Bedroll');
-    restFully();
-    let msg = (healed > 0 || staminaBack > 0) ? `You rest for the night and recover your health and stamina.` : "You rest for the night. Already fully rested.";
-    if(hadBedroll) msg += ` Your bedroll leaves you extra rested.`;
-    showToast(msg);
-    document.getElementById('inn-rumour').textContent = `"${RUMOURS[Math.floor(Math.random()*RUMOURS.length)]}"`;
-  });
+  function render(){
+    const rumour = RUMOURS[Math.floor(Math.random()*RUMOURS.length)];
+    list.innerHTML = `
+      <button class="loc-action" id="tavern-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+      </button>
+      <button class="loc-action" id="tavern-rest-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
+        <span class="li-text"><b>Rest for the Night</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
+      </button>
+      ${buildTavernMealHTML()}
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0;">
+        <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:8px;">Tavern Talk</div>
+        <div id="tavern-rumour" style="font-size:14.5px; line-height:1.55; color:var(--parchment); font-style:italic;">"${rumour}"</div>
+      </div>
+    `;
+    document.getElementById('tavern-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    document.getElementById('tavern-rest-btn').addEventListener('click', ()=>{
+      advanceDays(1);
+      const healed = playerMaxHealth - playerHealth;
+      const staminaBack = playerMaxStamina - playerStamina;
+      const hadBedroll = !!getItem('Bedroll');
+      restFully();
+      let msg = (healed > 0 || staminaBack > 0) ? `You rest for the night and recover your health and stamina.` : "You rest for the night. Already fully rested.";
+      if(hadBedroll) msg += ` Your bedroll leaves you extra rested.`;
+      showToast(msg);
+      render();
+    });
+    document.getElementById('tavern-meal-btn').addEventListener('click', ()=>{
+      if(playerGold < TAVERN_MEAL_GOLD_COST){ showToast("Not enough gold for a meal here."); return; }
+      setGold(playerGold - TAVERN_MEAL_GOLD_COST);
+      addHunger(-TAVERN_MEAL_HUNGER_RELIEF);
+      addThirst(-TAVERN_MEAL_THIRST_RELIEF);
+      showToast(`You settle in for a proper meal and a drink.`);
+      render();
+    });
+  }
+  render();
 }
 
 function showMarketPanel(burgId){
@@ -4022,7 +4031,10 @@ function showMarketPanel(burgId){
   const MAX_SLIDER_QTY = 30; // just a sane slider ceiling — affordability/weight cap it lower below
   function render(){
     const atWar = isAtWarAt(burgId);
+    // Blacksmith-exclusive gear (mi.shop==='blacksmith') is never sold here — see
+    // showBlacksmithPanel below, the second shop it's exclusive to instead.
     const itemRows = MARKET_ITEMS.map((mi, i) => {
+      if(mi.shop === 'blacksmith') return '';
       const buyPrice = getBuyPrice(mi, burgId);
       const sellPrice = getSellPrice(mi, burgId);
       const carried = getItem(mi.name);
@@ -4060,6 +4072,110 @@ function showMarketPanel(burgId){
       ${itemRows}
     `;
     document.getElementById('market-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    list.querySelectorAll('.qty-slider').forEach(slider=>{
+      slider.addEventListener('input', ()=>{
+        const i = parseInt(slider.dataset.slider, 10);
+        const price = getBuyPrice(MARKET_ITEMS[i], burgId);
+        document.getElementById(`qty-readout-${i}`).textContent = `${slider.value} · ${slider.value*price}g`;
+      });
+    });
+    list.querySelectorAll('[data-buy]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const i = parseInt(btn.dataset.buy, 10);
+        const slider = list.querySelector(`[data-slider="${i}"]`);
+        buyItem(MARKET_ITEMS[i], parseInt(slider.value, 10));
+      });
+    });
+    list.querySelectorAll('[data-sell]').forEach(btn=>{
+      btn.addEventListener('click', ()=> sellItem(MARKET_ITEMS[parseInt(btn.dataset.sell, 10)]));
+    });
+  }
+
+  function buyItem(mi, qty){
+    const cost = qty * getBuyPrice(mi, burgId);
+    if(playerGold < cost){ showToast("You don't have enough gold for that."); return; }
+    if(!addItem(mi.name, qty, mi.weight, mi.price)){ showToast("Not enough room to carry that much — check your weight limit."); return; }
+    setGold(playerGold - cost);
+    showToast(`Bought ${qty} ${mi.name} for ${cost} gold.`);
+    render();
+  }
+
+  function sellItem(mi){
+    const carried = getItem(mi.name);
+    if(!carried || carried.qty < 1) return;
+    const price = getSellPrice(mi, burgId);
+    consumeItem(mi.name, 1);
+    let unequipped = false;
+    if(mi.slot && !getItem(mi.name) && getEquipped()[mi.slot] === mi.name){
+      setEquippedSlot(mi.slot, null); // sold the last one — can't stay equipped
+      unequipped = true;
+    }
+    setGold(playerGold + price);
+    showToast(`Sold 1 ${mi.name} for ${price} gold.${unequipped ? ' Unequipped — none left.' : ''}`);
+    render();
+  }
+
+  render();
+  document.getElementById('location-view').classList.add('show');
+}
+
+// The second real shop — locations-and-camp.md names exactly this ("an Armorer") as the
+// template's own next use case. City/Capital only (see showLocationView), same tier as
+// Temple/Guard House, so a big settlement actually has more to do rather than just a fancier
+// icon. Deliberately a near-duplicate of showMarketPanel's render/buyItem/sellItem rather than a
+// shared function — per the no-modules convention, and because the two shops' item lists
+// (MARKET_ITEMS filtered by mi.shop) are different enough that factoring them together would
+// mean passing a filter predicate through anyway. Sells only the shop:'blacksmith'-tagged
+// MARKET_ITEMS entries — masterwork tier-2 gear for each of the 6 core Equipment slots, priced
+// well above their Marketplace counterparts. Same getBuyPrice/getSellPrice war-pricing applies
+// here too, since it's keyed off the item and settlement, not which shop is asking.
+function showBlacksmithPanel(burgId){
+  const b = graph.burgs[burgId];
+  const list = document.getElementById('loc-action-list');
+  const blacksmithIndices = MARKET_ITEMS.map((mi,i)=>i).filter(i => MARKET_ITEMS[i].shop === 'blacksmith');
+  const MAX_SLIDER_QTY = 30;
+
+  function render(){
+    const atWar = isAtWarAt(burgId);
+    const itemRows = blacksmithIndices.map(i => {
+      const mi = MARKET_ITEMS[i];
+      const buyPrice = getBuyPrice(mi, burgId);
+      const sellPrice = getSellPrice(mi, burgId);
+      const carried = getItem(mi.name);
+      const affordableQty = buyPrice > 0 ? Math.floor(playerGold / buyPrice) : MAX_SLIDER_QTY;
+      const capacityQty = mi.weight > 0 ? Math.floor((getCarryCapacity() - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
+      const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
+      const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#d9a15a;">wartime demand</span>' : '';
+      return `
+      <div class="loc-action" style="cursor:default;">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>
+        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}</span></span>
+      </div>
+      <div class="buy-row">
+        <input type="range" class="qty-slider" min="1" max="${maxQty}" value="1" data-slider="${i}">
+        <div class="qty-readout" id="qty-readout-${i}">1 &middot; ${buyPrice}g</div>
+        <button class="btn btn-primary" data-buy="${i}">Buy</button>
+      </div>
+      ${carried && carried.qty > 0 ? `
+      <div class="buy-row" style="margin-top:-8px;">
+        <span style="flex:1; font-size:11.5px; color:#a9926a;">Sell 1 for ${sellPrice}g${sellNote}</span>
+        <button class="btn btn-secondary" data-sell="${i}">Sell</button>
+      </div>` : ''}
+      `;
+    }).join('');
+    list.innerHTML = `
+      <button class="loc-action" id="blacksmith-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+      </button>
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0; font-size:13.5px; color:var(--parchment);">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${getCarryCapacity()}</b></div>
+        <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
+      </div>
+      ${itemRows}
+    `;
+    document.getElementById('blacksmith-back-btn').addEventListener('click', ()=> showLocationView(burgId));
     list.querySelectorAll('.qty-slider').forEach(slider=>{
       slider.addEventListener('input', ()=>{
         const i = parseInt(slider.dataset.slider, 10);

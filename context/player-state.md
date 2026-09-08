@@ -75,8 +75,16 @@ Which items are equippable, and what they do, lives on `MARKET_ITEMS` in index.h
 | Iron Bracers | bracers | -1 damage taken |
 | Silver Earring | earring | +1 damage dealt |
 | Sigil Charm | charm | +1 damage dealt |
+| Masterwork Sword | weapon | +8 damage dealt |
+| Reinforced Shield | shield | -6 damage taken |
+| Steel Helm | head | -3 damage taken |
+| Plate Armour | chest | -5 damage taken |
+| Steel Greaves | legs | -3 damage taken |
+| Warrior's Talisman | trinket | +3 damage dealt |
 
-index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARKET_ITEMS` once at load; character.html and inventory.html each hardcode their own copy of the same table (no way to equip a *new* item type without also adding it there — three places, not one, per the no-modules convention). `getEquipDamageBonus()`/`getEquipDefenseBonus()` (index.html) sum every equipped slot's `dmg`/`def`, all 14 of them — see [combat.md](combat.md) for where they're applied.
+The last 6 rows are Blacksmith-exclusive (`mi.shop === 'blacksmith'`, see [locations-and-camp.md](locations-and-camp.md)'s "The Blacksmith") — a masterwork tier-2 counterpart to each of the original 6 Equipment slots, sold only there and never at the Marketplace, roughly double the bonus at roughly triple the price.
+
+index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARKET_ITEMS` once at load; character.html and inventory.html each hardcode their own copy of the same table (no way to equip a *new* item type without also adding it there — three places, not one, per the no-modules convention — the Blacksmith items above needed all three updated too, not just index.html's `MARKET_ITEMS`). `getEquipDamageBonus()`/`getEquipDefenseBonus()` (index.html) sum every equipped slot's `dmg`/`def`, all 14 of them — see [combat.md](combat.md) for where they're applied.
 
 **Where equipping happens:** inventory.html is the only place to *equip* something — every equippable item row gets an Equip/Unequip button that toggles `goblinwar_equipped[slot]` between that item's name and `null`. Its own `#equip-grid` shows all 14 slots in one grid (relabeled "Equipment & Accessories") since the page never visually split them. character.html's Equipment grid is read-only for equipping but supports *un*-equipping by tapping a filled slot (both pages re-render immediately after any change, no reload needed — see [secondary-pages.md](secondary-pages.md)); character.html alone keeps the visual 3×2 Equipment / 4×2 Accessories split, rendering both off the same shared `renderSlotGrid(gridId, slots)` helper against two different slices of `EQUIP_SLOTS`.
 

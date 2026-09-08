@@ -63,7 +63,7 @@
     font-family:'Cinzel', serif; font-size:13px; color:var(--parchment);
   }
   .stat-pill svg{ width:14px; height:14px; color:var(--gold-lt); flex:none; }
-  .stat-pill.hunger-pill svg{ color:#c9924a; }
+  .stat-pill.hunger-pill img{ width:16px; height:16px; flex:none; object-fit:contain; image-rendering:pixelated; }
   .stat-pill.thirst-pill svg{ color:#5bb0c7; }
   .stat-pill.stamina-pill svg{ color:#5b8fc7; }
   .stat-pill:first-child svg{ color:#c0524f; }
@@ -405,7 +405,7 @@
     <div id="player-stats">
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
       <span class="stat-pill stamina-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg><b id="stat-stamina">100/100</b></span>
-      <span class="stat-pill hunger-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21V3"/><path d="M12 6l-4-2M12 6l4-2M12 10l-4-2M12 10l4-2M12 14l-4-2M12 14l4-2"/></svg><b id="stat-hunger">100</b></span>
+      <span class="stat-pill hunger-pill"><img src="assets/icons/hunger.png" alt="Hunger"><b id="stat-hunger">100</b></span>
       <span class="stat-pill thirst-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13z"/></svg><b id="stat-thirst">100</b></span>
       <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
@@ -776,6 +776,9 @@ const CHANGELOG = [
   ]},
   { id:29, date:"2026-09-08", changes:[
     "Every minor trail now renders as a full road — nearly every settlement was already connected, it just wasn't visible enough to notice before."
+  ]},
+  { id:30, date:"2026-09-08", changes:[
+    "The Hunger meter now has a real turkey-leg icon instead of a plain line-art skewer."
   ]},
 ];
 

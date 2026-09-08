@@ -29,6 +29,7 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 | `assets/auth-gate-sync.js` | The synchronous, no-network first pass of the login + character gate — loaded right after supabase-config.js in every gated page's `<head>`, before any body content. See [context/accounts.md](context/accounts.md). |
 | `assets/auth-client.js` | The authoritative (async) half of the login + character gate — creates the shared `sb` client and `authGateReady` promise every page's own script uses. Loaded near the bottom of every gated page, after the Supabase JS CDN script. See [context/accounts.md](context/accounts.md). |
 | `supabase/schema.sql` | The `characters` table + Row Level Security policies (one row per character, not per account) backing the whole save system. Not run automatically — paste it into the Supabase dashboard's SQL Editor once per project. Kept here so the schema is versioned. |
+| `scripts/build-world-raster/` | Offline Node tool (own `package.json`, gitignored `node_modules`) that renders `assets/world-raster.jpg` from `assets/game-map.json`. Not part of the game's runtime. See [scripts/build-world-raster/README.md](scripts/build-world-raster/README.md) for setup/usage and [context/roadmap.md](context/roadmap.md)'s "World map rebuilt as a painterly render" for the design. |
 
 ## Context files
 

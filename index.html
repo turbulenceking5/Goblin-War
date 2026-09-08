@@ -89,8 +89,9 @@
     fill:var(--gold-lt); paint-order:stroke; stroke:#1c150c; stroke-width:.6px; stroke-linejoin:round;
   }
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
-  .road-line.road-road{ stroke:#8a6a42; stroke-width:1.1; opacity:.55; }
-  .road-line.road-trail{ stroke:#8a6a42; stroke-width:.6; stroke-dasharray:2 2; opacity:.32; }
+  .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
+  .road-line.road-road-fill{ stroke:#c9a66b; stroke-width:1.1; opacity:.75; }
+  .road-line.road-trail{ stroke:#b89968; stroke-width:.7; stroke-dasharray:2 2.4; opacity:.4; }
   .settlement-dot{ fill:var(--parchment); stroke:#1c150c; stroke-width:.5; }
   #highlight-ring{
     fill:none; stroke:var(--gold-lt); stroke-width:3;
@@ -769,6 +770,10 @@ const CHANGELOG = [
   { id:27, date:"2026-09-08", changes:[
     "City/Capital settlements now show just their castle icon, sitting right on the settlement instead of floating above a separate dot.",
     "Every settlement's name is visible at once now, in small consistent text under its dot — no more zoomed-out names missing while others show huge."
+  ]},
+  { id:28, date:"2026-09-08", changes:[
+    "Roads now look like real worn dirt paths (a dusty tan trail with a darker earthen edge) instead of thin lines.",
+    "Roads and trails flow in smooth curves instead of jagged straight-line kinks between settlements."
   ]},
 ];
 
@@ -2493,24 +2498,129 @@ function closeCard(){
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
 
+// Chaikin corner-cutting — same technique and same reasoning as render-painterly.js's river
+// smoothing: roads/trails are drawn from a handful of straight-line waypoints (travel-graph.json's
+// edge `pts`), which reads as an angular, jagged path rather than a real road. Chaikin only ever
+// interpolates between existing points (never extrapolates a tangent past them), so unlike
+// Catmull-Rom it can't overshoot into a loop or cusp on a sharp turn.
+function chaikinSmooth(points, iterations = 3){
+  let pts = points;
+  for(let it = 0; it < iterations; it++){
+    const next = [pts[0]];
+    for(let i = 0; i < pts.length - 1; i++){
+      const [x1, y1] = pts[i], [x2, y2] = pts[i+1];
+      next.push([x1 + 0.25*(x2-x1), y1 + 0.25*(y2-y1)]);
+      next.push([x1 + 0.75*(x2-x1), y1 + 0.75*(y2-y1)]);
+    }
+    next.push(pts[pts.length-1]);
+    pts = next;
+  }
+  return pts;
+}
+function smoothedPathD(pts){
+  const smoothed = pts.length < 3 ? pts : chaikinSmooth(pts);
+  return 'M' + smoothed.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
+}
+
+// Every individual road/trail edge in travel-graph.json is just a straight 2-point segment
+// between two adjacent cells — Chaikin (or any smoothing) on 2 points is a no-op, there's no
+// interior bend to soften. The jagged look is the *macro* shape formed by chaining many short
+// straight edges together across the network. To get a river-like flowing curve, connected
+// edges have to be merged into one long polyline *before* smoothing — so this walks the graph:
+// starting from every junction/dead-end cell (anything with road-edge degree != 2), it follows
+// each attached edge through however many degree-2 "pass-through" cells come next (concatenating
+// their points, dropping the duplicate shared point at each join) until hitting the next
+// junction or dead-end, and calls that whole run one chain. A leftover pure loop (every cell on
+// it degree-2, no junction anywhere) is walked separately at the end. Each returned chain is a
+// single point list ready for chaikinSmooth/smoothedPathD, same as one continuous river.
+function buildEdgeChains(kind){
+  const edges = graph.edges.filter(e => e.kind === kind && e.pts && e.pts.length >= 2);
+  const degree = {};
+  const adj = {};
+  for(const e of edges){
+    degree[e.a] = (degree[e.a]||0) + 1;
+    degree[e.b] = (degree[e.b]||0) + 1;
+    (adj[e.a] = adj[e.a]||[]).push({edge:e, other:e.b});
+    (adj[e.b] = adj[e.b]||[]).push({edge:e, other:e.a});
+  }
+  const used = new Set();
+  const chains = [];
+  const ptsFrom = (e, fromCell) => e.a === fromCell ? e.pts : e.pts.slice().reverse();
+
+  for(const cellIdStr in adj){
+    const cellId = Number(cellIdStr);
+    if(degree[cellId] === 2) continue; // only start a chain at a junction or dead-end
+    for(const {edge, other} of adj[cellId]){
+      if(used.has(edge)) continue;
+      used.add(edge);
+      let chainPts = ptsFrom(edge, cellId);
+      let currentCell = other;
+      while(degree[currentCell] === 2){
+        const next = adj[currentCell].find(o => !used.has(o.edge));
+        if(!next) break;
+        used.add(next.edge);
+        chainPts = chainPts.concat(ptsFrom(next.edge, currentCell).slice(1));
+        currentCell = next.other;
+      }
+      chains.push(chainPts);
+    }
+  }
+  // Leftover pure loops — every cell on them stayed degree-2, so the pass above never started
+  // a chain there at all. Rare (a road/trail ring with no fork or dead-end anywhere on it).
+  for(const e of edges){
+    if(used.has(e)) continue;
+    used.add(e);
+    let chainPts = ptsFrom(e, e.a);
+    let currentCell = e.b;
+    while(currentCell !== e.a){
+      const next = (adj[currentCell]||[]).find(o => !used.has(o.edge));
+      if(!next) break;
+      used.add(next.edge);
+      chainPts = chainPts.concat(ptsFrom(next.edge, currentCell).slice(1));
+      currentCell = next.other;
+    }
+    chains.push(chainPts);
+  }
+  return chains;
+}
+
 // ---- permanent road/trail network, drawn as real SVG paths instead of being baked into
 // world-raster.jpg like Azgaar's original export had. Sea edges (graph.edges' third kind)
 // are deliberately not drawn here — a line across open water is mostly redundant clutter
 // when the water itself already reads as "you'd cross the sea to get there", unlike a road
-// or trail across land which has no other visual cue at all. Roads read solid and fairly
-// bold; trails (the far more numerous minor paths — see travel-and-map.md) are thinner and
-// dashed so they don't compete with roads for attention.
+// or trail across land which has no other visual cue at all. Roads get a worn dirt-path look
+// (dark earthen edge + lighter dusty fill, see the .road-road-edge/.road-road-fill CSS and
+// the two-pass draw below); trails (the far more numerous minor paths — see
+// travel-and-map.md) are thinner, dashed, and single-tone, so they don't compete with roads
+// for attention.
 function buildRoads(){
   const g = document.getElementById('roads');
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
-  for(const e of graph.edges){
-    if(e.kind !== 'road' && e.kind !== 'trail') continue;
-    if(!e.pts || e.pts.length < 2) continue;
-    const d = 'M' + e.pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
+  // Roads get a worn-dirt-path look — a darker earthen edge stroke, then a lighter dusty
+  // fill stroke on top, the same halo-then-centerline two-pass trick the river renderer
+  // uses (see render-painterly.js) so it reads as an actual path rather than a thin generic
+  // line. Drawn as two full passes (all chains' edges, then all chains' fills) rather than
+  // edge+fill per chain in turn, so one chain's fill never gets covered by a *different*
+  // chain's edge at a junction. Trails are minor paths, so they stay a single thin dashed
+  // stroke.
+  const roadDs = buildEdgeChains('road').map(smoothedPathD);
+  for(const d of roadDs){
     const path = document.createElementNS(ns, "path");
     path.setAttribute("d", d);
-    path.setAttribute("class", `road-line road-${e.kind}`);
+    path.setAttribute("class", "road-line road-road-edge");
+    g.appendChild(path);
+  }
+  for(const d of roadDs){
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("class", "road-line road-road-fill");
+    g.appendChild(path);
+  }
+  for(const d of buildEdgeChains('trail').map(smoothedPathD)){
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("class", "road-line road-trail");
     g.appendChild(path);
   }
 }

@@ -92,11 +92,6 @@
   .road-line.road-road{ stroke:#8a6a42; stroke-width:1.1; opacity:.55; }
   .road-line.road-trail{ stroke:#8a6a42; stroke-width:.6; stroke-dasharray:2 2; opacity:.32; }
   .settlement-dot{ fill:var(--parchment); stroke:#1c150c; stroke-width:.5; }
-  .settlement-dot.tier-capital{ fill:var(--gold-lt); }
-  /* Zoomed-out: hide Town/Village names entirely (dots still mark every location).
-     Zoomed in one step: Town names appear. Fully zoomed in: everything shows. */
-  #labels.zoom-far .map-label.tier-town, #labels.zoom-far .map-label.tier-village{ display:none; }
-  #labels.zoom-mid .map-label.tier-village{ display:none; }
   #highlight-ring{
     fill:none; stroke:var(--gold-lt); stroke-width:3;
     opacity:0; transition:opacity .15s;
@@ -545,25 +540,9 @@ function clampView(){
   view.tx = Math.max(vw - scaledW, Math.min(0, view.tx));
   view.ty = Math.max(vh - scaledH, Math.min(0, view.ty));
 }
-// Town labels appear once zoomed in past the default view (~0.96, see clampView/REGION_W);
-// Village labels need a step further still. A single class swap on the #labels group (rather
-// than touching all ~700 individual <text> elements) keeps this cheap enough to call on every
-// pan/zoom frame — the actual hiding is plain CSS (see #labels.zoom-far/.zoom-mid above).
-const TOWN_LABEL_MIN_SCALE = 1.3;
-const VILLAGE_LABEL_MIN_SCALE = 1.9;
-let labelZoomBucket = null;
-function updateLabelZoomVisibility(){
-  const bucket = view.scale < TOWN_LABEL_MIN_SCALE ? 'far' : view.scale < VILLAGE_LABEL_MIN_SCALE ? 'mid' : 'near';
-  if(bucket === labelZoomBucket) return;
-  labelZoomBucket = bucket;
-  const g = document.getElementById('labels');
-  g.classList.toggle('zoom-far', bucket === 'far');
-  g.classList.toggle('zoom-mid', bucket === 'mid');
-}
 function applyView(){
   clampView();
   document.getElementById('map-stage').style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;
-  updateLabelZoomVisibility();
 }
 function centerOnLogical(lx, ly, scale){
   const holder = document.getElementById('map-viewport');
@@ -786,6 +765,10 @@ const CHANGELOG = [
     "Roads and trails are back on the map, plus a dot marking every settlement's exact location.",
     "Fixed City/Capital castle icons sitting too far from their settlement, and several — including Bary's — not appearing at all.",
     "Town and Village names now only appear once you're zoomed in a bit, so the map isn't a wall of text at a normal view."
+  ]},
+  { id:27, date:"2026-09-08", changes:[
+    "City/Capital settlements now show just their castle icon, sitting right on the settlement instead of floating above a separate dot.",
+    "Every settlement's name is visible at once now, in small consistent text under its dot — no more zoomed-out names missing while others show huge."
   ]},
 ];
 
@@ -2532,18 +2515,20 @@ function buildRoads(){
   }
 }
 
-// ---- a small dot at every settlement's exact point, sized by tier — world-raster.jpg used
-// to have Azgaar's own settlement pips baked into its pixels; the new painterly render (see
+// ---- a small dot at every Village/Town's exact point — world-raster.jpg used to have
+// Azgaar's own settlement pips baked into its pixels; the new painterly render (see
 // roadmap.md) has none, so without this there was no visual marker at all for anything below
-// City tier, and City/Capital's own castle icon (buildCityIcons, below) had nothing to anchor
-// itself relative to either.
-const DOT_R = { village:2, town:2.6, city:3.4, capital:4.2 };
+// City tier. City/Capital settlements get the castle icon instead (buildCityIcons, below) —
+// drawn exactly at the point rather than floating above a separate dot, so the icon *is*
+// their marker, not an addition to one.
+const DOT_R = { village:2, town:2.6 };
 function buildSettlementDots(){
   const g = document.getElementById('settlement-dots');
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
   for(const id in graph.burgs){
     const b = graph.burgs[id];
+    if(b.tier === 'city' || b.tier === 'capital') continue;
     const c = document.createElementNS(ns, "circle");
     c.setAttribute("cx", b.x);
     c.setAttribute("cy", b.y);
@@ -2572,16 +2557,15 @@ function buildHitzones(){
 
 // ---- settlement name labels, drawn as real SVG text instead of being baked into
 // world-raster.jpg. Offset below each point so it doesn't sit on top of the tap-zone/
-// player-marker at that same spot; sized and weighted by tier so capitals read as more
-// important than villages. This is now the *only* source of settlement names on the
-// map — world-raster.jpg (see roadmap.md's painterly-render section) has no baked text
-// at all, unlike Azgaar's original export this replaced. Each label also carries a
-// tier-N class so updateLabelZoomVisibility() (near applyView, below) can hide Town/Village
-// text at a wide zoom — with 507 towns and 198 villages, showing every name at once (as an
-// early pass did) was unreadable clutter; the settlement dots (buildSettlementDots) still
-// mark every location regardless of zoom, only the text thins out.
-const LABEL_FONT_SIZE = { village:4, town:5, city:6.5, capital:8 };
-const LABEL_OFFSET_Y = { village:11, town:14, city:18, capital:22 };
+// player-marker/dot/icon at that same spot. This is now the *only* source of settlement
+// names on the map — world-raster.jpg (see roadmap.md's painterly-render section) has no
+// baked text at all, unlike Azgaar's original export this replaced. Kept small and close in
+// size across every tier deliberately, per the project owner: an earlier pass scaled Capital
+// labels up to 8 and hid Town/Village labels until zoomed in, which read as inconsistent
+// (some names huge, most just missing) rather than as decluttered. Every settlement's name is
+// always shown now — small text under a small dot, all the way down.
+const LABEL_FONT_SIZE = { village:3, town:3, city:3.8, capital:4.5 };
+const LABEL_OFFSET_Y = { village:5, town:5, city:9, capital:11 };
 function buildLabels(){
   const g = document.getElementById('labels');
   g.innerHTML = '';
@@ -2599,23 +2583,22 @@ function buildLabels(){
   }
 }
 
-// ---- castle-medallion image marking City/Capital-tier settlements, offset just above the
-// settlement's own dot (buildSettlementDots, above) so major cities read at a glance while
-// zoomed out. The offset used to be a much larger -11 units, tuned to clear Azgaar's own
-// label text, which the original world-raster.jpg had baked in directly on top of the point;
-// now that labels are the real, separately-offset buildLabels() text (and there's a real dot
-// to sit above instead of nothing), the icon only needs a small lift to read as "attached to
-// this point" rather than floating off toward some other settlement's name.
-// The offset alone isn't quite enough in dense clusters, though: two settlements can sit
-// close enough that one's *offset* icon lands on top of a *different* settlement's dot or
-// label. Rather than chase that per-pair, buildCityIcons() checks each candidate icon
-// position against every settlement's point (not just City/Capital ones) and simply skips
-// drawing it if it would land within MIN_CLEARANCE of one — better to omit an icon in a
-// crowded area than to cover a neighboring settlement's marker.
+// ---- castle-medallion image marking City/Capital-tier settlements, centered exactly on the
+// settlement's own point — it *is* their marker now, per the project owner, rather than a
+// separate dot (buildSettlementDots skips City/Capital tier entirely) plus an icon floating
+// above it. Two earlier offsets (-11, then -6) existed only to clear label text that used to
+// sit at or near the point; now that buildLabels() offsets its text well clear on its own
+// (see LABEL_OFFSET_Y above) and the icon needs no dot to hover over, there's nothing left to
+// dodge, so the icon just sits at 0 offset.
+// Dense clusters can still put two settlements close enough that one's icon overlaps a
+// *different* settlement's own point. Rather than chase that per-pair, buildCityIcons() checks
+// each candidate icon position against every settlement's point (not just City/Capital ones)
+// and simply skips drawing it if it would land within MIN_CLEARANCE of one — better to omit
+// an icon in a crowded area than to cover a neighboring settlement's marker.
 const CITY_ICON_HREF = "assets/icons/Map/Cities.png"; // 1024x848, transparent outside the coin
 const CITY_ICON_ASPECT = 848/1024;
-const CITY_ICON_OFFSET_Y = -6; // logical units above the point — just enough to clear its own dot
-const CITY_ICON_MIN_CLEARANCE = 9; // logical units — skip if this close to any settlement's point
+const CITY_ICON_OFFSET_Y = 0; // logical units above the point — the icon *is* the marker now
+const CITY_ICON_MIN_CLEARANCE = 7; // logical units — skip if this close to any settlement's point
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
   g.innerHTML = '';

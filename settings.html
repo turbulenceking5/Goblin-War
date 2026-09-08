@@ -150,6 +150,7 @@ const SKILLPOINTS_KEY = "goblinwar_skillPoints";
 const STATS_KEY = "goblinwar_stats";
 const SKILLS_KEY = "goblinwar_skills";
 const QUEST_KEY = "goblinwar_quests";
+const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
 const DEFAULT_INVENTORY = [
   { name:"Food", qty:10, weight:1, value:2 },
   { name:"Waterskin", qty:1, weight:2, value:3 },
@@ -220,6 +221,7 @@ function collectCharacterSnapshot(){
     stats: localStorage.getItem(STATS_KEY) || JSON.stringify({str:0,agi:0,int:0}),
     skills: localStorage.getItem(SKILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
+    completedQuests: localStorage.getItem(COMPLETEDQUEST_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

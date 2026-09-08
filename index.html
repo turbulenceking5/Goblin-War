@@ -47,6 +47,7 @@
   }
   #nav-icons{ display:flex; gap:4px; order:1; }
   .nav-btn{
+    position:relative;
     display:flex; flex-direction:column; align-items:center; gap:3px;
     background:transparent; border:none; color:var(--gold-lt);
     font-family:'Cinzel', serif; font-size:9px; letter-spacing:.3px; text-transform:uppercase;
@@ -54,6 +55,11 @@
   }
   .nav-btn:active{ background:rgba(255,255,255,.08); }
   .nav-btn svg{ width:22px; height:22px; }
+  .nav-badge{
+    position:absolute; top:2px; right:3px; min-width:14px; height:14px; padding:0 3px;
+    background:#c0392b; color:#fff; border-radius:7px; box-shadow:0 0 0 1.5px #1c150c;
+    font-family:'Cinzel', serif; font-size:9px; font-weight:700; line-height:14px; text-align:center;
+  }
   #zoom-controls{ display:flex; gap:8px; order:2; }
   #player-stats{ display:flex; flex-wrap:wrap; gap:7px; order:3; flex:1 1 100%; justify-content:center; }
   .stat-pill{
@@ -397,6 +403,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg>
         Skills
       </button>
+      <button class="nav-btn" onclick="goTo('quests.html')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M8 12h8M8 16h5"/></svg>
+        Quests
+        <span class="nav-badge" id="quest-nav-badge" hidden>0</span>
+      </button>
       <button class="nav-btn" onclick="goTo('settings.html')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.4.6a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.3 2.7a7.6 7.6 0 0 0-1.7 1l-2.4-.6-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.4-.6a7.6 7.6 0 0 0 1.7 1L11 21h4l.3-2.7a7.6 7.6 0 0 0 1.7-1l2.4.6 2-3.4-2-1.5z"/></svg>
         Settings
@@ -426,6 +437,7 @@
         <g id="labels" style="pointer-events:none"></g>
         <g id="city-icons" style="pointer-events:none"></g>
         <g id="frontline-markers" style="pointer-events:none"></g>
+        <g id="quest-markers" style="pointer-events:none"></g>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
       </svg>
@@ -779,6 +791,12 @@ const CHANGELOG = [
   ]},
   { id:30, date:"2026-09-08", changes:[
     "The Hunger meter now has a real turkey-leg icon instead of a plain line-art skewer."
+  ]},
+  { id:31, date:"2026-09-09", changes:[
+    "Added a Quests tab — see and manage everything you've taken on in one place, with a new Abandon button per quest and a Recently Completed history.",
+    "Active delivery quests now show a small flag marker on the map at their destination, and the Quests tab icon shows how many you have active.",
+    "Quest Board postings are now capped by settlement size (villages up to 1, towns and cities up to 2, capitals up to 3) and refresh once a month instead of daily.",
+    "Quest Board deliveries no longer send you into enemy territory, and now pay better the farther the delivery — the quest description shows how long the trip will take."
   ]},
 ];
 
@@ -1382,6 +1400,8 @@ const SKILLPOINTS_KEY = "goblinwar_skillPoints";
 const STATS_KEY = "goblinwar_stats";
 const SKILLS_KEY = "goblinwar_skills";
 const QUEST_KEY = "goblinwar_quests";
+const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
+const COMPLETED_QUESTS_MAX = 20; // trims oldest once history grows past this many entries
 const FOOD_NAME = "Food";
 const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACITY
 const FOOD_PRICE = 2;     // gold per unit of Food at the Marketplace
@@ -1615,6 +1635,7 @@ function refreshPlayerStatUI(){
   if(hup) hup.textContent = playerHunger;
   if(tp) tp.textContent = playerThirst;
   if(gp) gp.textContent = playerGold;
+  refreshQuestBadge();
 }
 // ===================== COMBAT (minimal turn-based, 1-3 enemies) =====================
 let combat = null; // {enemies:[{name,hp,maxHp,dmgRange,goldRange,xpRange,art}], targetIndex, playerDmgRange, onEnd, usedMoves, race}
@@ -2003,6 +2024,8 @@ function endCombat(result){
           setGold(playerGold + questReward.reward.gold);
           if(addXp(questReward.reward.xp)) anyLevelUp = true;
           saveQuests(remaining);
+          recordCompletedQuest(questReward);
+          refreshQuestBadge();
           msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.`;
         }
       }
@@ -2320,22 +2343,37 @@ document.getElementById('wait-play-btn').addEventListener('click', startWaiting)
 document.getElementById('wait-pause-btn').addEventListener('click', stopWaiting);
 document.getElementById('wait-speed-btn').addEventListener('click', toggleWaitSpeed);
 
-function computeTravel(toId){
-  const fromXY = getCurrentXY(), fromCell = getCurrentCell();
-  const toBurg = graph.burgs[toId];
-  if(!toBurg) return null;
+// Shared by computeTravel (below, from the player's live position) and computeDistanceBetween
+// (used by quest generation to price/gate a delivery target from its giver settlement, not the
+// player's current position — see the QUESTS section) so the actual routing math only lives
+// once. fromXY only matters for the no-route straight-line fallback.
+function routeBetween(fromCell, fromXY, toBurg){
   const route = cellRoute(fromCell, toBurg.cell);
   if(route){
     const miles = Math.round(route.miles / DISTANCE_SCALE);
     const hours = Math.max(1, Math.ceil(miles/ROAD_PACE));
     const bySea = route.edges.some(s=>s.edge.kind==='sea');
-    return { miles, hours, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours), edges: route.edges, viaRoad:true, bySea };
+    return { miles, hours, edges: route.edges, viaRoad:true, bySea };
   }
   // No route connects them at all (very rare now) — still travelable, just slower.
   const straight = (Math.hypot(fromXY.x-toBurg.x, fromXY.y-toBurg.y) * 3) / DISTANCE_SCALE;
   const miles = Math.round(straight);
   const hours = Math.max(1, Math.ceil(miles/OFFROAD_PACE));
-  return { miles, hours, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours), edges:null, viaRoad:false, bySea:false };
+  return { miles, hours, edges:null, viaRoad:false, bySea:false };
+}
+function computeTravel(toId){
+  const toBurg = graph.burgs[toId];
+  if(!toBurg) return null;
+  const r = routeBetween(getCurrentCell(), getCurrentXY(), toBurg);
+  return { ...r, hungerGain: hoursToHungerGain(r.hours), thirstGain: hoursToThirstGain(r.hours) };
+}
+// Giver-to-target distance for a quest offer, independent of where the player actually is right
+// now (they're standing at the giver when a Quest Board panel is open, but this is more robust
+// than assuming that, and reads clearer at the call site) — see generateBoardOffers below.
+function computeDistanceBetween(burgIdA, burgIdB){
+  const a = graph.burgs[burgIdA], b = graph.burgs[burgIdB];
+  if(!a || !b) return null;
+  return routeBetween(a.cell, {x:a.x, y:a.y}, b);
 }
 function formatDuration(hours){
   if(hours < HOURS_PER_DAY) return `${hours} hour${hours===1?'':'s'}`;
@@ -3082,6 +3120,68 @@ function showCampView(destId, destName, partialHours){
 function getQuests(){ try{ return JSON.parse(localStorage.getItem(QUEST_KEY)) || []; }catch(e){ return []; } }
 function saveQuests(quests){ localStorage.setItem(QUEST_KEY, JSON.stringify(quests)); }
 function getActiveQuests(){ return getQuests().filter(q => q.status === 'active'); }
+function getCompletedQuests(){ try{ return JSON.parse(localStorage.getItem(COMPLETEDQUEST_KEY)) || []; }catch(e){ return []; } }
+// Quests are deleted outright on completion (see checkQuestTurnIns/endCombat below), not
+// archived — this is the one place a lightweight record survives that, purely for quests.html's
+// "Recently Completed" list. Newest first, capped at COMPLETED_QUESTS_MAX so a long-lived
+// character's save doesn't grow this list forever.
+function recordCompletedQuest(q){
+  const history = getCompletedQuests();
+  history.unshift({ type:q.type, giverName:q.giverName, targetName:q.targetName, reward:q.reward, completedDay:gameDay });
+  localStorage.setItem(COMPLETEDQUEST_KEY, JSON.stringify(history.slice(0, COMPLETED_QUESTS_MAX)));
+}
+// Drives the small count badge on the map toolbar's Quests button (quests.html has no live map
+// to update, so this only ever needs to run here) — called after anything that adds or removes
+// an active quest, plus once from refreshPlayerStatUI so it's right on load too.
+function refreshQuestBadge(){
+  const badge = document.getElementById('quest-nav-badge');
+  if(!badge) return;
+  const count = getActiveQuests().length;
+  badge.textContent = count;
+  badge.hidden = count === 0;
+}
+// A small gold flag above every settlement that's the delivery target of an active quest.
+// Notable Figure kill-quests have no targetBurgId — they complete on the next matching combat
+// victory anywhere, not by visiting a place — so only DELIVERY_QUEST_TYPES ever mark the map.
+// Rebuilt from scratch (same pattern as buildFrontlineMarkers/buildCityIcons) rather than
+// diffed, since it only needs to run on load and after a quest is accepted/turned in/abandoned,
+// never per frame.
+function buildQuestMarkers(){
+  const g = document.getElementById('quest-markers');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  const targets = new Set();
+  getActiveQuests().forEach(q => {
+    if(DELIVERY_QUEST_TYPES.includes(q.type) && q.targetBurgId) targets.add(q.targetBurgId);
+  });
+  targets.forEach(burgId => {
+    const b = graph.burgs[burgId];
+    if(!b) return;
+    const pole = document.createElementNS(ns, "line");
+    pole.setAttribute("x1", b.x); pole.setAttribute("y1", b.y - 4);
+    pole.setAttribute("x2", b.x); pole.setAttribute("y2", b.y - 16);
+    pole.setAttribute("stroke", "#3a2c18"); pole.setAttribute("stroke-width", "1.4");
+    g.appendChild(pole);
+    const flag = document.createElementNS(ns, "path");
+    flag.setAttribute("d", `M${b.x},${b.y-16} L${b.x+8},${b.y-13} L${b.x},${b.y-10} Z`);
+    flag.setAttribute("fill", "#d1a445");
+    flag.setAttribute("stroke", "#3a2c18");
+    flag.setAttribute("stroke-width", "0.8");
+    g.appendChild(flag);
+  });
+}
+// A delivery target should never be somewhere actively hostile to whoever's asking — a
+// settlement sends couriers toward its own side, not into the enemy's. Alliance-relative (Good
+// vs. Bad — see ALLIANCE/getController in the FACTIONS section) rather than kingdom-specific, so
+// it still excludes correctly even when the giver and target belong to different kingdoms on
+// the same side. A burg with no meaningful alliance either way (a 'neutral' controller) is never
+// treated as enemy territory.
+function isEnemyTerritory(giverBurgId, targetBurgId){
+  const giverAlliance = ALLIANCE[getController(giverBurgId)];
+  const targetAlliance = ALLIANCE[getController(targetBurgId)];
+  return !!(giverAlliance && targetAlliance && giverAlliance !== targetAlliance);
+}
 
 // mulberry32 — small, deterministic, good enough for flavor generation (not cryptographic).
 function seededRandom(seed){
@@ -3103,35 +3203,69 @@ function questTitle(q){
   if(q.type === 'kill_raiders') return 'Drive Off the Raiders';
   return 'Quest';
 }
+// Delivery-only — kill quests have no fixed destination to measure a distance to.
+function questDistanceNote(q){
+  if(typeof q.distanceHours !== 'number') return '';
+  return ` (${formatDuration(q.distanceHours)} away)`;
+}
 function questDesc(q){
-  if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.`;
-  if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.`;
+  if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
+  if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
   if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
   return '';
 }
 
-const BOARD_OFFERS_PER_DAY = 2;
+// How many Board slots a settlement can ever show at once, by tier — a village posts less work
+// than a capital. Replaces the old flat BOARD_OFFERS_PER_DAY.
+const BOARD_MAX_QUESTS_BY_TIER = { village:1, town:2, city:2, capital:3 };
+// Extra gold/XP per hour of travel between giver and target — a courier run across half the
+// map should pay better than one to the next settlement over.
+const DISTANCE_GOLD_PER_HOUR = 0.5;
+const DISTANCE_XP_PER_HOUR = 0.3;
+// The Board now resets once a real in-game month, not once a day — per the project owner.
+// Seeded off a month index (floor(gameDay/DAYS_PER_MONTH)) instead of gameDay itself, same
+// "reuse the calendar as the refresh signal" idea Work's cooldown and the old daily offers
+// already used, just a longer cycle.
+function getBoardMonthIndex(){ return Math.floor(gameDay / DAYS_PER_MONTH); }
+// Rolls how many of this settlement's tier cap are actually posted this month (0 up to the cap,
+// inclusive) — a village doesn't necessarily have its one possible job every single month.
+function getBoardQuestCount(burgId){
+  const tier = graph.burgs[burgId].tier;
+  const max = BOARD_MAX_QUESTS_BY_TIER[tier] ?? 2;
+  const month = getBoardMonthIndex();
+  return Math.floor(seededRandom(hashSeed(`board_count_${burgId}_${month}`)) * (max + 1));
+}
 // Minor, board-sourced offers — regenerated fresh each call, filtered against what's already
-// active so accepting one doesn't leave a duplicate sitting on the board the same day. Each
+// active so accepting one doesn't leave a duplicate sitting on the board the same month. Each
 // slot is independently seeded as either a Deliver a Message or a heavier-paying Deliver Cargo
 // — both complete identically on arrival (see checkQuestTurnIns), only the flavor and reward
-// differ, per quests.md's "mostly a new offer-generator, not new architecture" pattern.
+// differ, per quests.md's "mostly a new offer-generator, not new architecture" pattern. Targets
+// are drawn only from settlements not currently hostile to the giver (see isEnemyTerritory) —
+// per the project owner, delivering into enemy territory doesn't make sense — and reward scales
+// up with real travel distance from the giver, not just a flat random roll.
 function generateBoardOffers(burgId){
   const active = getActiveQuests();
-  const burgIds = Object.keys(graph.burgs).filter(id => id !== burgId);
+  const month = getBoardMonthIndex();
+  const count = getBoardQuestCount(burgId);
+  const candidateIds = Object.keys(graph.burgs).filter(id => id !== burgId && !isEnemyTerritory(burgId, id));
   const offers = [];
-  for(let i=0;i<BOARD_OFFERS_PER_DAY;i++){
-    const targetId = burgIds[Math.floor(seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_t`)) * burgIds.length)];
+  for(let i=0;i<count;i++){
+    if(!candidateIds.length) break; // no non-hostile target exists at all — extremely rare
+    const targetId = candidateIds[Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_t`)) * candidateIds.length)];
     const target = graph.burgs[targetId];
-    const isCargo = seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_type`)) < 0.5;
+    const dist = computeDistanceBetween(burgId, targetId) || { miles:0, hours:1 };
+    const isCargo = seededRandom(hashSeed(`board_${burgId}_${month}_${i}_type`)) < 0.5;
     const type = isCargo ? 'deliver_cargo' : 'deliver_message';
-    const gold = (isCargo ? 15 : 10) + Math.floor(seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_g`)) * 16); // 15-30 cargo, 10-25 message
-    const xp = 8 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${gameDay}_${i}_x`)) * 13); // 8-20
+    const distanceGold = Math.round(dist.hours * DISTANCE_GOLD_PER_HOUR);
+    const distanceXp = Math.round(dist.hours * DISTANCE_XP_PER_HOUR);
+    const gold = (isCargo ? 15 : 10) + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 16) + distanceGold; // 15-30 cargo, 10-25 message, plus distance
+    const xp = 8 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 13) + distanceXp; // 8-20, plus distance
     const alreadyActive = active.some(q => q.type===type && q.giverBurgId===burgId && q.targetBurgId===targetId);
     if(!alreadyActive){
-      offers.push({ offerId:`board_${burgId}_${gameDay}_${i}`, type, source:'board',
+      offers.push({ offerId:`board_${burgId}_${month}_${i}`, type, source:'board',
         giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:targetId, targetName:target.name,
+        distanceMiles:dist.miles, distanceHours:dist.hours,
         reward:{gold, xp} });
     }
   }
@@ -3196,12 +3330,13 @@ function checkQuestTurnIns(burgId){
       const verb = q.type === 'deliver_cargo' ? 'Cargo delivered!' : 'Delivered!';
       showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
         + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+      recordCompletedQuest(q);
       anyCompleted = true;
     } else {
       remaining.push(q);
     }
   });
-  if(anyCompleted) saveQuests(remaining);
+  if(anyCompleted){ saveQuests(remaining); buildQuestMarkers(); refreshQuestBadge(); }
 }
 
 function showQuestBoardPanel(burgId){
@@ -3247,8 +3382,11 @@ function showQuestBoardPanel(burgId){
       const quests = getQuests();
       quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type:offer.type, source:offer.source,
         giverBurgId:offer.giverBurgId, giverName:offer.giverName, targetBurgId:offer.targetBurgId, targetName:offer.targetName,
+        distanceMiles:offer.distanceMiles, distanceHours:offer.distanceHours,
         reward:offer.reward, acceptedDay:gameDay, status:'active' });
       saveQuests(quests);
+      buildQuestMarkers();
+      refreshQuestBadge();
       showToast(`Accepted: ${questTitle(offer)} to ${offer.targetName}.`);
       showQuestBoardPanel(burgId);
     });
@@ -3326,6 +3464,7 @@ function showNotableFigurePanel(burgId){
         giverBurgId:burgId, giverName:figure.name, targetBurgId:null, targetName:null,
         reward:{gold, xp}, acceptedDay:gameDay, status:'active' });
       saveQuests(quests);
+      refreshQuestBadge();
       showToast(`${figure.name} is counting on you.`);
       showNotableFigurePanel(burgId);
     });
@@ -3995,6 +4134,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   buildLabels();
   buildCityIcons();
   buildFrontlineMarkers();
+  buildQuestMarkers();
   drawPlayerMarker();
   refreshCalendarUI();
   refreshPlayerStatUI();
@@ -4057,6 +4197,7 @@ function collectCharacterSnapshot(){
     stats: localStorage.getItem(STATS_KEY) || JSON.stringify({str:0,agi:0,int:0}),
     skills: localStorage.getItem(SKILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
+    completedQuests: localStorage.getItem(COMPLETEDQUEST_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

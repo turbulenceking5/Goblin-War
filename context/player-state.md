@@ -22,7 +22,8 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_skillPoints` | Unspent skill points | `0` | index.html, character.html |
 | `goblinwar_stats` | JSON object `{str, agi, int}` | `{str:0,agi:0,int:0}` | index.html (persists only), character.html |
 | `goblinwar_skills` | JSON object `{skillId: true}` — unlocked perks/moves | `{}` | index.html (persists only) — nothing reads it yet, see below |
-| `goblinwar_quests` | JSON array of accepted quests | `[]` | index.html only — see [quests.md](quests.md) |
+| `goblinwar_quests` | JSON array of accepted quests | `[]` | index.html, quests.html — see [quests.md](quests.md) |
+| `goblinwar_completedQuests` | JSON array of completed-quest records, newest first, capped at 20 | `[]` | index.html (writes only), quests.html (reads only) — see [quests.md](quests.md) |
 | `goblinwar_currentBurg` | Burg id (string) of last-arrived settlement | `"5"` (Bary) | index.html, character.html, settings.html |
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |

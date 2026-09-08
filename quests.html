@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
+<meta name="theme-color" content="#1c2a2c">
+<title>Goblin War — Quests</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  header{
+    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    border-bottom:3px solid var(--gold);
+    padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
+  }
+  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  #back-btn{
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
+    border-radius:6px; padding:7px 12px; cursor:pointer;
+  }
+  #back-btn:active{ transform:scale(.96); }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
+  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:18px; text-align:center; }
+  .section-label{ font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:22px 0 8px; }
+  .section-label:first-of-type{ margin-top:0; }
+  .empty-note{ font-size:12.5px; color:#a9926a; font-style:italic; text-align:center; padding:6px 0 14px; }
+
+  .quest-card{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:14px; margin-bottom:10px;
+  }
+  .quest-title{ font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px; }
+  .quest-desc{ font-size:13px; color:#a9926a; line-height:1.5; }
+  .quest-row{ display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
+  .quest-reward{ font-size:12px; color:#7fbf6a; font-weight:700; }
+  .quest-completed-day{ font-size:11px; color:#a9926a; font-style:italic; }
+  .abandon-btn{
+    flex:none; font-family:'Cinzel', serif; font-size:11px; padding:7px 12px; border-radius:8px; cursor:pointer;
+    border:1.5px solid #a9433a; background:rgba(160,60,50,.15); color:#e2857f; font-weight:700;
+  }
+  .abandon-btn:active{ transform:scale(.96); }
+
+  #toast{
+    position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+    max-width:80vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>QUESTS</h1>
+    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()">&larr; Back to Map</button>
+  </header>
+  <main>
+    <div class="subtitle">Active Quests &amp; History</div>
+
+    <div class="section-label">Active Quests</div>
+    <div id="active-list"></div>
+
+    <div class="section-label">Recently Completed</div>
+    <div id="completed-list"></div>
+  </main>
+  <div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
+<script>
+const QUEST_KEY = "goblinwar_quests";
+const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
+const HOURS_PER_DAY = 24;
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+// Mirrors index.html's formatDuration exactly (duplicated per the no-modules convention) — used
+// here to render the distanceHours a quest was accepted with (see index.html's
+// generateBoardOffers), not to compute a new one.
+function formatDuration(hours){
+  if(hours < HOURS_PER_DAY) return `${hours} hour${hours===1?'':'s'}`;
+  const d = Math.floor(hours/HOURS_PER_DAY), h = hours%HOURS_PER_DAY;
+  return `${d} day${d===1?'':'s'}${h ? ` ${h} hour${h===1?'':'s'}` : ''}`;
+}
+function dayLabel(dayCount){
+  const day = (dayCount % DAYS_PER_MONTH) + 1;
+  const month = (Math.floor(dayCount / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const year = Math.floor(dayCount / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  return `Day ${day}, Month ${month}, Year ${year}`;
+}
+
+// Mirrors index.html's questTitle/questDesc exactly (duplicated per the no-modules convention).
+function questTitle(q){
+  if(q.type === 'deliver_message') return 'Deliver a Message';
+  if(q.type === 'deliver_cargo') return 'Deliver Cargo';
+  if(q.type === 'kill_bandits') return 'Deal with the Bandits';
+  if(q.type === 'kill_raiders') return 'Drive Off the Raiders';
+  return 'Quest';
+}
+function questDistanceNote(q){
+  if(typeof q.distanceHours !== 'number') return '';
+  return ` (${formatDuration(q.distanceHours)} away)`;
+}
+function questDesc(q){
+  if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
+  if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
+  if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
+  if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
+  return '';
+}
+
+function getQuests(){ try{ return JSON.parse(localStorage.getItem(QUEST_KEY)) || []; }catch(e){ return []; } }
+function saveQuests(quests){ localStorage.setItem(QUEST_KEY, JSON.stringify(quests)); }
+function getActiveQuests(){ return getQuests().filter(q => q.status === 'active'); }
+function getCompletedQuests(){ try{ return JSON.parse(localStorage.getItem(COMPLETEDQUEST_KEY)) || []; }catch(e){ return []; } }
+
+// Abandoning just removes the quest from storage — no other bookkeeping needed. In particular,
+// a Notable Figure kill-quest's "one active at a time" cap (see context/quests.md) is enforced
+// by checking live storage each time that panel opens, so freeing the slot back up is automatic
+// the moment this quest is gone, not something this page has to handle itself.
+function abandonQuest(id){
+  const quests = getQuests();
+  const q = quests.find(x => x.id === id);
+  if(!q) return;
+  if(!confirm(`Abandon "${questTitle(q)}"? This cannot be undone.`)) return;
+  saveQuests(quests.filter(x => x.id !== id));
+  showToast('Quest abandoned.');
+  render();
+}
+
+function render(){
+  const active = getActiveQuests();
+  const completed = getCompletedQuests();
+
+  document.getElementById('active-list').innerHTML = active.length ? active.map(q => `
+    <div class="quest-card">
+      <div class="quest-title">${questTitle(q)}</div>
+      <div class="quest-desc">${questDesc(q)}</div>
+      <div class="quest-row">
+        <span class="quest-reward">${q.reward.gold}g &middot; ${q.reward.xp} XP</span>
+        <button class="abandon-btn" data-abandon="${q.id}">Abandon</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-note">No quests in progress. Visit a Quest Board or Notable Figure to take one on.</div>`;
+
+  document.getElementById('completed-list').innerHTML = completed.length ? completed.map(q => `
+    <div class="quest-card">
+      <div class="quest-title">${questTitle(q)}</div>
+      <div class="quest-desc">${questDesc(q)}</div>
+      <div class="quest-row">
+        <span class="quest-reward">${q.reward.gold}g &middot; ${q.reward.xp} XP</span>
+        <span class="quest-completed-day">${dayLabel(q.completedDay)}</span>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-note">Nothing completed yet.</div>`;
+
+  document.querySelectorAll('[data-abandon]').forEach(btn => {
+    btn.addEventListener('click', ()=> abandonQuest(btn.dataset.abandon));
+  });
+}
+render();
+</script>
+</body>
+</html>

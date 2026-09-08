@@ -171,6 +171,12 @@ const CHANGELOG = [
   { id:30, date:"2026-09-08", changes:[
     "The Hunger meter now has a real turkey-leg icon instead of a plain line-art skewer."
   ]},
+  { id:31, date:"2026-09-09", changes:[
+    "Added a Quests tab — see and manage everything you've taken on in one place, with a new Abandon button per quest and a Recently Completed history.",
+    "Active delivery quests now show a small flag marker on the map at their destination, and the Quests tab icon shows how many you have active.",
+    "Quest Board postings are now capped by settlement size (villages up to 1, towns and cities up to 2, capitals up to 3) and refresh once a month instead of daily.",
+    "Quest Board deliveries no longer send you into enemy territory, and now pay better the farther the delivery — the quest description shows how long the trip will take."
+  ]},
 ];
 
 function renderChangelog(){

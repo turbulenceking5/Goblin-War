@@ -91,7 +91,6 @@
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
   .road-line.road-road-fill{ stroke:#c9a66b; stroke-width:1.1; opacity:.75; }
-  .road-line.road-trail{ stroke:#b89968; stroke-width:.7; stroke-dasharray:2 2.4; opacity:.4; }
   .settlement-dot{ fill:var(--parchment); stroke:#1c150c; stroke-width:.5; }
   #highlight-ring{
     fill:none; stroke:var(--gold-lt); stroke-width:3;
@@ -774,6 +773,9 @@ const CHANGELOG = [
   { id:28, date:"2026-09-08", changes:[
     "Roads now look like real worn dirt paths (a dusty tan trail with a darker earthen edge) instead of thin lines.",
     "Roads and trails flow in smooth curves instead of jagged straight-line kinks between settlements."
+  ]},
+  { id:29, date:"2026-09-08", changes:[
+    "Every minor trail now renders as a full road — nearly every settlement was already connected, it just wasn't visible enough to notice before."
   ]},
 ];
 
@@ -2533,8 +2535,13 @@ function smoothedPathD(pts){
 // junction or dead-end, and calls that whole run one chain. A leftover pure loop (every cell on
 // it degree-2, no junction anywhere) is walked separately at the end. Each returned chain is a
 // single point list ready for chaikinSmooth/smoothedPathD, same as one continuous river.
-function buildEdgeChains(kind){
-  const edges = graph.edges.filter(e => e.kind === kind && e.pts && e.pts.length >= 2);
+// `kinds` may be a single kind string or an array — roads and trails render identically now
+// (see buildRoads below), so they're chained together as one network rather than two, or a
+// path that happens to switch from 'road' to 'trail' partway would show an artificial break
+// at that boundary instead of one continuous chain.
+function buildEdgeChains(kinds){
+  const kindSet = Array.isArray(kinds) ? new Set(kinds) : new Set([kinds]);
+  const edges = graph.edges.filter(e => kindSet.has(e.kind) && e.pts && e.pts.length >= 2);
   const degree = {};
   const adj = {};
   for(const e of edges){
@@ -2588,23 +2595,23 @@ function buildEdgeChains(kind){
 // world-raster.jpg like Azgaar's original export had. Sea edges (graph.edges' third kind)
 // are deliberately not drawn here — a line across open water is mostly redundant clutter
 // when the water itself already reads as "you'd cross the sea to get there", unlike a road
-// or trail across land which has no other visual cue at all. Roads get a worn dirt-path look
-// (dark earthen edge + lighter dusty fill, see the .road-road-edge/.road-road-fill CSS and
-// the two-pass draw below); trails (the far more numerous minor paths — see
-// travel-and-map.md) are thinner, dashed, and single-tone, so they don't compete with roads
-// for attention.
+// or trail across land which has no other visual cue at all. Roads and trails render
+// identically — both get the same worn dirt-path look (dark earthen edge + lighter dusty
+// fill, see the .road-road-edge/.road-road-fill CSS and the two-pass draw below). An earlier
+// pass kept trails visually distinct (thinner, dashed, less prominent, since they're the far
+// more numerous minor paths — see travel-and-map.md) but that read as "this settlement isn't
+// really connected" even where it plainly was, so per the project owner every real path now
+// gets the full road treatment.
 function buildRoads(){
   const g = document.getElementById('roads');
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
-  // Roads get a worn-dirt-path look — a darker earthen edge stroke, then a lighter dusty
-  // fill stroke on top, the same halo-then-centerline two-pass trick the river renderer
-  // uses (see render-painterly.js) so it reads as an actual path rather than a thin generic
-  // line. Drawn as two full passes (all chains' edges, then all chains' fills) rather than
-  // edge+fill per chain in turn, so one chain's fill never gets covered by a *different*
-  // chain's edge at a junction. Trails are minor paths, so they stay a single thin dashed
-  // stroke.
-  const roadDs = buildEdgeChains('road').map(smoothedPathD);
+  // A darker earthen edge stroke, then a lighter dusty fill stroke on top, the same
+  // halo-then-centerline two-pass trick the river renderer uses (see render-painterly.js) so
+  // it reads as an actual path rather than a thin generic line. Drawn as two full passes (all
+  // chains' edges, then all chains' fills) rather than edge+fill per chain in turn, so one
+  // chain's fill never gets covered by a *different* chain's edge at a junction.
+  const roadDs = buildEdgeChains(['road', 'trail']).map(smoothedPathD);
   for(const d of roadDs){
     const path = document.createElementNS(ns, "path");
     path.setAttribute("d", d);
@@ -2615,12 +2622,6 @@ function buildRoads(){
     const path = document.createElementNS(ns, "path");
     path.setAttribute("d", d);
     path.setAttribute("class", "road-line road-road-fill");
-    g.appendChild(path);
-  }
-  for(const d of buildEdgeChains('trail').map(smoothedPathD)){
-    const path = document.createElementNS(ns, "path");
-    path.setAttribute("d", d);
-    path.setAttribute("class", "road-line road-trail");
     g.appendChild(path);
   }
 }

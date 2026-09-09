@@ -33,12 +33,34 @@
   #back-btn:active{ transform:scale(.96); }
   main{ padding:24px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:18px; text-align:center; }
+  .party-count{
+    font-family:'Cinzel Decorative', serif; font-size:14px; color:var(--gold-lt);
+    text-align:center; margin:-8px 0 16px;
+  }
+
   .coming-soon{
     text-align:center; padding:40px 20px; background:rgba(255,255,255,.05);
     border:1.5px dashed rgba(209,164,69,.35); border-radius:12px; margin-top:20px;
   }
   .coming-soon .icon{ font-size:38px; margin-bottom:10px; opacity:.6; }
   .coming-soon p{ font-size:16px; color:var(--parchment); line-height:1.6; margin:0; }
+
+  .companion-row{
+    display:flex; align-items:center; gap:14px;
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:12px;
+    padding:14px; margin-bottom:12px;
+  }
+  .companion-portrait{
+    flex:none; width:64px; height:64px; border-radius:10px; overflow:hidden;
+    border:1.5px dashed rgba(209,164,69,.35); background:rgba(255,255,255,.05);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .companion-portrait img{ width:100%; height:100%; object-fit:cover; }
+  .companion-portrait svg{ width:30px; height:30px; }
+  .companion-info{ flex:1; min-width:0; }
+  .companion-name{ font-family:'Cinzel', serif; font-size:14.5px; color:var(--parchment); }
+  .companion-title{ font-size:11.5px; color:#a9926a; font-style:italic; margin-top:2px; }
+  .companion-blurb{ font-size:12px; color:var(--parchment); margin-top:6px; line-height:1.4; }
 </style>
 </head>
 <body>
@@ -48,7 +70,9 @@
   </header>
   <main>
     <div class="subtitle">Followers & Companions</div>
-    <div class="coming-soon">
+    <div class="party-count" id="party-count"></div>
+    <div id="party-list"></div>
+    <div class="coming-soon" id="empty-state">
       <div class="icon">👥</div>
       <p>No followers yet.<br>Recruitable companions and their own quests will show up here once that system is built.</p>
     </div>
@@ -56,5 +80,60 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
+<script>
+const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids
+const MAX_PARTY_SIZE = 3; // how many companions can be active at once — recruiting isn't built yet, but the roster is ready to enforce this the moment it is
+
+// Catalog of every recruitable companion, matching the ENEMY_VARIANTS/NOTABLE_FIGURES pattern
+// in index.html — one array entry plus a portrait file, no other code changes needed once a
+// companion's art exists. `portrait` should point at a transparent-background PNG under
+// assets/party/, downscaled to a 600px longest edge, matching the enemy-art convention in
+// context/combat.md — a companion with no `portrait` falls back to the same placeholder
+// silhouette character.html's hero sheet uses for the player's own not-yet-drawn portrait.
+// Prompts for these three live in the "Character Forge" tracker artifact, ready to generate;
+// there's still no recruit action anywhere in the game, so none of them are in anyone's
+// goblinwar_party yet — see context/roadmap.md's "Party / Companions".
+const COMPANIONS = [
+  { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png" },
+  { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png" },
+  { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png" },
+];
+
+function getParty(){
+  try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; }
+}
+
+function portraitMarkup(c){
+  if(c.portrait) return `<img src="${c.portrait}" alt="${c.name}">`;
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="#7b2e2e" stroke-width="1.3">
+    <circle cx="12" cy="7" r="4" fill="#e9dcb8"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" fill="#e9dcb8"/>
+  </svg>`;
+}
+
+function render(){
+  const recruited = getParty().map(id => COMPANIONS.find(c => c.id === id)).filter(Boolean);
+  document.getElementById('party-count').textContent = `${recruited.length} / ${MAX_PARTY_SIZE}`;
+  const list = document.getElementById('party-list');
+  const emptyState = document.getElementById('empty-state');
+  if(recruited.length === 0){
+    list.innerHTML = '';
+    emptyState.style.display = 'block';
+    return;
+  }
+  emptyState.style.display = 'none';
+  list.innerHTML = recruited.map(c => `
+    <div class="companion-row">
+      <div class="companion-portrait">${portraitMarkup(c)}</div>
+      <div class="companion-info">
+        <div class="companion-name">${c.name}</div>
+        ${c.title ? `<div class="companion-title">${c.title}</div>` : ''}
+        ${c.blurb ? `<div class="companion-blurb">${c.blurb}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+render();
+</script>
 </body>
 </html>

@@ -73,6 +73,9 @@
   .stat-pill.thirst-pill svg{ color:#5bb0c7; }
   .stat-pill.stamina-pill svg{ color:#5b8fc7; }
   .stat-pill:first-child svg{ color:#c0524f; }
+  /* Text abbreviations alongside each icon/color — so Health/Stamina/Hunger/Thirst are told
+     apart by a label, not just hue, for players who can't reliably distinguish the pill colors. */
+  .stat-tag{ font-size:9px; color:#a9926a; letter-spacing:.5px; }
   .zbtn{
     width:38px; height:38px; border-radius:9px; border:1.5px solid var(--gold);
     background:transparent; color:var(--gold-lt); font-family:'Cinzel',serif; font-size:18px; font-weight:700;
@@ -254,24 +257,30 @@
   #loc-actions{
     box-sizing:border-box; width:100%; max-width:560px; height:100%; margin:0 auto; overflow-y:auto;
     background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
-    padding:calc(16px + env(safe-area-inset-top)) 14px calc(150px + env(safe-area-inset-bottom));
+    padding:calc(180px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));
     display:flex; flex-direction:column;
   }
-  /* Reserved corner for per-location art, once it exists — pinned in place (not part of
-     the scrolling action list) so it stays visible; the extra bottom padding on
-     #loc-actions above keeps the last action button from hiding behind it. */
-  #loc-visual{
-    position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:61;
-    width:112px; height:130px;
+  /* Full-width banner pinned to the top of the screen, above the scrolling action list —
+     #loc-actions' top padding above is sized to this banner's height so the heading/back
+     button never sit underneath it. Holds the settlement's TIER_ART; #loc-banner-portrait
+     overlays a talking character's portrait on top of it once one exists (see
+     showNotableFigurePanel) — same backdrop, so a conversation reads as happening *at* this
+     place rather than in a disconnected panel. */
+  #loc-banner{
+    position:fixed; top:0; left:0; right:0; z-index:62;
+    height:calc(160px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top);
     background:linear-gradient(180deg,#2c3f45,#1c2a2c);
-    border:2px solid var(--gold); border-radius:12px;
-    box-shadow:0 4px 14px rgba(0,0,0,.5);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:8px; text-align:center;
+    border-bottom:3px solid var(--gold); box-shadow:0 4px 14px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
   }
-  #loc-visual svg{ width:68%; max-width:70px; }
-  #loc-visual-name{ font-family:'Cinzel Decorative', serif; color:var(--gold-lt); font-size:10.5px; margin-top:6px; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.2; }
-  #loc-visual-tier{ font-family:'Cinzel', serif; color:#a9926a; font-size:7px; letter-spacing:1.5px; text-transform:uppercase; margin-top:2px; }
+  #loc-banner-art{ height:100%; display:flex; align-items:center; justify-content:center; }
+  #loc-banner-art svg{ height:72%; width:auto; filter:drop-shadow(0 6px 10px rgba(0,0,0,.5)); }
+  #loc-banner-portrait{
+    position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+    height:100%; display:none; align-items:flex-end; justify-content:center; pointer-events:none;
+  }
+  #loc-banner-portrait.show{ display:flex; }
+  #loc-banner-portrait img{ height:96%; width:auto; filter:drop-shadow(0 8px 14px rgba(0,0,0,.65)); }
   #loc-back{
     align-self:flex-start;
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
@@ -414,11 +423,11 @@
       </button>
     </div>
     <div id="player-stats">
-      <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><b id="stat-hp">100/100</b></span>
-      <span class="stat-pill stamina-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg><b id="stat-stamina">100/100</b></span>
-      <span class="stat-pill hunger-pill"><img src="assets/icons/hunger.png" alt="Hunger"><b id="stat-hunger">100</b></span>
-      <span class="stat-pill thirst-pill"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13z"/></svg><b id="stat-thirst">100</b></span>
-      <span class="stat-pill"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
+      <span class="stat-pill" title="Health"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7.5-4.6-10-9.3C0.3 8 2.1 4.5 5.6 4c2-.3 3.8.7 6.4 3.3C14.6 4.7 16.4 3.7 18.4 4c3.5.5 5.3 4 3.6 7.7C19.5 16.4 12 21 12 21z"/></svg><span class="stat-tag">HP</span><b id="stat-hp">100/100</b></span>
+      <span class="stat-pill stamina-pill" title="Stamina"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 11-14h-7l1-6z"/></svg><span class="stat-tag">STA</span><b id="stat-stamina">100/100</b></span>
+      <span class="stat-pill hunger-pill" title="Hunger"><img src="assets/icons/hunger.png" alt="Hunger"><span class="stat-tag">HNG</span><b id="stat-hunger">100</b></span>
+      <span class="stat-pill thirst-pill" title="Thirst"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C12 2 5 10 5 15a7 7 0 0 0 14 0c0-5-7-13-7-13z"/></svg><span class="stat-tag">THR</span><b id="stat-thirst">100</b></span>
+      <span class="stat-pill" title="Gold"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg><b id="stat-gold">50</b></span>
     </div>
     <div id="zoom-controls">
       <button class="zbtn" id="zoom-out">–</button>
@@ -487,16 +496,15 @@
   </div>
 
   <div id="location-view">
+    <div id="loc-banner">
+      <div id="loc-banner-art"></div>
+      <div id="loc-banner-portrait"></div>
+    </div>
     <div id="loc-actions">
       <button id="loc-back">&larr; Back to Map</button>
       <h2 id="loc-heading">—</h2>
       <div id="loc-sub"></div>
       <div id="loc-action-list"></div>
-    </div>
-    <div id="loc-visual">
-      <div id="loc-visual-art"></div>
-      <div id="loc-visual-name">—</div>
-      <div id="loc-visual-tier"></div>
     </div>
   </div>
 
@@ -801,6 +809,31 @@ const CHANGELOG = [
   { id:32, date:"2026-09-09", changes:[
     "The Inn and The Pub are now one location, The Tavern — rest, tavern talk, and a meal & drink are all offered together at every settlement.",
     "Added The Blacksmith to every City and Capital — a second shop selling masterwork-tier weapons and armour, a real step up from what the Marketplace carries."
+  ]},
+  { id:33, date:"2026-09-09", changes:[
+    "The Party tab now has a real roster system — recruited companions show up with a portrait, name, and title. No companions are recruitable yet, so it's still empty for now, but the system is ready for the first one."
+  ]},
+  { id:34, date:"2026-09-09", changes:[
+    "Settlement art now shows as a banner across the top of the screen when you enter a town, village, or city, instead of a small box in the corner — and a Notable Figure's portrait will appear layered on that same banner once their art exists.",
+    "The Party tab now shows a 0/3 companion counter, and added its first three companions to the roster catalog — no way to recruit them yet, but their look is being generated."
+  ]},
+  { id:35, date:"2026-09-09", changes:[
+    "Real portrait art has arrived for Sir Corwin Hale and Scoutmaster Priska Ren — talk to either as a Notable Figure and they now appear layered right on their settlement's banner.",
+    "The Party tab's first three companions — Ser Brannoc Ward, Wren Sable, and Thrain Emberforge — have real portrait art now too, though there's still no way to actually recruit them yet."
+  ]},
+  { id:36, date:"2026-09-09", changes:[
+    "All five Notable Figures now have real portrait art — Captain Aldric Vane, Yselle Thorn, and Elder Bram Oswick join Sir Corwin Hale and Scoutmaster Priska Ren, so every Notable Figure conversation now shows their face on the settlement banner."
+  ]},
+  { id:37, date:"2026-09-09", changes:[
+    "The Marketplace and Blacksmith now show which slot an item equips to right on its row, before you buy it.",
+    "Inventory now has a Drop button on every item, for clearing out anything you don't want to sell.",
+    "The Health/Stamina/Hunger/Thirst pills on the map now carry a small text label alongside their icon, easier to tell apart at a glance.",
+    "Settings now warns you if this character was saved more recently on another device, before Save Now would overwrite it.",
+    "Fleeing a fight now costs a bit of extra Hunger and Thirst — running hard away from a fight is real exertion too.",
+    "Added a Horse to the Marketplace — carry one and overland road travel gets noticeably faster.",
+    "Port settlements now sell Waterskin cheaper, and Villages sell Food cheaper — worth shopping around.",
+    "Sea crossings now charge a gold ferry fare, scaled to how much of the route is actually open water.",
+    "Added cosmetic titles — Bandit Hunter, Goblin Bane, and Ork Slayer — that show up on your Character sheet once you've defeated enough of that race."
   ]},
 ];
 
@@ -1223,8 +1256,22 @@ const WAR_BUY_MULTIPLIER = 1.5;
 const WAR_SELL_BONUS_MULT = 1.2;
 const PEACE_SELL_FRACTION = 0.5;
 function isWarRelevant(mi){ return !!mi.slot || mi.name === "Firewood"; }
+// A small "shopping around matters" discount, keyed off data travel-graph.json already carries
+// per burg (b.port, b.tier) rather than needing a new biome/elevation pipeline (see
+// roadmap.md's "Settlement specialties" — a mountain-Town discount was the original idea there,
+// but nothing in the live game's data pulls elevation through yet, so this picks two discounts
+// that data *does* support instead of blocking on that bigger gap).
+const PORT_WATERSKIN_DISCOUNT = 0.8;  // a coastal settlement's Waterskin is cheaper — easy fresh water/fish trade
+const VILLAGE_FOOD_DISCOUNT = 0.85;   // a Village's Food is cheaper — closer to the farms that grow it
+function getSettlementDiscount(mi, burgId){
+  const b = graph.burgs[burgId];
+  if(!b) return 1;
+  if(mi.name === "Waterskin" && b.port) return PORT_WATERSKIN_DISCOUNT;
+  if(mi.name === "Food" && b.tier === "village") return VILLAGE_FOOD_DISCOUNT;
+  return 1;
+}
 function getBuyPrice(mi, burgId){
-  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1));
+  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId));
 }
 function getSellPrice(mi, burgId){
   return (isWarRelevant(mi) && isAtWarAt(burgId))
@@ -1406,6 +1453,12 @@ const SKILLS_KEY = "goblinwar_skills";
 const QUEST_KEY = "goblinwar_quests";
 const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
 const COMPLETED_QUESTS_MAX = 20; // trims oldest once history grows past this many entries
+const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids — see party.html
+// Cumulative combat-victory kills, grouped by enemy race — {race: count} — feeds character.html's
+// small cosmetic Titles line (see TITLES below). Incremented in endCombat('victory') by
+// combat.enemies.length against combat.race, not per-enemy, since a raiding-party fight's
+// enemies are already all rolled from the same race per triggerEnemyFight.
+const KILLS_KEY = "goblinwar_kills";
 const FOOD_NAME = "Food";
 const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACITY
 const FOOD_PRICE = 2;     // gold per unit of Food at the Marketplace
@@ -1447,6 +1500,7 @@ const MARKET_ITEMS = [
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
   { name:"Waterskin", price:8, weight:2, desc:"Drink to ease your thirst" },
   { name:"Bedroll", price:45, weight:3, desc:"Quality bedding — safer camping, and a little extra rest" },
+  { name:"Horse", price:80, weight:0, desc:"A sturdy mount — speeds up overland road travel" },
   // Blacksmith-exclusive tier-2 gear (see showBlacksmithPanel) — a masterwork counterpart to
   // each of the 6 core Equipment slots above, roughly double the bonus at roughly triple the
   // price. Tagged shop:'blacksmith' so showMarketPanel excludes them and showBlacksmithPanel
@@ -1470,6 +1524,13 @@ MARKET_ITEMS.forEach(mi => { if(mi.slot) ITEM_STATS[mi.name] = { slot:mi.slot, d
 const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket",
   "ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
 const ACCESSORY_SLOTS = ["ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
+// Display labels for EQUIP_SLOTS, shown on Marketplace/Blacksmith rows (see showMarketPanel) so
+// an item's slot is visible before buying it, not only after on inventory.html.
+const EQUIP_SLOT_LABELS = {
+  head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket",
+  ring_left:"Ring", ring_right:"Ring", amulet:"Amulet", cloak:"Cloak", belt:"Belt",
+  bracers:"Bracers", earring:"Earring", charm:"Charm"
+};
 const EQUIPPED_KEY = "goblinwar_equipped";
 function getEquipped(){ try{ return JSON.parse(localStorage.getItem(EQUIPPED_KEY)) || {}; }catch(e){ return {}; } }
 function setEquippedSlot(slot, itemName){
@@ -1511,6 +1572,13 @@ const PERKS = [
 ];
 function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
 function hasPerk(id){ return !!getUnlockedSkills()[id]; }
+function getKills(){ try{ return JSON.parse(localStorage.getItem(KILLS_KEY)) || {}; }catch(e){ return {}; } }
+function addKills(race, count){
+  if(!race || !count) return;
+  const kills = getKills();
+  kills[race] = (kills[race] || 0) + count;
+  localStorage.setItem(KILLS_KEY, JSON.stringify(kills));
+}
 function getCarryCapacity(){ return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0); }
 
 function initPlayerStateIfMissing(){
@@ -1526,6 +1594,7 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(SKILLPOINTS_KEY) === null) localStorage.setItem(SKILLPOINTS_KEY, "0");
   if(localStorage.getItem(STATS_KEY) === null) localStorage.setItem(STATS_KEY, JSON.stringify({str:0,agi:0,int:0}));
   if(localStorage.getItem(SKILLS_KEY) === null) localStorage.setItem(SKILLS_KEY, JSON.stringify({}));
+  if(localStorage.getItem(KILLS_KEY) === null) localStorage.setItem(KILLS_KEY, JSON.stringify({}));
   if(localStorage.getItem(QUEST_KEY) === null) localStorage.setItem(QUEST_KEY, JSON.stringify([]));
   if(localStorage.getItem(EQUIPPED_KEY) === null) localStorage.setItem(EQUIPPED_KEY, JSON.stringify({}));
   if(localStorage.getItem(TERRITORY_KEY) === null) localStorage.setItem(TERRITORY_KEY, JSON.stringify({}));
@@ -2013,6 +2082,7 @@ function endCombat(result){
       setGold(playerGold + goldTotal);
       let anyLevelUp = addXp(xpTotal);
       applyEnemyCasualtyLoss(enemyRace, attackerKingdom, currentBurg, enemies.length);
+      addKills(enemyRace, enemies.length);
 
       // "2x Goblin Raider, 1x Goblin Archer" — group defeated enemies by name for the toast.
       const counts = {};
@@ -2053,7 +2123,9 @@ function endCombat(result){
       setHealth(10);
       showToast(`You were beaten badly but managed to escape with your life.`);
     } else {
-      showToast(`You flee from the fight.`);
+      addHunger(FLEE_HUNGER_PENALTY);
+      addThirst(FLEE_THIRST_PENALTY);
+      showToast(`You flee from the fight, breathless and worse for wear.`);
     }
     if(onEnd) onEnd(result);
   }, result === 'victory' || result === 'defeat' ? 700 : 0);
@@ -2106,6 +2178,18 @@ function triggerAmbushFight(burgId, onEnd, context){
 const LOC_KEY = "goblinwar_currentBurg";
 const ROAD_PACE = 20;    // miles per day, travelling via drawn roads
 const OFFROAD_PACE = 12; // miles per day, cross-country with no road
+// A carried Horse (MARKET_ITEMS) speeds up overland road travel — checked in computeTravel only
+// (not routeBetween, which quest-distance pricing also calls and shouldn't react to what the
+// player happens to own). Doesn't apply to a route with any sea leg (bySea) — a horse doesn't
+// swim — nor to the no-route straight-line fallback, so it's strictly a road-pace bonus.
+const HORSE_PACE_MULT = 1.5;
+// A route with any sea edge in it charges a ferry fare, proportional to how many (scaled) miles
+// of that route are actually sea rather than road — unlike Hunger/Thirst, this is a real
+// affordability gate (see beginTravel): every sea gap wide enough to need a boat costs gold to
+// cross, not just time. Deliberately excluded from Hunger/Thirst's "never blocks travel" design —
+// gold isn't a survival meter the way those are, so gating it doesn't risk soft-locking anyone.
+const FERRY_GOLD_PER_MILE = 2;
+const FERRY_MIN_FARE = 5; // even the shortest sea hop costs a token fare once any sea leg is involved
 // The world data's raw mileage is realistic-scale (real road distances), which makes
 // crossing the map take dozens of in-game days. DISTANCE_SCALE compresses every trip
 // down to a friendlier, more game-like length without changing the map or pace numbers.
@@ -2251,6 +2335,14 @@ const HUNGER_PER_DAY = 20;   // hunger lost per full day of travel/waiting
 const THIRST_PER_DAY = 25;   // thirst lost per full day — drains faster than hunger
 const COMBAT_HUNGER_GAIN = 8;    // flat drain per fight, any outcome — exertion either way
 const COMBAT_THIRST_GAIN = 10;
+// Fleeing always succeeds — combatFlee never rolls to fail — but per the project owner it
+// shouldn't be a strictly free escape hatch either, so it costs extra Hunger/Thirst on top of
+// the flat COMBAT_HUNGER_GAIN/COMBAT_THIRST_GAIN every outcome already pays (running hard away
+// from a fight is its own exertion). Deliberately not a Stamina cost: Stamina can already sit at
+// 0 going into a flee, and Hunger/Thirst overflow only ever converts to Health damage, floored at
+// STARVATION_HEALTH_FLOOR — so a player who fled with nothing left can never be soft-locked by it.
+const FLEE_HUNGER_PENALTY = 6;
+const FLEE_THIRST_PENALTY = 8;
 const HUNGER_OVERFLOW_HEALTH_MULT = 0.5; // Health lost per point of hunger that would drop below 0
 const THIRST_OVERFLOW_HEALTH_MULT = 0.8; // thirst overflow hurts more — dehydration is more urgent
 const STARVATION_HEALTH_FLOOR = 1;       // hunger/thirst overflow alone can never drop you below this
@@ -2370,19 +2462,23 @@ function routeBetween(fromCell, fromXY, toBurg){
     const miles = Math.round(route.miles / DISTANCE_SCALE);
     const hours = Math.max(1, Math.ceil(miles/ROAD_PACE));
     const bySea = route.edges.some(s=>s.edge.kind==='sea');
-    return { miles, hours, edges: route.edges, viaRoad:true, bySea };
+    const seaMiles = bySea ? Math.round(route.edges.filter(s=>s.edge.kind==='sea').reduce((sum,s)=>sum+s.mi,0) / DISTANCE_SCALE) : 0;
+    return { miles, hours, edges: route.edges, viaRoad:true, bySea, seaMiles };
   }
   // No route connects them at all (very rare now) — still travelable, just slower.
   const straight = (Math.hypot(fromXY.x-toBurg.x, fromXY.y-toBurg.y) * 3) / DISTANCE_SCALE;
   const miles = Math.round(straight);
   const hours = Math.max(1, Math.ceil(miles/OFFROAD_PACE));
-  return { miles, hours, edges:null, viaRoad:false, bySea:false };
+  return { miles, hours, edges:null, viaRoad:false, bySea:false, seaMiles:0 };
 }
 function computeTravel(toId){
   const toBurg = graph.burgs[toId];
   if(!toBurg) return null;
   const r = routeBetween(getCurrentCell(), getCurrentXY(), toBurg);
-  return { ...r, hungerGain: hoursToHungerGain(r.hours), thirstGain: hoursToThirstGain(r.hours) };
+  const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
+  const hours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
+  const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
+  return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
 // Giver-to-target distance for a quest offer, independent of where the player actually is right
 // now (they're standing at the giver when a Quest Board panel is open, but this is more robust
@@ -2851,13 +2947,13 @@ function onMapTap(burgId){
       // No affordability gate anymore — travel is never blocked by Food/Waterskin item count.
       // Hunger/Thirst just drain (see HUNGER_PER_DAY/THIRST_PER_DAY); ignoring them too long
       // costs Health instead, via addHunger/addThirst's overflow handling.
-      const seaNote = t.bySea ? ' (includes a sea crossing)' : '';
+      const seaNote = t.bySea ? ` (includes a sea crossing — <b>${t.ferryCost}g ferry fare</b>)` : (t.mounted ? ' (riding — faster pace)' : '');
       travelDiv.innerHTML = t.viaRoad
         ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`
         : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`;
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
-      travelBtn.textContent = `Travel Here (${t.hours}h)`;
+      travelBtn.textContent = t.ferryCost > 0 ? `Travel Here (${t.hours}h, ${t.ferryCost}g)` : `Travel Here (${t.hours}h)`;
     }
   }
   document.getElementById('info-card').classList.add('open');
@@ -2899,6 +2995,14 @@ function beginTravel(destId){
   stopWaiting();
   const t = computeTravel(destId);
   if(!t) return;
+  // The one real affordability gate travel has (see FERRY_GOLD_PER_MILE above) — everything
+  // else about this trip (Hunger/Thirst) is allowed to proceed broke, but a sea crossing
+  // genuinely can't happen without paying for passage.
+  if(t.ferryCost > 0 && playerGold < t.ferryCost){
+    showToast(`You can't afford the ${t.ferryCost}g ferry fare for this crossing.`);
+    return;
+  }
+  if(t.ferryCost > 0) setGold(playerGold - t.ferryCost);
   const destName = graph.burgs[destId].name;
   const startHunger = playerHunger, startThirst = playerThirst;
   closeCard();
@@ -3080,9 +3184,9 @@ function showCampView(destId, destName, partialHours){
   document.getElementById('loc-sub').textContent = standalone
     ? `Making camp at ${here}`
     : `On the road to ${destName} — ${formatDuration(partialHours)} passed`;
-  document.getElementById('loc-visual-art').innerHTML = CAMP_ART;
-  document.getElementById('loc-visual-name').textContent = "Camp";
-  document.getElementById('loc-visual-tier').textContent = standalone ? here : `En route to ${destName}`;
+  document.getElementById('loc-banner-art').innerHTML = CAMP_ART;
+  document.getElementById('loc-banner-portrait').classList.remove('show');
+  document.getElementById('loc-banner-portrait').innerHTML = '';
 
   const list = document.getElementById('loc-action-list');
   list.innerHTML = `
@@ -3303,12 +3407,14 @@ function generateBoardOffers(burgId){
 // territory to match their names/flavor: Bary and Yeone (human, Kingdom of Bary/Duchy of
 // Pendalbor) plus Stothers (human, Duchy of Skipia), Mosver and Sodoy (dwarf, Grand Duchy of
 // Mevia/Republic of Fjeland).
+// `portrait` shows up overlaid on the settlement banner while showNotableFigurePanel is open
+// — see #loc-banner-portrait. All five now have one.
 const NOTABLE_FIGURES = [
-  { name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:"5" },
-  { name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:"3" },
-  { name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:"1" },
-  { name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:"24" },
-  { name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:"11" },
+  { name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:"5", portrait:"assets/figures/captain-aldric-vane.png" },
+  { name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:"3", portrait:"assets/figures/yselle-thorn.png" },
+  { name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:"1", portrait:"assets/figures/elder-bram-oswick.png" },
+  { name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:"24", portrait:"assets/figures/scoutmaster-priska-ren.png" },
+  { name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:"11", portrait:"assets/figures/sir-corwin-hale.png" },
 ];
 // Returns the figure whose home this is, or null if there's no figure here at all, or their
 // home has been captured by another race since — the "they disappear if their city falls"
@@ -3476,6 +3582,18 @@ function showNotableFigurePanel(burgId){
     <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Notable Figure</div>
     ${bodyHTML}
   `;
+  // While this panel's open, the figure appears layered over the settlement's own banner art
+  // (see #loc-banner-portrait) instead of the panel being a disconnected card — the same
+  // backdrop the player just walked into. showLocationView's own reset (on Back, or leaving
+  // this settlement entirely) clears it again.
+  const portraitEl = document.getElementById('loc-banner-portrait');
+  if(figure && figure.portrait){
+    portraitEl.innerHTML = `<img src="${figure.portrait}" alt="${figure.name}">`;
+    portraitEl.classList.add('show');
+  } else {
+    portraitEl.classList.remove('show');
+    portraitEl.innerHTML = '';
+  }
   document.getElementById('notable-back-btn').addEventListener('click', ()=> showLocationView(burgId));
   const acceptBtn = document.getElementById('notable-accept-btn');
   if(acceptBtn){
@@ -3504,9 +3622,9 @@ function showLocationView(burgId){
   const controller = getController(burgId);
   const controlNote = (controller !== b.race) ? ` · ${RACE_LABEL[controller]}-controlled` : '';
   document.getElementById('loc-sub').textContent = `${TIER_LABEL[b.tier]||b.tier}${controlNote}`;
-  document.getElementById('loc-visual-art').innerHTML = TIER_ART[b.tier] || TIER_ART.village;
-  document.getElementById('loc-visual-name').textContent = b.name;
-  document.getElementById('loc-visual-tier').textContent = TIER_LABEL[b.tier]||b.tier;
+  document.getElementById('loc-banner-art').innerHTML = TIER_ART[b.tier] || TIER_ART.village;
+  document.getElementById('loc-banner-portrait').classList.remove('show');
+  document.getElementById('loc-banner-portrait').innerHTML = '';
 
   const workedToday = hasWorkedToday(burgId);
   const actions = [
@@ -4042,10 +4160,11 @@ function showMarketPanel(burgId){
       const capacityQty = mi.weight > 0 ? Math.floor((getCarryCapacity() - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
       const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
       const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#d9a15a;">wartime demand</span>' : '';
+      const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
-        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}</span></span>
+        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">
         <input type="range" class="qty-slider" min="1" max="${maxQty}" value="1" data-slider="${i}">
@@ -4068,6 +4187,8 @@ function showMarketPanel(burgId){
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${getCarryCapacity()}</b></div>
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
+        ${b.port ? '<div style="margin-top:4px; font-size:11.5px; color:#8fb3a8;">Port settlement — Waterskin sold cheaper here</div>' : ''}
+        ${b.tier === 'village' ? '<div style="margin-top:4px; font-size:11.5px; color:#8fb3a8;">Village — Food sold cheaper here</div>' : ''}
       </div>
       ${itemRows}
     `;
@@ -4146,10 +4267,11 @@ function showBlacksmithPanel(burgId){
       const capacityQty = mi.weight > 0 ? Math.floor((getCarryCapacity() - getCarriedWeight()) / mi.weight) : MAX_SLIDER_QTY;
       const maxQty = Math.max(1, Math.min(MAX_SLIDER_QTY, affordableQty, capacityQty));
       const sellNote = (isWarRelevant(mi) && atWar) ? ' &middot; <span style="color:#d9a15a;">wartime demand</span>' : '';
+      const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>
-        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}</span></span>
+        <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">
         <input type="range" class="qty-slider" min="1" max="${maxQty}" value="1" data-slider="${i}">
@@ -4312,8 +4434,10 @@ function collectCharacterSnapshot(){
     skillPoints: parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10),
     stats: localStorage.getItem(STATS_KEY) || JSON.stringify({str:0,agi:0,int:0}),
     skills: localStorage.getItem(SKILLS_KEY) || "{}",
+    kills: localStorage.getItem(KILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
     completedQuests: localStorage.getItem(COMPLETEDQUEST_KEY) || "[]",
+    party: localStorage.getItem(PARTY_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",
@@ -4334,10 +4458,14 @@ function collectCharacterSnapshot(){
 async function saveActiveCharacter(){
   const activeId = localStorage.getItem('goblinwar_activeCharacterId');
   if(!activeId) return;
+  const savedAt = new Date().toISOString();
   await sb.from('characters')
-    .update({ data: collectCharacterSnapshot(), updated_at: new Date().toISOString() })
+    .update({ data: collectCharacterSnapshot(), updated_at: savedAt })
     .eq('id', activeId)
-    .then(()=>{}, ()=>{}); // best-effort — a failed autosave shouldn't surface as an error to the player
+    // Records what this device just wrote — settings.html's stale-save warning (see
+    // LOCALSYNC_KEY there) compares this against the row's live updated_at to catch the same
+    // character having been saved more recently elsewhere since this device's last write.
+    .then(()=>{ localStorage.setItem('goblinwar_localSyncedAt', savedAt); }, ()=>{}); // best-effort — a failed autosave shouldn't surface as an error to the player
 }
 setInterval(saveActiveCharacter, 60000);
 document.addEventListener('visibilitychange', ()=>{

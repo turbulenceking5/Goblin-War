@@ -64,6 +64,11 @@
   .account-status{ font-size:13.5px; color:#a9926a; margin-bottom:10px; }
   .account-status b{ color:var(--gold-lt); }
   .account-synced{ font-size:11.5px; color:#a9926a; text-align:center; margin-top:8px; }
+  .stale-warning{
+    background:rgba(226,133,127,.12); border:1.5px solid var(--bad); border-radius:10px;
+    padding:10px 12px; margin-bottom:14px; font-size:12.5px; color:var(--bad); line-height:1.45;
+    text-align:center;
+  }
   .menu-item{
     display:flex; align-items:center; justify-content:space-between;
     background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
@@ -89,6 +94,10 @@
   </header>
   <main>
     <div class="subtitle">Game Options</div>
+
+    <div class="stale-warning" id="stale-save-warning" hidden>
+      This character was saved more recently on another device or browser tab. Saving Now here will overwrite that newer save with what's currently loaded on this one — Switch Character then Play to pull the newer save down instead, if that's what you want.
+    </div>
 
     <div class="current-card">
       <b id="current-name">—</b>
@@ -151,6 +160,16 @@ const STATS_KEY = "goblinwar_stats";
 const SKILLS_KEY = "goblinwar_skills";
 const QUEST_KEY = "goblinwar_quests";
 const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
+const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids — see party.html
+const KILLS_KEY = "goblinwar_kills"; // {race: count} — feeds character.html's Titles line
+// The last Supabase updated_at this device knows its active character to be at — written by
+// characters.html on Play (from the row it just loaded) and here on a successful Save Now (see
+// below), plus index.html's own saveActiveCharacter. Compared against the row's *live*
+// updated_at below to catch the same character having been saved more recently somewhere else
+// (another device, another browser tab) since this device last loaded or wrote it — a real data
+// hazard Save Now can't otherwise warn about, since it always just overwrites.
+const LOCALSYNC_KEY = "goblinwar_localSyncedAt";
+const STALE_SAVE_THRESHOLD_MS = 5000; // ignore sub-5s gaps — likely just clock/round-trip skew, not a real second device
 const DEFAULT_INVENTORY = [
   { name:"Food", qty:10, weight:1, value:2 },
   { name:"Waterskin", qty:1, weight:2, value:3 },
@@ -220,8 +239,10 @@ function collectCharacterSnapshot(){
     skillPoints: parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10),
     stats: localStorage.getItem(STATS_KEY) || JSON.stringify({str:0,agi:0,int:0}),
     skills: localStorage.getItem(SKILLS_KEY) || "{}",
+    kills: localStorage.getItem(KILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
     completedQuests: localStorage.getItem(COMPLETEDQUEST_KEY) || "[]",
+    party: localStorage.getItem(PARTY_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",
@@ -250,15 +271,22 @@ authGateReady.then(session=>{
   loggedInActionsEl.style.display = 'flex';
 
   sb.from('characters').select('updated_at').eq('id', activeCharId).maybeSingle().then(({ data: row })=>{
-    if(row) cloudSyncedEl.textContent = `Last saved ${new Date(row.updated_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`;
+    if(!row) return;
+    cloudSyncedEl.textContent = `Last saved ${new Date(row.updated_at).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}`;
+    const knownSync = localStorage.getItem(LOCALSYNC_KEY);
+    const staleGapMs = knownSync ? (new Date(row.updated_at) - new Date(knownSync)) : 0;
+    document.getElementById('stale-save-warning').hidden = staleGapMs <= STALE_SAVE_THRESHOLD_MS;
   });
 
   document.getElementById('save-now-btn').addEventListener('click', async ()=>{
     const snapshot = collectCharacterSnapshot();
+    const savedAt = new Date().toISOString();
     const { error } = await sb.from('characters')
-      .update({ data: snapshot, updated_at: new Date().toISOString() })
+      .update({ data: snapshot, updated_at: savedAt })
       .eq('id', activeCharId);
     if(error){ showToast(`Save failed: ${error.message}`); return; }
+    localStorage.setItem(LOCALSYNC_KEY, savedAt);
+    document.getElementById('stale-save-warning').hidden = true;
     cloudSyncedEl.textContent = `Last saved ${snapshot.savedAt}`;
     showToast('Saved.');
   });

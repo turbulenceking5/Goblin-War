@@ -44,6 +44,12 @@
     display:inline-block; margin-top:4px; padding:2px 9px; border-radius:20px;
     font-size:10px; letter-spacing:1px; color:#fff; background:#33502f; font-family:'Cinzel',serif;
   }
+  /* A small unlockable title once enough of one race has fallen in combat — purely cosmetic,
+     no stat effect, see TITLES below. Hidden entirely (not just empty) until one's earned. */
+  .hero-title{
+    display:block; margin-top:5px; font-family:'Cinzel', serif; font-size:11px;
+    letter-spacing:.5px; font-style:italic; color:var(--gold-lt);
+  }
 
   .portrait-box{
     margin:16px 0; border:1.5px dashed rgba(209,164,69,.35); border-radius:12px;
@@ -106,6 +112,7 @@
         <div>
           <div class="hero-name" id="hero-name">The Traveler</div>
           <span class="hero-tag">Human</span>
+          <span class="hero-title" id="hero-title" hidden></span>
         </div>
       </div>
 
@@ -171,6 +178,24 @@ const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 const FOOD_NAME = "Food";
 const CARRY_CAPACITY = 40;
 const SKILLS_KEY = "goblinwar_skills";
+const KILLS_KEY = "goblinwar_kills"; // {race: count}, written by index.html's endCombat
+function getKills(){ try{ return JSON.parse(localStorage.getItem(KILLS_KEY)) || {}; }catch(e){ return {}; } }
+// Small cosmetic milestone titles, purely a display flourish — no stat effect, no unlock
+// mechanic beyond "kill enough of that race." Ordered by threshold so the highest one earned
+// wins when more than one race clears its own bar. See roadmap.md's "Titles on the character
+// sheet" idea — this is the small, self-contained slice of it (no achievements page, no
+// per-title icon, just one line of text on the hero sheet).
+const TITLES = [
+  { race:"bandit", threshold:15, name:"Bandit Hunter" },
+  { race:"goblin", threshold:10, name:"Goblin Bane" },
+  { race:"ork", threshold:10, name:"Ork Slayer" },
+];
+function currentTitle(){
+  const kills = getKills();
+  const earned = TITLES.filter(t => (kills[t.race]||0) >= t.threshold);
+  if(!earned.length) return null;
+  return earned.reduce((best, t) => (kills[t.race] > kills[best.race] ? t : best), earned[0]);
+}
 // Mirrors index.html's getCarryCapacity()/getEquipDamageBonus()/getEquipDefenseBonus() — only
 // Pack Mule/Power Strike/Iron Skin matter here, so this doesn't need the full PERKS table, just
 // those three flags (duplicated per the no-modules convention).
@@ -286,6 +311,9 @@ const food = inventory.find(it => it.name === FOOD_NAME);
 const carriedWeight = inventory.reduce((sum, it) => sum + it.weight*it.qty, 0);
 
 document.getElementById('hero-name').textContent = localStorage.getItem(NAME_KEY) || "Unnamed Hero";
+const heroTitleEl = document.getElementById('hero-title');
+const earnedTitle = currentTitle();
+if(earnedTitle){ heroTitleEl.textContent = earnedTitle.name; heroTitleEl.hidden = false; }
 document.getElementById('hp-bar').style.width = Math.round((hp/maxHp)*100) + '%';
 document.getElementById('hp-value').textContent = `${hp} / ${maxHp}`;
 document.getElementById('stamina-bar').style.width = Math.round((stamina/maxStamina)*100) + '%';

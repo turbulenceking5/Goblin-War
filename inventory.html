@@ -79,6 +79,12 @@
   }
   .equip-btn.is-equipped{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; }
   .equip-btn:disabled{ opacity:.4; cursor:default; }
+  .drop-btn{
+    flex:none; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px;
+    border-radius:7px; padding:6px 10px; cursor:pointer; border:1.5px solid rgba(224,110,110,.5);
+    background:transparent; color:#c98a8a;
+  }
+  .drop-btn:hover{ background:rgba(224,110,110,.12); }
   .empty-note{ text-align:center; color:#a9926a; font-style:italic; padding:20px; }
 
   .slot-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:9px; margin-top:4px; }
@@ -287,9 +293,24 @@ function render(){
         <span class="item-qty">&times;${it.qty}</span>
         ${it.value ? `<span class="item-value">${it.value}g each</span>` : ''}
         ${actionHTML}
+        <button class="drop-btn" data-drop-name="${it.name}">Drop</button>
       </div>
     `;
     }).join('');
+    list.querySelectorAll('[data-drop-name]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const name = btn.dataset.dropName;
+        consumeItem(name, 1);
+        const stats = ITEM_STATS[name];
+        let unequipped = false;
+        if(stats && !getItem(name) && getEquipped()[stats.slot] === name){
+          setEquippedSlot(stats.slot, null); // dropped the last one — can't stay equipped
+          unequipped = true;
+        }
+        showToast(`Dropped 1 ${name}.${unequipped ? ' Unequipped — none left.' : ''}`);
+        render();
+      });
+    });
     list.querySelectorAll('[data-equip-name]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const name = btn.dataset.equipName, slot = btn.dataset.equipSlot;

@@ -141,8 +141,8 @@ function freshCharacterData(name){
     inventory: JSON.stringify(DEFAULT_INVENTORY),
     equipped: "{}",
     level: 1, xp: 0, skillPoints: 0,
-    stats: JSON.stringify({str:0,agi:0,int:0}), skills: "{}",
-    quests: "[]", completedQuests: "[]",
+    stats: JSON.stringify({str:0,agi:0,int:0}), skills: "{}", kills: "{}",
+    quests: "[]", completedQuests: "[]", party: "[]",
     territoryControl: "{}", relations: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
@@ -179,8 +179,10 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_skillPoints", String(merged.skillPoints));
   localStorage.setItem("goblinwar_stats", merged.stats);
   localStorage.setItem("goblinwar_skills", merged.skills);
+  localStorage.setItem("goblinwar_kills", merged.kills);
   localStorage.setItem("goblinwar_quests", merged.quests);
   localStorage.setItem("goblinwar_completedQuests", merged.completedQuests);
+  localStorage.setItem("goblinwar_party", merged.party);
   localStorage.setItem("goblinwar_territoryControl", merged.territoryControl);
   localStorage.setItem("goblinwar_relations", merged.relations);
   localStorage.setItem("goblinwar_reinforcements", merged.reinforcements);
@@ -200,6 +202,10 @@ function targetPage(){
 
 function playCharacter(row){
   localStorage.setItem('goblinwar_activeCharacterId', row.id);
+  // Seeds settings.html's stale-save check (goblinwar_localSyncedAt) with the server timestamp
+  // this device just loaded, so it has something real to compare against later rather than
+  // treating every character as stale the first time this device opens Settings.
+  if(row.updated_at) localStorage.setItem('goblinwar_localSyncedAt', row.updated_at);
   applyCharacterData(row.data);
   location.href = targetPage();
 }

@@ -46,6 +46,13 @@
   .quest-row{ display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
   .quest-reward{ font-size:12px; color:#7fbf6a; font-weight:700; }
   .quest-completed-day{ font-size:11px; color:#a9926a; font-style:italic; }
+  .quest-actions{ display:flex; gap:8px; margin-top:8px; }
+  .quest-actions button{ flex:1; }
+  .view-btn{
+    font-family:'Cinzel', serif; font-size:11px; padding:7px 12px; border-radius:8px; cursor:pointer;
+    border:1.5px solid rgba(209,164,69,.4); background:transparent; color:var(--parchment); font-weight:700;
+  }
+  .view-btn:active{ transform:scale(.96); }
   .abandon-btn{
     flex:none; font-family:'Cinzel', serif; font-size:11px; padding:7px 12px; border-radius:8px; cursor:pointer;
     border:1.5px solid #a9433a; background:rgba(160,60,50,.15); color:#e2857f; font-weight:700;
@@ -160,6 +167,9 @@ function render(){
       <div class="quest-desc">${questDesc(q)}</div>
       <div class="quest-row">
         <span class="quest-reward">${q.reward.gold}g &middot; ${q.reward.xp} XP</span>
+      </div>
+      <div class="quest-actions">
+        ${q.targetBurgId ? `<button class="view-btn" data-view="${q.targetBurgId}">View Location</button>` : ''}
         <button class="abandon-btn" data-abandon="${q.id}">Abandon</button>
       </div>
     </div>
@@ -178,6 +188,13 @@ function render(){
 
   document.querySelectorAll('[data-abandon]').forEach(btn => {
     btn.addEventListener('click', ()=> abandonQuest(btn.dataset.abandon));
+  });
+  // Hands off to index.html's own viewLocation() via a query param — this page never loads
+  // travel-graph.json itself (see context/quests.md), so it can't center the map here directly.
+  document.querySelectorAll('[data-view]').forEach(btn => {
+    btn.addEventListener('click', ()=>{
+      location.href = 'index.html?viewBurg=' + encodeURIComponent(btn.dataset.view) + '&_=' + Date.now();
+    });
   });
 }
 render();

@@ -835,6 +835,9 @@ const CHANGELOG = [
     "Sea crossings now charge a gold ferry fare, scaled to how much of the route is actually open water.",
     "Added cosmetic titles — Bandit Hunter, Goblin Bane, and Ork Slayer — that show up on your Character sheet once you've defeated enough of that race."
   ]},
+  { id:38, date:"2026-09-09", changes:[
+    "Delivery quests now have a View Location button — on the Quests tab and right on the Quest Board before you accept — that jumps straight to the map, centered on where you need to go."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3469,6 +3472,19 @@ function checkQuestTurnIns(burgId){
   if(anyCompleted){ saveQuests(remaining); buildQuestMarkers(); refreshQuestBadge(); }
 }
 
+// Closes whatever settlement panel is open and centers/zooms the map on burgId — the same
+// recenter target the FIND ME button (#recenter-btn) uses — then opens its info-card (name,
+// tier, population, Travel Here), same as tapping it directly. Used by the Quest Board's offer
+// cards below (so a delivery target can be seen before accepting) and by quests.html's View
+// Location button, via the ?viewBurg= query param finishLoad checks above.
+function viewLocation(burgId){
+  const burg = graph.burgs[burgId];
+  if(!burg) return;
+  document.getElementById('location-view').classList.remove('show');
+  centerOnLogical(burg.x, burg.y, Math.max(view.scale, viewport.clientWidth/((STAGE_W/LOGICAL_W)*REGION_W)));
+  onMapTap(burgId);
+}
+
 function showQuestBoardPanel(burgId){
   const b = graph.burgs[burgId];
   const active = getActiveQuests();
@@ -3486,9 +3502,12 @@ function showQuestBoardPanel(burgId){
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(o)}</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${questDesc(o)}</div>
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${o.reward.gold}g &middot; ${o.reward.xp} XP</span>
-        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" data-offer="${o.offerId}">Accept</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-secondary" style="flex:none; padding:8px 14px;" data-view="${o.targetBurgId}">View Location</button>
+          <button class="btn btn-primary" style="flex:none; padding:8px 16px;" data-offer="${o.offerId}">Accept</button>
+        </div>
       </div>
     </div>
   `).join('') : `<div style="font-size:12.5px; color:#a9926a; font-style:italic; text-align:center; padding:6px 0;">Nothing posted today — check back tomorrow.</div>`;
@@ -3505,6 +3524,9 @@ function showQuestBoardPanel(burgId){
     ${offersHTML}
   `;
   document.getElementById('quest-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+  list.querySelectorAll('[data-view]').forEach(btn=>{
+    btn.addEventListener('click', ()=> viewLocation(btn.dataset.view));
+  });
   list.querySelectorAll('[data-offer]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const offer = offers.find(o => o.offerId === btn.dataset.offer);
@@ -4380,11 +4402,27 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
 
   const img = document.getElementById('map-img');
   const finishLoad = ()=>{
-    centerOnLogical(START_X, START_Y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
-    // if returning to a saved location elsewhere, recenter there instead
-    const b = graph.burgs[currentBurg];
-    if(b && (b.x !== START_X || b.y !== START_Y)){
-      centerOnLogical(b.x, b.y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
+    // A ?viewBurg=<id> param (quests.html's View Location button — see viewLocation below)
+    // overrides the normal "recenter on where you actually are" behavior, so a quest's
+    // destination opens centered and highlighted instead of wherever the player last stood.
+    // Centers directly at the standard REGION_W-wide scale rather than going through
+    // viewLocation() itself — that helper's Math.max(view.scale, ...) guard is meant to avoid
+    // zooming a live session *out* below whatever the player was already zoomed in to (see FIND
+    // ME/#recenter-btn), but view.scale is still just its meaningless {scale:1} default this
+    // early in a fresh page load, so taking a max against it here would leave the map more
+    // zoomed in than a normal load ever starts at.
+    const viewBurgId = new URLSearchParams(location.search).get('viewBurg');
+    const targetBurg = viewBurgId && graph.burgs[viewBurgId];
+    if(targetBurg){
+      centerOnLogical(targetBurg.x, targetBurg.y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
+      onMapTap(viewBurgId);
+    } else {
+      centerOnLogical(START_X, START_Y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
+      // if returning to a saved location elsewhere, recenter there instead
+      const b = graph.burgs[currentBurg];
+      if(b && (b.x !== START_X || b.y !== START_Y)){
+        centerOnLogical(b.x, b.y, viewport.clientWidth / ((STAGE_W/LOGICAL_W)*REGION_W));
+      }
     }
     document.getElementById('loading').classList.add('hide');
     authGateReady.then(session=>{

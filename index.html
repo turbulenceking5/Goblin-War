@@ -844,6 +844,9 @@ const CHANGELOG = [
   { id:40, date:"2026-09-09", changes:[
     "Thinned Villages and Towns further, and Cities now keep their distance from each other too — the map reads a lot less cluttered overall."
   ]},
+  { id:41, date:"2026-09-09", changes:[
+    "Added an Achievements page (reached from Settings) tracking Capitals visited, every kind of enemy defeated, total kills, quests completed, and level milestones."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1468,6 +1471,27 @@ const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids �
 // combat.enemies.length against combat.race, not per-enemy, since a raiding-party fight's
 // enemies are already all rolled from the same race per triggerEnemyFight.
 const KILLS_KEY = "goblinwar_kills";
+// Cumulative tracking feeding achievements.html — see context/roadmap.md's "Achievements page".
+// None of these ever shrink, so an achievement's progress can always be read straight off them
+// rather than needing a separate "unlocked:true" flag anywhere.
+const VISITED_BURGS_KEY = "goblinwar_visitedBurgs"; // JSON array of every burgId shown via showLocationView at least once
+const DEFEATED_VARIANTS_KEY = "goblinwar_defeatedVariants"; // JSON object {enemyName: true} — every ENEMY_VARIANTS name beaten at least once
+const QUESTS_COMPLETED_TOTAL_KEY = "goblinwar_questsCompletedTotal"; // cumulative count, since goblinwar_completedQuests itself trims to COMPLETED_QUESTS_MAX
+function getVisitedBurgs(){ try{ return JSON.parse(localStorage.getItem(VISITED_BURGS_KEY)) || []; }catch(e){ return []; } }
+function recordVisitedBurg(burgId){
+  const visited = getVisitedBurgs();
+  if(visited.includes(burgId)) return;
+  visited.push(burgId);
+  localStorage.setItem(VISITED_BURGS_KEY, JSON.stringify(visited));
+}
+function getDefeatedVariants(){ try{ return JSON.parse(localStorage.getItem(DEFEATED_VARIANTS_KEY)) || {}; }catch(e){ return {}; } }
+function recordDefeatedVariant(name){
+  const defeated = getDefeatedVariants();
+  if(defeated[name]) return;
+  defeated[name] = true;
+  localStorage.setItem(DEFEATED_VARIANTS_KEY, JSON.stringify(defeated));
+}
+function getQuestsCompletedTotal(){ return parseInt(localStorage.getItem(QUESTS_COMPLETED_TOTAL_KEY) || "0", 10); }
 const FOOD_NAME = "Food";
 const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACITY
 const FOOD_PRICE = 2;     // gold per unit of Food at the Marketplace
@@ -2092,6 +2116,7 @@ function endCombat(result){
       let anyLevelUp = addXp(xpTotal);
       applyEnemyCasualtyLoss(enemyRace, attackerKingdom, currentBurg, enemies.length);
       addKills(enemyRace, enemies.length);
+      enemies.forEach(e => recordDefeatedVariant(e.name));
 
       // "2x Goblin Raider, 1x Goblin Archer" — group defeated enemies by name for the toast.
       const counts = {};
@@ -3266,6 +3291,7 @@ function recordCompletedQuest(q){
   const history = getCompletedQuests();
   history.unshift({ type:q.type, giverName:q.giverName, targetName:q.targetName, reward:q.reward, completedDay:gameDay });
   localStorage.setItem(COMPLETEDQUEST_KEY, JSON.stringify(history.slice(0, COMPLETED_QUESTS_MAX)));
+  localStorage.setItem(QUESTS_COMPLETED_TOTAL_KEY, String(getQuestsCompletedTotal() + 1));
 }
 // Drives the small count badge on the map toolbar's Quests button (quests.html has no live map
 // to update, so this only ever needs to run here) — called after anything that adds or removes
@@ -3645,6 +3671,7 @@ function showLocationView(burgId){
   stopWaiting();
   const b = graph.burgs[burgId];
   if(!b) return;
+  recordVisitedBurg(burgId);
   checkQuestTurnIns(burgId);
   document.getElementById('loc-heading').textContent = b.name;
   const controller = getController(burgId);
@@ -4481,6 +4508,9 @@ function collectCharacterSnapshot(){
     kills: localStorage.getItem(KILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
     completedQuests: localStorage.getItem(COMPLETEDQUEST_KEY) || "[]",
+    questsCompletedTotal: getQuestsCompletedTotal(),
+    visitedBurgs: localStorage.getItem(VISITED_BURGS_KEY) || "[]",
+    defeatedVariants: localStorage.getItem(DEFEATED_VARIANTS_KEY) || "{}",
     party: localStorage.getItem(PARTY_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",

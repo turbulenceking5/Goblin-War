@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
+<meta name="theme-color" content="#1c2a2c">
+<title>Goblin War — Achievements</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  header{
+    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    border-bottom:3px solid var(--gold);
+    padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
+  }
+  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  #back-btn{
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
+    border-radius:6px; padding:7px 12px; cursor:pointer;
+  }
+  #back-btn:active{ transform:scale(.96); }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
+  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:6px; text-align:center; }
+  .summary{ font-size:13px; color:var(--gold-lt); text-align:center; margin-bottom:20px; }
+  .section-label{ font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:22px 0 8px; }
+  .section-label:first-of-type{ margin-top:0; }
+
+  .ach-card{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:14px; margin-bottom:10px; display:flex; gap:12px; align-items:flex-start;
+  }
+  .ach-card.earned{ border-color:rgba(127,191,106,.55); background:rgba(127,191,106,.08); }
+  .ach-badge{
+    flex:none; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    border:1.5px solid rgba(209,164,69,.4); background:rgba(0,0,0,.25); color:#a9926a;
+  }
+  .ach-card.earned .ach-badge{ border-color:#7fbf6a; color:#7fbf6a; }
+  .ach-badge svg{ width:18px; height:18px; }
+  .ach-body{ flex:1; min-width:0; }
+  .ach-name{ font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:3px; }
+  .ach-card.earned .ach-name{ color:#c9e8bd; }
+  .ach-desc{ font-size:12.5px; color:#a9926a; line-height:1.4; margin-bottom:8px; }
+  .ach-track{ height:6px; border-radius:4px; background:rgba(255,255,255,.08); overflow:hidden; }
+  .ach-fill{ height:100%; background:linear-gradient(90deg, var(--gold) 0%, var(--gold-lt) 100%); border-radius:4px; }
+  .ach-card.earned .ach-fill{ background:linear-gradient(90deg, #5c9a4a 0%, #7fbf6a 100%); }
+  .ach-progress{ font-size:11px; color:#a9926a; margin-top:4px; text-align:right; }
+
+  #toast{
+    position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+    max-width:80vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>ACHIEVEMENTS</h1>
+    <button id="back-btn" onclick="location.href='settings.html?_='+Date.now()">&larr; Back to Settings</button>
+  </header>
+  <main>
+    <div class="subtitle">Milestones Earned Along the Way</div>
+    <div class="summary" id="summary">—</div>
+
+    <div class="section-label">Exploration</div>
+    <div id="exploration-list"></div>
+
+    <div class="section-label">Bestiary</div>
+    <div id="bestiary-list"></div>
+
+    <div class="section-label">Combat</div>
+    <div id="combat-list"></div>
+
+    <div class="section-label">Quests</div>
+    <div id="quests-list"></div>
+
+    <div class="section-label">Progression</div>
+    <div id="progression-list"></div>
+  </main>
+  <div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
+<script>
+const KILLS_KEY = "goblinwar_kills";
+const VISITED_BURGS_KEY = "goblinwar_visitedBurgs";
+const DEFEATED_VARIANTS_KEY = "goblinwar_defeatedVariants";
+const QUESTS_COMPLETED_TOTAL_KEY = "goblinwar_questsCompletedTotal";
+const LEVEL_KEY = "goblinwar_level";
+
+// Every ENEMY_VARIANTS name across all three races (index.html) — duplicated here per the
+// no-modules convention (see CLAUDE.md). Keep this list in sync whenever a new variant is added
+// to index.html's ENEMY_VARIANTS, or "Monster Hunter" below will never be able to complete.
+const ALL_ENEMY_VARIANTS = [
+  "Bandit",
+  "Goblin Raider", "Goblin Shieldbearer", "Goblin Skirmisher", "Goblin Archer", "Goblin Chieftain", "Goblin Shaman",
+  "Ork Raider", "Ork Berserker", "Ork Warlord", "Ork Shaman",
+];
+
+function getKills(){ try{ return JSON.parse(localStorage.getItem(KILLS_KEY)) || {}; }catch(e){ return {}; } }
+function totalKills(){ return Object.values(getKills()).reduce((sum,n) => sum+n, 0); }
+function getVisitedBurgs(){ try{ return JSON.parse(localStorage.getItem(VISITED_BURGS_KEY)) || []; }catch(e){ return []; } }
+function getDefeatedVariants(){ try{ return JSON.parse(localStorage.getItem(DEFEATED_VARIANTS_KEY)) || {}; }catch(e){ return {}; } }
+function defeatedVariantCount(){ return ALL_ENEMY_VARIANTS.filter(n => getDefeatedVariants()[n]).length; }
+function getLevel(){ return parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10); }
+function getQuestsCompletedTotal(){ return parseInt(localStorage.getItem(QUESTS_COMPLETED_TOTAL_KEY) || "0", 10); }
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>`;
+const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+
+// Renders one card list into containerId. `items` is [{name, desc, current, target}] — earned
+// is derived from current>=target rather than stored separately, since every progress source
+// here (kills, quests, visited burgs, defeated variants, level) only ever grows.
+function renderList(containerId, items){
+  document.getElementById(containerId).innerHTML = items.map(a => {
+    const earned = a.current >= a.target;
+    const pct = Math.min(100, Math.round((a.current / a.target) * 100));
+    return `
+      <div class="ach-card ${earned ? 'earned' : ''}">
+        <div class="ach-badge">${earned ? CHECK_ICON : LOCK_ICON}</div>
+        <div class="ach-body">
+          <div class="ach-name">${a.name}</div>
+          <div class="ach-desc">${a.desc}</div>
+          <div class="ach-track"><div class="ach-fill" style="width:${pct}%"></div></div>
+          <div class="ach-progress">${Math.min(a.current, a.target)} / ${a.target}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  return items.filter(a => a.current >= a.target).length;
+}
+
+function render(graph){
+  const visited = getVisitedBurgs();
+  const capitalIds = Object.keys(graph.burgs).filter(id => graph.burgs[id].tier === 'capital');
+  const visitedCapitals = capitalIds.filter(id => visited.includes(id)).length;
+
+  let earned = 0, total = 0;
+
+  earned += renderList('exploration-list', [
+    { name:"Grand Tour", desc:`Set foot in every Capital in the realm.`, current:visitedCapitals, target:capitalIds.length || 1 },
+  ]);
+  total += 1;
+
+  earned += renderList('bestiary-list', [
+    { name:"Monster Hunter", desc:"Defeat every kind of enemy at least once.", current:defeatedVariantCount(), target:ALL_ENEMY_VARIANTS.length },
+  ]);
+  total += 1;
+
+  const kills = totalKills();
+  const killMilestones = [
+    { name:"Blooded", desc:"Defeat 10 enemies.", current:kills, target:10 },
+    { name:"Battle-Hardened", desc:"Defeat 50 enemies.", current:kills, target:50 },
+    { name:"Legend of the Realm", desc:"Defeat 150 enemies.", current:kills, target:150 },
+  ];
+  earned += renderList('combat-list', killMilestones);
+  total += killMilestones.length;
+
+  const questsDone = getQuestsCompletedTotal();
+  const questMilestones = [
+    { name:"Errand Runner", desc:"Complete 5 quests.", current:questsDone, target:5 },
+    { name:"Reliable Hand", desc:"Complete 15 quests.", current:questsDone, target:15 },
+    { name:"Hero for Hire", desc:"Complete 40 quests.", current:questsDone, target:40 },
+  ];
+  earned += renderList('quests-list', questMilestones);
+  total += questMilestones.length;
+
+  const level = getLevel();
+  const levelMilestones = [
+    { name:"Rising Star", desc:"Reach level 5.", current:level, target:5 },
+    { name:"Seasoned Adventurer", desc:"Reach level 10.", current:level, target:10 },
+    { name:"Master of the Realm", desc:"Reach level 20.", current:level, target:20 },
+  ];
+  earned += renderList('progression-list', levelMilestones);
+  total += levelMilestones.length;
+
+  document.getElementById('summary').textContent = `${earned} / ${total} unlocked`;
+}
+
+fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
+  render(data);
+}).catch(()=>{
+  // Capitals-visited can't be scored without the graph, but every other category can — render
+  // with a 0/1 placeholder rather than leaving the whole page blank on a fetch failure.
+  render({ burgs:{} });
+  showToast("Couldn't load world data — Capitals progress unavailable.");
+});
+</script>
+</body>
+</html>

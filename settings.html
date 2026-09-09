@@ -118,6 +118,11 @@
       </div>
     </div>
 
+    <div class="menu-item" onclick="location.href='achievements.html?_='+Date.now()">
+      <span>Achievements</span>
+      <span class="chevron">&rsaquo;</span>
+    </div>
+
     <div class="menu-item" onclick="location.href='changelog.html?_='+Date.now()">
       <span>Change Log</span>
       <span class="chevron">&rsaquo;</span>
@@ -162,6 +167,9 @@ const QUEST_KEY = "goblinwar_quests";
 const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
 const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids — see party.html
 const KILLS_KEY = "goblinwar_kills"; // {race: count} — feeds character.html's Titles line
+const VISITED_BURGS_KEY = "goblinwar_visitedBurgs"; // JSON array — feeds achievements.html
+const DEFEATED_VARIANTS_KEY = "goblinwar_defeatedVariants"; // {enemyName: true} — feeds achievements.html
+const QUESTS_COMPLETED_TOTAL_KEY = "goblinwar_questsCompletedTotal"; // cumulative count — feeds achievements.html
 // The last Supabase updated_at this device knows its active character to be at — written by
 // characters.html on Play (from the row it just loaded) and here on a successful Save Now (see
 // below), plus index.html's own saveActiveCharacter. Compared against the row's *live*
@@ -242,6 +250,9 @@ function collectCharacterSnapshot(){
     kills: localStorage.getItem(KILLS_KEY) || "{}",
     quests: localStorage.getItem(QUEST_KEY) || "[]",
     completedQuests: localStorage.getItem(COMPLETEDQUEST_KEY) || "[]",
+    questsCompletedTotal: parseInt(localStorage.getItem(QUESTS_COMPLETED_TOTAL_KEY) || "0", 10),
+    visitedBurgs: localStorage.getItem(VISITED_BURGS_KEY) || "[]",
+    defeatedVariants: localStorage.getItem(DEFEATED_VARIANTS_KEY) || "{}",
     party: localStorage.getItem(PARTY_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",

@@ -11,3 +11,6 @@ scripts/build-world-raster/node_modules
 # `node scripts/build-world-raster/render-painterly.js`; only copy over assets/world-raster.jpg
 # once it looks right.
 assets/world-raster-preview.jpg
+
+# Personal Claude Code permission overrides — not shared/team config.
+.claude/settings.local.json

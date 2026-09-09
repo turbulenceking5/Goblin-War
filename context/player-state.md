@@ -29,6 +29,7 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_visitedBurgs` | JSON array of every burgId shown via `showLocationView` at least once | `[]` | index.html (writes, via `recordVisitedBurg`), achievements.html (reads, cross-referenced against `travel-graph.json`'s Capital tier) |
 | `goblinwar_defeatedVariants` | JSON object `{enemyName: true}` — every `ENEMY_VARIANTS` name beaten at least once | `{}` | index.html (writes, via `recordDefeatedVariant`, in `endCombat('victory')`), achievements.html (reads) |
 | `goblinwar_party` | JSON array of recruited companion ids | `[]` | party.html only — see [secondary-pages.md](secondary-pages.md). Nothing can add an id to it yet; the roster/portrait rendering is built ahead of any way to actually recruit someone, see [roadmap.md](roadmap.md)'s "Party / Companions" |
+| `goblinwar_mercenaries` | JSON array of `{instanceId, typeId, hiredDay, lastUpkeepDay}` — hired mercenaries, sharing the same `MAX_PARTY_SIZE` (3) cap as `goblinwar_party` | `[]` | index.html (writes — `hireMercenary` at a Guard House, `chargeMercenaryUpkeep` in `advanceDays`), party.html (reads, and writes on Dismiss) |
 | `goblinwar_currentBurg` | Burg id (string) of last-arrived settlement | `"5"` (Bary) | index.html, character.html, settings.html |
 | `goblinwar_gameDay` | Flat day counter | `0` | index.html, character.html, settings.html |
 | `goblinwar_heading` | Marker facing, degrees (0=north) | `0` | index.html, settings.html |

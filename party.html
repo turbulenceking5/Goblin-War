@@ -61,6 +61,23 @@
   .companion-name{ font-family:'Cinzel', serif; font-size:14.5px; color:var(--parchment); }
   .companion-title{ font-size:11.5px; color:#a9926a; font-style:italic; margin-top:2px; }
   .companion-blurb{ font-size:12px; color:var(--parchment); margin-top:6px; line-height:1.4; }
+  .companion-upkeep{ font-size:11px; color:#e0a860; margin-top:6px; }
+  .dismiss-btn{
+    flex:none; align-self:flex-start; margin-top:8px; font-family:'Cinzel', serif; font-size:11px;
+    padding:6px 12px; border-radius:8px; cursor:pointer;
+    border:1.5px solid #a9433a; background:rgba(160,60,50,.15); color:#e2857f; font-weight:700;
+  }
+  .dismiss-btn:active{ transform:scale(.96); }
+
+  #toast{
+    position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
+    background:rgba(20,14,6,.94); color:var(--parchment);
+    font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
+    padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
+    opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
+    max-width:80vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
 </style>
 </head>
 <body>
@@ -77,6 +94,7 @@
       <p>No followers yet.<br>Recruitable companions and their own quests will show up here once that system is built.</p>
     </div>
   </main>
+  <div id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
@@ -99,8 +117,43 @@ const COMPANIONS = [
   { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png" },
 ];
 
+// Hired mercenaries — see index.html's Guard House "Hire a Mercenary" action, the only place
+// goblinwar_mercenaries actually gets written. Deliberately anonymous (no name, no portrait,
+// per the project owner): a hired sword, not a character — kept distinct from COMPANIONS above,
+// which is reserved for a future recruit-with-loyalty flow. Duplicated from index.html's own
+// MERCENARY_TYPES per the no-modules convention.
+const MERCENARY_KEY = "goblinwar_mercenaries";
+const MERCENARY_TYPES = [
+  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       upkeep:5 },
+  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", upkeep:5 },
+  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", upkeep:6 },
+];
+
 function getParty(){
   try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; }
+}
+function getMercenaries(){
+  try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; }
+}
+function saveMercenaries(list){ localStorage.setItem(MERCENARY_KEY, JSON.stringify(list)); }
+
+let toastTimer;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function dismissMercenary(instanceId){
+  const mercs = getMercenaries();
+  const m = mercs.find(x => x.instanceId === instanceId);
+  if(!m) return;
+  const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
+  if(!confirm(`Dismiss ${type ? type.title : 'this mercenary'}? This cannot be undone.`)) return;
+  saveMercenaries(mercs.filter(x => x.instanceId !== instanceId));
+  showToast('Mercenary dismissed.');
+  render();
 }
 
 function portraitMarkup(c){
@@ -112,16 +165,18 @@ function portraitMarkup(c){
 
 function render(){
   const recruited = getParty().map(id => COMPANIONS.find(c => c.id === id)).filter(Boolean);
-  document.getElementById('party-count').textContent = `${recruited.length} / ${MAX_PARTY_SIZE}`;
+  const mercs = getMercenaries();
+  const total = recruited.length + mercs.length;
+  document.getElementById('party-count').textContent = `${total} / ${MAX_PARTY_SIZE}`;
   const list = document.getElementById('party-list');
   const emptyState = document.getElementById('empty-state');
-  if(recruited.length === 0){
+  if(total === 0){
     list.innerHTML = '';
     emptyState.style.display = 'block';
     return;
   }
   emptyState.style.display = 'none';
-  list.innerHTML = recruited.map(c => `
+  const companionRows = recruited.map(c => `
     <div class="companion-row">
       <div class="companion-portrait">${portraitMarkup(c)}</div>
       <div class="companion-info">
@@ -131,6 +186,27 @@ function render(){
       </div>
     </div>
   `).join('');
+  // Mercenaries never carry a `name`/`portrait` — deliberately anonymous, so this always falls
+  // back to the same placeholder silhouette a companion with no portrait would use, and shows
+  // the role's generic title where a companion would show its own name.
+  const mercRows = mercs.map(m => {
+    const type = MERCENARY_TYPES.find(t => t.id === m.typeId) || { title:"Mercenary", blurb:"", upkeep:0 };
+    return `
+      <div class="companion-row">
+        <div class="companion-portrait">${portraitMarkup({})}</div>
+        <div class="companion-info">
+          <div class="companion-name">${type.title}</div>
+          <div class="companion-blurb">${type.blurb}</div>
+          <div class="companion-upkeep">${type.upkeep}g/day upkeep</div>
+          <button class="dismiss-btn" data-dismiss="${m.instanceId}">Dismiss</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  list.innerHTML = companionRows + mercRows;
+  list.querySelectorAll('[data-dismiss]').forEach(btn => {
+    btn.addEventListener('click', ()=> dismissMercenary(btn.dataset.dismiss));
+  });
 }
 
 render();

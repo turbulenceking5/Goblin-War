@@ -675,6 +675,7 @@ function advanceDays(n){
   gameDay += n;
   localStorage.setItem(CAL_KEY, String(gameDay));
   refreshCalendarUI();
+  chargeMercenaryUpkeep();
   maybeRunFactionAI();
 }
 
@@ -846,6 +847,9 @@ const CHANGELOG = [
   ]},
   { id:41, date:"2026-09-09", changes:[
     "Added an Achievements page (reached from Settings) tracking Capitals visited, every kind of enemy defeated, total kills, quests completed, and level milestones."
+  ]},
+  { id:42, date:"2026-09-09", changes:[
+    "Guard Houses now let you hire a mercenary to join your party — pay upfront, then daily upkeep to keep them. Check your roster on the Party tab, where you can also dismiss one."
   ]},
 ];
 
@@ -3732,7 +3736,10 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
-      else if(btn.dataset.action === 'guardhouse') showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId));
+      else if(btn.dataset.action === 'guardhouse'){
+        showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId));
+        wireMercenaryButtons(burgId);
+      }
       else if(btn.dataset.action === 'palace'){
         showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
         wirePalaceButtons(burgId);
@@ -3930,6 +3937,95 @@ function buildGuardHouseStats(burgId){
       ${siegeRow}
     </div>
   `;
+}
+
+// Hire a Mercenary — the first real use of the party roster (see party.html's COMPANIONS/
+// goblinwar_party, still entirely unused since nothing can recruit one yet). Deliberately
+// anonymous per the project owner: a mercenary is a plain cash transaction, not a character —
+// no name, no unique portrait (falls back to party.html's existing placeholder silhouette,
+// the same one the player's own not-yet-drawn hero portrait uses), just a role. That's what
+// keeps this distinct from the COMPANIONS catalog's three named, real-portrait entries, which
+// stay reserved for a future recruit-with-loyalty flow (see context/roadmap.md's "Party /
+// Companions" and "Companion loyalty" — a mercenary never gets that system, it's cash only).
+// No combat participation yet either — see roadmap.md, that's still a separate unbuilt step.
+const MERCENARY_KEY = "goblinwar_mercenaries"; // JSON array of {instanceId, typeId, hiredDay, lastUpkeepDay}
+const MAX_PARTY_SIZE = 3; // shared cap across recruited companions (goblinwar_party) and hired mercenaries
+const MERCENARY_TYPES = [
+  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       hireCost:40, upkeep:5 },
+  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", hireCost:35, upkeep:5 },
+  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", hireCost:55, upkeep:6 },
+];
+function getParty(){ try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; } }
+function getMercenaries(){ try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; } }
+function saveMercenaries(list){ localStorage.setItem(MERCENARY_KEY, JSON.stringify(list)); }
+function getActivePartySize(){ return getParty().length + getMercenaries().length; }
+function buildMercenaryHireHTML(burgId){
+  const full = getActivePartySize() >= MAX_PARTY_SIZE;
+  const rows = MERCENARY_TYPES.map(t => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(209,164,69,.2);">
+      <div style="flex:1; min-width:0; margin-right:10px;">
+        <div style="font-family:'Cinzel',serif; font-size:12.5px; font-weight:700; color:var(--parchment);">${t.title}</div>
+        <div style="font-size:11.5px; color:#a9926a; margin-top:2px;">${t.blurb}</div>
+        <div style="font-size:11px; color:#e0a860; margin-top:3px;">${t.hireCost}g to hire &middot; ${t.upkeep}g/day upkeep</div>
+      </div>
+      <button class="btn btn-primary" style="flex:none; padding:7px 12px; font-size:11px;" data-hire="${t.id}" ${full ? 'disabled' : ''}>Hire</button>
+    </div>
+  `).join('');
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:2px;">Hire a Mercenary</div>
+      <div style="font-size:12px; color:#a9926a; margin-bottom:2px;">${full ? `Your party is full (${MAX_PARTY_SIZE}/${MAX_PARTY_SIZE}).` : `Party: ${getActivePartySize()} / ${MAX_PARTY_SIZE}`}</div>
+      ${rows}
+    </div>
+  `;
+}
+function hireMercenary(burgId, typeId){
+  const type = MERCENARY_TYPES.find(t => t.id === typeId);
+  if(!type) return;
+  if(getActivePartySize() >= MAX_PARTY_SIZE){ showToast("Your party is full."); return; }
+  if(playerGold < type.hireCost){ showToast("Not enough gold to hire them."); return; }
+  setGold(playerGold - type.hireCost);
+  const mercs = getMercenaries();
+  mercs.push({ instanceId:`${type.id}_${gameDay}_${Math.floor(Math.random()*100000)}`, typeId:type.id, hiredDay:gameDay, lastUpkeepDay:gameDay });
+  saveMercenaries(mercs);
+  showToast(`${type.title} joins you — ${type.hireCost}g paid, ${type.upkeep}g/day upkeep from here.`);
+  showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId));
+  wireMercenaryButtons(burgId);
+}
+function wireMercenaryButtons(burgId){
+  document.querySelectorAll('[data-hire]').forEach(btn=>{
+    btn.addEventListener('click', ()=> hireMercenary(burgId, btn.dataset.hire));
+  });
+}
+// Charged from advanceDays() below — once per elapsed day, not per settlement (a mercenary's
+// pay doesn't pause just because the player is out of town). A mercenary who can't be paid in
+// full leaves outright rather than partially — simpler than prorating, and gives the player a
+// clear "pay up or lose them" signal via the toast instead of a silent shortfall.
+function chargeMercenaryUpkeep(){
+  const mercs = getMercenaries();
+  if(!mercs.length) return;
+  const departedTitles = [];
+  const kept = mercs.filter(m => {
+    const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
+    if(!type) return false; // stale/unknown type — drop it rather than keep an uncharged freeloader
+    const daysOwed = gameDay - m.lastUpkeepDay;
+    if(daysOwed <= 0) return true;
+    const cost = daysOwed * type.upkeep;
+    if(playerGold >= cost){
+      setGold(playerGold - cost);
+      m.lastUpkeepDay = gameDay;
+      return true;
+    }
+    departedTitles.push(type.title);
+    return false;
+  });
+  // Always persist — not just on a departure. A survivor's updated lastUpkeepDay lives only on
+  // the in-memory `m` mutated above; skipping this save whenever nobody left would leave that
+  // update unwritten, so the same already-paid days would be billed again next time this runs.
+  saveMercenaries(kept);
+  if(departedTitles.length){
+    showToast(`${departedTitles.join(', ')} left your service — you couldn't cover their pay.`);
+  }
 }
 
 // Petition for Troops — the player-facing trigger for alliance reinforcement (see
@@ -4512,6 +4608,7 @@ function collectCharacterSnapshot(){
     visitedBurgs: localStorage.getItem(VISITED_BURGS_KEY) || "[]",
     defeatedVariants: localStorage.getItem(DEFEATED_VARIANTS_KEY) || "{}",
     party: localStorage.getItem(PARTY_KEY) || "[]",
+    mercenaries: localStorage.getItem(MERCENARY_KEY) || "[]",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

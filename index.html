@@ -851,6 +851,9 @@ const CHANGELOG = [
   { id:42, date:"2026-09-09", changes:[
     "Guard Houses now let you hire a mercenary to join your party — pay upfront, then daily upkeep to keep them. Check your roster on the Party tab, where you can also dismiss one."
   ]},
+  { id:43, date:"2026-09-10", changes:[
+    "Mercenaries now have real portrait art — a hooded sellsword, a hooded archer, and an armored veteran guard — shown when hiring at a Guard House and on your Party roster. Still nameless, just no longer a placeholder silhouette."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3940,20 +3943,21 @@ function buildGuardHouseStats(burgId){
 }
 
 // Hire a Mercenary — the first real use of the party roster (see party.html's COMPANIONS/
-// goblinwar_party, still entirely unused since nothing can recruit one yet). Deliberately
-// anonymous per the project owner: a mercenary is a plain cash transaction, not a character —
-// no name, no unique portrait (falls back to party.html's existing placeholder silhouette,
-// the same one the player's own not-yet-drawn hero portrait uses), just a role. That's what
-// keeps this distinct from the COMPANIONS catalog's three named, real-portrait entries, which
-// stay reserved for a future recruit-with-loyalty flow (see context/roadmap.md's "Party /
-// Companions" and "Companion loyalty" — a mercenary never gets that system, it's cash only).
-// No combat participation yet either — see roadmap.md, that's still a separate unbuilt step.
+// goblinwar_party, still entirely unused since nothing can recruit one yet). Still anonymous
+// per the project owner: a mercenary is a plain cash transaction, not a character — no name,
+// just a role — but each role does now have its own real generic portrait under
+// assets/mercenaries/ (faceless by design: full helm or a shadowed hood, never a face), shown
+// here and in party.html's roster. That's what keeps this distinct from the COMPANIONS catalog's
+// three named, real-portrait entries, which stay reserved for a future recruit-with-loyalty flow
+// (see context/roadmap.md's "Party / Companions" and "Companion loyalty" — a mercenary never
+// gets that system, it's cash only). No combat participation yet either — see roadmap.md, that's
+// still a separate unbuilt step.
 const MERCENARY_KEY = "goblinwar_mercenaries"; // JSON array of {instanceId, typeId, hiredDay, lastUpkeepDay}
 const MAX_PARTY_SIZE = 3; // shared cap across recruited companions (goblinwar_party) and hired mercenaries
 const MERCENARY_TYPES = [
-  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       hireCost:40, upkeep:5 },
-  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", hireCost:35, upkeep:5 },
-  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", hireCost:55, upkeep:6 },
+  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       hireCost:40, upkeep:5, portrait:"assets/mercenaries/sellsword.png" },
+  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", hireCost:35, upkeep:5, portrait:"assets/mercenaries/mercenary-archer.png" },
+  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", hireCost:55, upkeep:6, portrait:"assets/mercenaries/veteran-guard.png" },
 ];
 function getParty(){ try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; } }
 function getMercenaries(){ try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; } }
@@ -3963,6 +3967,9 @@ function buildMercenaryHireHTML(burgId){
   const full = getActivePartySize() >= MAX_PARTY_SIZE;
   const rows = MERCENARY_TYPES.map(t => `
     <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(209,164,69,.2);">
+      <div style="flex:none; width:44px; height:44px; border-radius:8px; overflow:hidden; margin-right:10px; border:1.5px dashed rgba(209,164,69,.35); background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center;">
+        <img src="${t.portrait}" alt="${t.title}" style="width:100%; height:100%; object-fit:cover;">
+      </div>
       <div style="flex:1; min-width:0; margin-right:10px;">
         <div style="font-family:'Cinzel',serif; font-size:12.5px; font-weight:700; color:var(--parchment);">${t.title}</div>
         <div style="font-size:11.5px; color:#a9926a; margin-top:2px;">${t.blurb}</div>

@@ -118,15 +118,18 @@ const COMPANIONS = [
 ];
 
 // Hired mercenaries — see index.html's Guard House "Hire a Mercenary" action, the only place
-// goblinwar_mercenaries actually gets written. Deliberately anonymous (no name, no portrait,
-// per the project owner): a hired sword, not a character — kept distinct from COMPANIONS above,
-// which is reserved for a future recruit-with-loyalty flow. Duplicated from index.html's own
-// MERCENARY_TYPES per the no-modules convention.
+// goblinwar_mercenaries actually gets written. Still anonymous (no name, per the project owner):
+// a hired sword, not a character — kept distinct from COMPANIONS above, which is reserved for a
+// future recruit-with-loyalty flow. Each role now has real generic portrait art under
+// assets/mercenaries/ (faceless by design — full helm or a shadowed hood, never a face — so the
+// art stays consistent with "hired sword, not a character" even though it's no longer a
+// placeholder silhouette). Duplicated from index.html's own MERCENARY_TYPES per the no-modules
+// convention.
 const MERCENARY_KEY = "goblinwar_mercenaries";
 const MERCENARY_TYPES = [
-  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       upkeep:5 },
-  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", upkeep:5 },
-  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", upkeep:6 },
+  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       upkeep:5, portrait:"assets/mercenaries/sellsword.png" },
+  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", upkeep:5, portrait:"assets/mercenaries/mercenary-archer.png" },
+  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", upkeep:6, portrait:"assets/mercenaries/veteran-guard.png" },
 ];
 
 function getParty(){
@@ -186,14 +189,14 @@ function render(){
       </div>
     </div>
   `).join('');
-  // Mercenaries never carry a `name`/`portrait` — deliberately anonymous, so this always falls
-  // back to the same placeholder silhouette a companion with no portrait would use, and shows
-  // the role's generic title where a companion would show its own name.
+  // Mercenaries never carry a `name` — still anonymous — but each role now has its own generic
+  // portrait (see MERCENARY_TYPES above), so this shows that art with the role's title standing
+  // in for a companion's name, rather than falling back to the placeholder silhouette.
   const mercRows = mercs.map(m => {
     const type = MERCENARY_TYPES.find(t => t.id === m.typeId) || { title:"Mercenary", blurb:"", upkeep:0 };
     return `
       <div class="companion-row">
-        <div class="companion-portrait">${portraitMarkup({})}</div>
+        <div class="companion-portrait">${portraitMarkup({ portrait: type.portrait, name: type.title })}</div>
         <div class="companion-info">
           <div class="companion-name">${type.title}</div>
           <div class="companion-blurb">${type.blurb}</div>

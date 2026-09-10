@@ -3968,7 +3968,7 @@ function buildMercenaryHireHTML(burgId){
   const rows = MERCENARY_TYPES.map(t => `
     <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(209,164,69,.2);">
       <div style="flex:none; width:44px; height:44px; border-radius:8px; overflow:hidden; margin-right:10px; border:1.5px dashed rgba(209,164,69,.35); background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center;">
-        <img src="${t.portrait}" alt="${t.title}" style="width:100%; height:100%; object-fit:cover;">
+        <img src="${t.portrait}" alt="${t.title}" style="width:100%; height:100%; object-fit:cover; object-position:top;">
       </div>
       <div style="flex:1; min-width:0; margin-right:10px;">
         <div style="font-family:'Cinzel',serif; font-size:12.5px; font-weight:700; color:var(--parchment);">${t.title}</div>

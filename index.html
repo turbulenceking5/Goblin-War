@@ -719,6 +719,9 @@ function nightFactor(hour){
   if(h >= 18 && h < 21) return (h-18)/3;
   return 1;
 }
+// Same threshold the map tint and clock icon already use — one shared definition of "is it
+// night right now" for anything gameplay-side that wants to react to it (see doWork below).
+function isNightNow(){ return nightFactor(gameHour) >= 0.5; }
 const MAX_NIGHT_OPACITY = 0.5;
 function updateNightOverlay(hour){
   const f = nightFactor(hour);
@@ -971,6 +974,10 @@ const CHANGELOG = [
   { id:49, date:"2026-09-11", changes:[
     "Added a real clock — the header now shows the time of day, ticking live as you travel or wait, and the map itself darkens at night.",
     "Resting now always wakes you at 6 AM, whatever time you turned in."
+  ]},
+  { id:50, date:"2026-09-12", changes:[
+    "The road is more dangerous after dark — traveling at night now raises your chance of an ambush.",
+    "Work is no longer available at night — come back during the day."
   ]},
 ];
 
@@ -2602,9 +2609,31 @@ const NIGHT_AMBUSH_CHANCE = 0.15;   // chance bandits strike an exposed camp ove
 // BEDROLL_STAMINA_BONUS and restFully() below.
 const BEDROLL_AMBUSH_MULT = 0.85;    // 15% safer camping while a Bedroll is carried
 const BEDROLL_STAMINA_BONUS = 15;    // resting with a Bedroll fills Stamina to max+this, not just max
-function rollAmbush(hours){
+// The first real gameplay hook on the day/night clock (see context/travel-and-map.md's "Day/night
+// cycle") — per the project owner, the road is more dangerous after dark. NIGHT_AMBUSH_TRAVEL_MULT
+// (1.5) scales AMBUSH_CHANCE_PER_DAY up for however much of a trip's actual duration falls during
+// night hours (nightFactor(hour) >= 0.5 — same threshold the map tint/clock icon use), rather than
+// an all-or-nothing "is it night right now" check, so a trip that departs at dusk and arrives well
+// past midnight is riskier than one that only clips an hour of darkness at either end.
+const NIGHT_AMBUSH_TRAVEL_MULT = 1.5;
+// Samples the trip hourly (at each hour's midpoint) rather than just checking the departure or
+// arrival hour, so a long journey spanning both day and night gets a proportionate blend instead
+// of being judged entirely by whichever moment happens to get checked.
+function nightFractionOfTrip(startHour, hours){
+  if(hours <= 0) return 0;
+  const samples = Math.max(1, Math.ceil(hours));
+  let nightSamples = 0;
+  for(let i=0;i<samples;i++){
+    const sampleHour = (startHour + Math.min(hours, i+0.5)) % 24;
+    if(nightFactor(sampleHour) >= 0.5) nightSamples++;
+  }
+  return nightSamples / samples;
+}
+function rollAmbush(hours, startHour){
   const days = hours/HOURS_PER_DAY;
-  const chancePerDay = AMBUSH_CHANCE_PER_DAY * (hasPerk('sure_feet') ? 0.9 : 1);
+  const nightFrac = startHour === undefined ? 0 : nightFractionOfTrip(startHour, hours);
+  const nightMult = 1 + nightFrac * (NIGHT_AMBUSH_TRAVEL_MULT - 1);
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
 // ===================== HUNGER & THIRST =====================
@@ -3346,7 +3375,7 @@ function beginTravel(destId){
     addHunger(t.hungerGain);
     addThirst(t.thirstGain);
     refreshReachability();
-    if(rollAmbush(t.hours)){
+    if(rollAmbush(t.hours, startHour)){
       triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
     } else {
       showLocationView(currentBurg);
@@ -4042,10 +4071,15 @@ function showLocationView(burgId){
   document.getElementById('loc-banner-portrait').innerHTML = '';
 
   const workedToday = hasWorkedToday(burgId);
+  const workBlockedByNight = !workedToday && isNightNow();
   const actions = [
     { icon:`<path d="M5 3h14l-1 9a6 6 0 0 1-12 0L5 3z"/><path d="M8 21h8"/><path d="M12 15v6"/>`, title:"The Tavern", desc:"Rest up, hear local rumours, and buy a meal and a drink", action:'tavern' },
     { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market' },
-    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : "Take on odd jobs for a few hours' pay", action:'work', disabled:workedToday },
+    // Per the project owner, the second gameplay hook on the day/night clock (see rollAmbush
+    // above for the first): odd jobs are a daytime thing, so Work is unavailable at night, same
+    // disabled-with-explanation treatment the existing once-per-day cooldown already used —
+    // workedToday still takes priority in the message if both happen to apply.
+    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : workBlockedByNight ? "Nobody's hiring after dark — come back in daylight" : "Take on odd jobs for a few hours' pay", action:'work', disabled: workedToday || workBlockedByNight },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'talk' },
     { icon:`<path d="M6 3h12v4H6z"/><path d="M9 7v14M9 9h6M9 12h6M9 15h4"/>`, title:"Quest Board", desc:"See what work needs doing", action:'questboard' },
   ];
@@ -4146,6 +4180,10 @@ const WORK_LINES = [
 function doWork(burgId){
   if(hasWorkedToday(burgId)){
     showToast("Already worked here today — come back tomorrow.");
+    return;
+  }
+  if(isNightNow()){
+    showToast("Nobody's hiring after dark — come back in daylight.");
     return;
   }
   const earned = randRange([3,15]);

@@ -882,6 +882,9 @@ const CHANGELOG = [
   { id:47, date:"2026-09-11", changes:[
     "Added a Difficulty choice to character creation — Permadeath toggles for you, companions, and mercenaries. On for you, losing a fight ends that character for good instead of surviving at 10 HP; off keeps today's behavior. Mercenary permadeath (already the default) can now be turned off too. Your choice shows read-only on the Settings screen."
   ]},
+  { id:48, date:"2026-09-11", changes:[
+    "You can now recruit companions — Ser Brannoc Ward, Wren Sable, and Thrain Emberforge are each waiting in a different city. Talk to them to hear their story and decide if they join. Part ways with one anytime from the Party tab."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3867,6 +3870,76 @@ function showNotableFigurePanel(burgId){
   }
 }
 
+// A conversation, not a cash transaction — per the project owner, recruiting a companion means
+// hearing their story (their own `blurb`) and choosing whether to accept them, unlike a
+// mercenary's instant, upkeep-charging hire. Declining costs nothing and isn't remembered — Back
+// (or Not Now) just returns to the location view, and the same companion is still here to talk
+// to again next visit, same as an unaccepted Notable Figure quest offer.
+function showCompanionPanel(burgId){
+  const b = graph.burgs[burgId];
+  const list = document.getElementById('loc-action-list');
+  const companion = getCompanionForBurg(burgId);
+  const full = getActivePartySize() >= MAX_PARTY_SIZE;
+
+  let bodyHTML;
+  if(!companion){
+    bodyHTML = `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13px; color:#a9926a; font-style:italic;">
+        Whoever was here has already moved on.
+      </div>
+    `;
+  } else {
+    bodyHTML = `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:2px;">${companion.name}</div>
+        <div style="font-size:11.5px; color:#a9926a; font-style:italic; margin-bottom:8px;">${companion.title}</div>
+        <div style="font-size:13px; color:var(--parchment); line-height:1.5; margin-bottom:12px;">&ldquo;${companion.blurb}&rdquo;</div>
+        ${full
+          ? `<div style="font-size:12px; color:#a9926a; text-align:center;">Your party is full (${MAX_PARTY_SIZE}/${MAX_PARTY_SIZE}) — there's no room for ${companion.name} right now.</div>`
+          : `<div style="display:flex; gap:10px;">
+               <button class="btn btn-secondary" style="flex:1; padding:9px 0;" id="companion-decline-btn">Not Now</button>
+               <button class="btn btn-primary" style="flex:1; padding:9px 0;" id="companion-recruit-btn">Recruit</button>
+             </div>`
+        }
+      </div>
+    `;
+  }
+
+  list.innerHTML = `
+    <button class="loc-action" id="companion-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">A New Face</div>
+    ${bodyHTML}
+  `;
+  // Same banner-overlay treatment as showNotableFigurePanel — the companion appears layered
+  // over the settlement's own art rather than the panel reading as a disconnected card.
+  const portraitEl = document.getElementById('loc-banner-portrait');
+  if(companion && companion.portrait){
+    portraitEl.innerHTML = `<img src="${companion.portrait}" alt="${companion.name}">`;
+    portraitEl.classList.add('show');
+  } else {
+    portraitEl.classList.remove('show');
+    portraitEl.innerHTML = '';
+  }
+  document.getElementById('companion-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+  const declineBtn = document.getElementById('companion-decline-btn');
+  if(declineBtn) declineBtn.addEventListener('click', ()=> showLocationView(burgId));
+  const recruitBtn = document.getElementById('companion-recruit-btn');
+  if(recruitBtn){
+    recruitBtn.addEventListener('click', ()=>{
+      const c = getCompanionForBurg(burgId);
+      if(!c || getActivePartySize() >= MAX_PARTY_SIZE){ showCompanionPanel(burgId); return; } // state shifted between render and click
+      const party = getParty();
+      party.push(c.id);
+      saveParty(party);
+      showToast(`${c.name} joins your party.`);
+      showLocationView(burgId);
+    });
+  }
+}
+
 function showLocationView(burgId){
   stopWaiting();
   const b = graph.burgs[burgId];
@@ -3901,6 +3974,13 @@ function showLocationView(burgId){
     // settlements don't have a Palace.
     if(getFigureForBurg(burgId)){
       actions.push({ icon:`<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>`, title:"Notable Figure", desc:"Someone here wants a word", action:'notable_figure' });
+    }
+    // Same pinned-to-one-city, disappears-if-captured pattern as Notable Figure just above, but
+    // a completely different encounter — see COMPANIONS/getCompanionForBurg and
+    // showCompanionPanel below. Already hidden once recruited (getCompanionForBurg checks
+    // goblinwar_party itself), so there's no need to also gate this push on party size.
+    if(getCompanionForBurg(burgId)){
+      actions.push({ icon:`<circle cx="9" cy="8" r="3.5"/><path d="M3 21c0-3.9 2.7-7 6-7s6 3.1 6 7"/><path d="M18 8v6M15 11h6"/>`, title:"A New Face", desc:"Someone here seems to be watching you with interest", action:'companion' });
     }
   }
   if(b.tier === 'capital'){
@@ -3941,6 +4021,7 @@ function showLocationView(burgId){
         wirePalaceButtons(burgId);
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
+      else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
       else if(btn.dataset.action === 'talk') showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId));
       else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
       else if(btn.dataset.action === 'refugee_camp'){
@@ -4155,10 +4236,36 @@ const MERCENARY_TYPES = [
   { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", hireCost:35, upkeep:5, portrait:"assets/mercenaries/mercenary-archer.png", combatHp:30, combatDmgRange:[7,13] },
   { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", hireCost:55, upkeep:6, portrait:"assets/mercenaries/veteran-guard.png",    combatHp:55, combatDmgRange:[6,11] },
 ];
+// Recruitable companions — see party.html's own COMPANIONS copy (duplicated per the no-modules
+// convention; that copy doesn't need homeBurgId since it only ever displays already-recruited
+// companions, never triggers a recruit). Each is pinned to one real settlement, same pattern as
+// NOTABLE_FIGURES — but per the project owner, spread across different cities ("random cities")
+// rather than sharing any of theirs (5, 3, 1, 24, 11), and Thrain (a dwarf) sits in Dwarf
+// territory rather than Human, matching his own race. Recruiting is a conversation, not a cash
+// transaction like hiring a mercenary — the player hears their story (`blurb`, reused verbatim
+// as what the companion actually says) and chooses whether to accept, no upkeep either way.
+const COMPANIONS = [
+  { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png", homeBurgId:"19" },
+  { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png", homeBurgId:"346" },
+  { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png", homeBurgId:"7" },
+];
 function getParty(){ try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; } }
+function saveParty(list){ localStorage.setItem(PARTY_KEY, JSON.stringify(list)); }
 function getMercenaries(){ try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; } }
 function saveMercenaries(list){ localStorage.setItem(MERCENARY_KEY, JSON.stringify(list)); }
 function getActivePartySize(){ return getParty().length + getMercenaries().length; }
+// Returns the companion whose home this is, or null if there's no companion here at all,
+// they're already recruited, or their home's been captured by another race since — same three
+// checks (place, state, captured) getFigureForBurg runs for NOTABLE_FIGURES, and the same
+// "they disappear if their city falls" rule per the project owner.
+function getCompanionForBurg(burgId){
+  const companion = COMPANIONS.find(c => c.homeBurgId === burgId);
+  if(!companion) return null;
+  if(getParty().includes(companion.id)) return null;
+  const home = graph.burgs[companion.homeBurgId];
+  if(!home || getController(companion.homeBurgId) !== home.race) return null;
+  return companion;
+}
 // Snapshots the current hired mercenaries into fresh combat-only HP pools — see startCombat and
 // "Party in combat" in context/combat.md. Companions (goblinwar_party) don't join yet since
 // nothing can recruit one; when that ships, this is where it'd start pulling them in too. A

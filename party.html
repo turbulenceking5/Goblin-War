@@ -111,9 +111,11 @@ const MAX_PARTY_SIZE = 3; // how many companions can be active at once — recru
 // 270-390KB each and measurably slowed this page down on a real connection, per the project
 // owner. A companion with no `portrait` falls back to the same placeholder silhouette
 // character.html's hero sheet uses for the player's own not-yet-drawn portrait.
-// Prompts for these three live in the "Character Forge" tracker artifact, ready to generate;
-// there's still no recruit action anywhere in the game, so none of them are in anyone's
-// goblinwar_party yet — see context/roadmap.md's "Party / Companions".
+// Prompts for these three live in the "Character Forge" tracker artifact. Recruiting is real now
+// — index.html's showCompanionPanel, triggered by a "A New Face" settlement action wherever a
+// companion's own homeBurgId matches (this page's copy doesn't need that field, only display
+// fields) — see context/roadmap.md's "Party / Companions" for the full flow and
+// context/secondary-pages.md for this page's own Part Ways action, this recruit flow's mirror.
 const COMPANIONS = [
   { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png" },
   { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png" },
@@ -141,6 +143,7 @@ const MERCENARY_TYPES = [
 function getParty(){
   try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; }
 }
+function saveParty(list){ localStorage.setItem(PARTY_KEY, JSON.stringify(list)); }
 function getMercenaries(){
   try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; }
 }
@@ -162,6 +165,18 @@ function dismissMercenary(instanceId){
   if(!confirm(`Dismiss ${type ? type.title : 'this mercenary'}? This cannot be undone.`)) return;
   saveMercenaries(mercs.filter(x => x.instanceId !== instanceId));
   showToast('Mercenary dismissed.');
+  render();
+}
+
+// A companion isn't a paid transaction like a mercenary — "Part Ways" rather than "Dismiss" —
+// but freeing up the shared party slot works the same way. They can always be talked to again
+// at their home city afterward, same as declining in the first place (see index.html's
+// showCompanionPanel).
+function partWithCompanion(id){
+  const companion = COMPANIONS.find(c => c.id === id);
+  if(!confirm(`Part ways with ${companion ? companion.name : 'this companion'}?`)) return;
+  saveParty(getParty().filter(x => x !== id));
+  showToast('You part ways.');
   render();
 }
 
@@ -192,6 +207,7 @@ function render(){
         <div class="companion-name">${c.name}</div>
         ${c.title ? `<div class="companion-title">${c.title}</div>` : ''}
         ${c.blurb ? `<div class="companion-blurb">${c.blurb}</div>` : ''}
+        <button class="dismiss-btn" data-part="${c.id}">Part Ways</button>
       </div>
     </div>
   `).join('');
@@ -215,6 +231,9 @@ function render(){
   list.innerHTML = companionRows + mercRows;
   list.querySelectorAll('[data-dismiss]').forEach(btn => {
     btn.addEventListener('click', ()=> dismissMercenary(btn.dataset.dismiss));
+  });
+  list.querySelectorAll('[data-part]').forEach(btn => {
+    btn.addEventListener('click', ()=> partWithCompanion(btn.dataset.part));
   });
 }
 

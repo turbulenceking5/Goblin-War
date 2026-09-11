@@ -979,6 +979,9 @@ const CHANGELOG = [
     "The road is more dangerous after dark — traveling at night now raises your chance of an ambush.",
     "Work is no longer available at night — come back during the day."
   ]},
+  { id:51, date:"2026-09-12", changes:[
+    "Recruited companions now fight alongside you in combat, just like hired mercenaries — they swing every round and can draw an enemy's attack in your place."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1591,10 +1594,9 @@ const THIRST_KEY = "goblinwar_thirst";
 // changed afterward. Per the project owner: three independent toggles rather than one global
 // switch. Defaults below all match the game's original, pre-difficulty-setting behavior exactly,
 // so an existing character (predating this field, filled in by applyCharacterData's merge onto
-// freshCharacterData) never silently changes how it plays. permadeathCompanions is stored and
-// round-tripped like the other two but genuinely unused right now — nothing can recruit a
-// companion yet (see context/roadmap.md's "Party / Companions"), so there's nothing for it to
-// gate; it exists now so that flow doesn't also need a snapshot-shape migration later.
+// freshCharacterData) never silently changes how it plays. permadeathCompanions now gates
+// allyFalls() for recruited companions the same way permadeathMercenaries gates it for
+// mercenaries — see context/combat.md's "Party in combat".
 const ISDEAD_KEY = "goblinwar_isDead";
 const PERMADEATH_PLAYER_KEY = "goblinwar_permadeathPlayer";
 const PERMADEATH_COMPANIONS_KEY = "goblinwar_permadeathCompanions";
@@ -1801,7 +1803,7 @@ let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY), 10);
 let playerThirst = parseInt(localStorage.getItem(THIRST_KEY), 10);
 let playerIsDead = localStorage.getItem(ISDEAD_KEY) === 'true';
 const permadeathPlayer = localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true';
-const permadeathCompanions = localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true'; // unused today, see const block above
+const permadeathCompanions = localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true'; // gates allyFalls() for recruited companions, same as permadeathMercenaries does for mercenaries
 const permadeathMercenaries = localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true';
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
 let playerLevel = parseInt(localStorage.getItem(LEVEL_KEY), 10);
@@ -2055,9 +2057,9 @@ function renderEnemies(){
   });
 }
 
-// Your hired mercenaries' HP, if any — not clickable, they're never a target, only shown so a
-// falling ally reads as a real loss rather than a silent stat change. See "Party in combat" in
-// context/combat.md.
+// Your allies' HP (hired mercenaries and recruited companions alike), if any — not clickable,
+// they're never a target, only shown so a falling ally reads as a real loss rather than a silent
+// stat change. See "Party in combat" in context/combat.md.
 function renderAllies(){
   const wrap = document.getElementById('combat-allies');
   // #combat-stage lays its children out with a flex `gap` — an empty-but-present div would
@@ -2086,31 +2088,39 @@ function combatLog(msg){
   log.scrollTop = log.scrollHeight;
 }
 
-// A hired mercenary's combat HP is never persisted (see buildCombatAllies) — with the
-// permadeathMercenaries difficulty toggle on (the default, matching the original unconditional
-// behavior — see the PERMADEATH_* consts and context/roadmap.md's "Difficulty setting —
-// permadeath"), dropping to 0 removes them from goblinwar_mercenaries right then, permanently,
+// Neither a hired mercenary's nor a recruited companion's combat HP is ever persisted (see
+// buildCombatAllies) — which difficulty toggle applies depends on `ally.kind` (see the PERMADEATH_*
+// consts and context/roadmap.md's "Difficulty setting — permadeath"): permadeathMercenaries (on by
+// default, matching the original unconditional mercenary-combat behavior) or permadeathCompanions
+// (also on by default — this is the first thing that ever makes that toggle non-inert, since
+// companions couldn't fight before now). With the relevant toggle on, dropping to 0 removes the
+// ally from their roster (goblinwar_mercenaries or goblinwar_party) right then, permanently,
 // rather than waiting to see how the fight itself ends. combat.fallenAllies just tracks the
 // names so endCombat's toast can name who was lost, on any outcome (victory included — winning
-// the fight doesn't undo a mercenary who already fell mid-fight). With the toggle off, they're
-// merely knocked out of the rest of *this* fight (already excluded from pickDefender/
-// runAllyAttacks by the hp<=0 checks those use) and roster back in fully healed next time,
-// same as the player's own no-permadeath default.
-function mercenaryFalls(ally){
+// the fight doesn't undo an ally who already fell mid-fight). With the toggle off, they're merely
+// knocked out of the rest of *this* fight (already excluded from pickDefender/runAllyAttacks by
+// the hp<=0 checks those use) and roster back in fully healed next time, same as the player's own
+// no-permadeath default.
+function allyFalls(ally){
   ally.hp = 0;
-  if(!permadeathMercenaries){
+  const permadeath = ally.kind === 'companion' ? permadeathCompanions : permadeathMercenaries;
+  if(!permadeath){
     combatLog(`${ally.title} is knocked out of the fight, but will be back on your side next time.`);
     return;
   }
-  saveMercenaries(getMercenaries().filter(m => m.instanceId !== ally.instanceId));
+  if(ally.kind === 'companion'){
+    saveParty(getParty().filter(id => id !== ally.id));
+  } else {
+    saveMercenaries(getMercenaries().filter(m => m.instanceId !== ally.id));
+  }
   combat.fallenAllies.push(ally.title);
   combatLog(`${ally.title} falls, and won't be getting back up.`);
 }
 
 // Picks who defends against one incoming enemy swing this round: the player, or a random still-
-// alive mercenary. Hiring a fuller party now has real defensive value — every extra sword in
-// your roster is one more chance an enemy swings at them instead of you. See "Party in combat"
-// in context/combat.md.
+// alive ally (mercenary or companion, indistinguishable here). A fuller party now has real
+// defensive value — every extra sword in your roster is one more chance an enemy swings at them
+// instead of you. See "Party in combat" in context/combat.md.
 function pickDefender(){
   const aliveAllies = combat.allies.filter(a => a.hp > 0);
   const pool = [{ isPlayer:true }, ...aliveAllies.map(a => ({ isPlayer:false, ally:a }))];
@@ -2118,7 +2128,7 @@ function pickDefender(){
 }
 
 // Resolves one enemy's hit against whichever defender pickDefender chose. ignoreDefense
-// (Reckless Swing's targeted enemy only) skips Evasion and armor — mercenaries have neither
+// (Reckless Swing's targeted enemy only) skips Evasion and armor — allies have neither
 // stat, so it only changes anything when the player ends up being the one hit.
 function applyEnemyHit(enemy, defender, ignoreDefense){
   if(defender.isPlayer){
@@ -2136,7 +2146,7 @@ function applyEnemyHit(enemy, defender, ignoreDefense){
     const edmg = Math.max(1, randRange(enemy.dmgRange));
     ally.hp -= edmg;
     combatLog(`The ${enemy.name} hits your ${ally.title} for ${edmg} damage.`);
-    if(ally.hp <= 0) mercenaryFalls(ally);
+    if(ally.hp <= 0) allyFalls(ally);
   }
 }
 
@@ -2152,9 +2162,10 @@ function runEnemyCounters(bypassEnemy){
   }
 }
 
-// Every alive mercenary swings once per round too, right after the player's own action —
-// automatic, no extra UI, always at whichever enemy is currently targeted (retargeting mid-loop
-// if an earlier ally's hit just finished it off). See "Party in combat" in context/combat.md.
+// Every alive ally (mercenary or companion) swings once per round too, right after the player's
+// own action — automatic, no extra UI, always at whichever enemy is currently targeted
+// (retargeting mid-loop if an earlier ally's hit just finished it off). See "Party in combat" in
+// context/combat.md.
 function runAllyAttacks(){
   for(const ally of combat.allies){
     if(ally.hp <= 0) continue;
@@ -2344,8 +2355,8 @@ function endCombat(result){
   let permadeathTriggered = false; // set below — skips the normal onEnd() call at the bottom, since a redirect to characters.html is already underway by then
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
-    // Named regardless of outcome — a mercenary who fell mid-fight stays fallen even if the
-    // fight itself was ultimately won. See mercenaryFalls.
+    // Named regardless of outcome — an ally who fell mid-fight stays fallen even if the
+    // fight itself was ultimately won. See allyFalls.
     const fallenNote = fallenAllies.length
       ? ` ${fallenAllies.join(', ')} fell in the fight and won't be coming back.`
       : '';
@@ -4341,15 +4352,14 @@ function buildGuardHouseStats(burgId){
   `;
 }
 
-// Hire a Mercenary — the first real use of the party roster (see party.html's COMPANIONS/
-// goblinwar_party, still entirely unused since nothing can recruit one yet). Still anonymous
-// per the project owner: a mercenary is a plain cash transaction, not a character — no name,
-// just a role — but each role does now have its own real generic portrait under
-// assets/mercenaries/ (faceless by design: full helm or a shadowed hood, never a face), shown
-// here and in party.html's roster. That's what keeps this distinct from the COMPANIONS catalog's
-// three named, real-portrait entries, which stay reserved for a future recruit-with-loyalty flow
-// (see context/roadmap.md's "Party / Companions" and "Companion loyalty" — a mercenary never
-// gets that system, it's cash only). Mercenaries now fight too — each type's combatHp/
+// Hire a Mercenary — the first real use of the party roster. Still anonymous per the project
+// owner: a mercenary is a plain cash transaction, not a character — no name, just a role — but
+// each role does now have its own real generic portrait under assets/mercenaries/ (faceless by
+// design: full helm or a shadowed hood, never a face), shown here and in party.html's roster.
+// That's what keeps this distinct from the COMPANIONS catalog's three named, real-portrait
+// entries, recruited via a conversation instead (see "A New Face"/showCompanionPanel below) and
+// still reserved for a future loyalty system a mercenary never gets (see context/roadmap.md's
+// "Companion loyalty" — a mercenary is cash only). Mercenaries fight too — each type's combatHp/
 // combatDmgRange feed startCombat's ally roster (see "Party in combat" in context/combat.md) —
 // and can die for good mid-fight, per the project owner; MERCENARY_TYPES here is where a new
 // role's combat stats live alongside its hire price, since party.html's duplicate copy never
@@ -4369,10 +4379,16 @@ const MERCENARY_TYPES = [
 // territory rather than Human, matching his own race. Recruiting is a conversation, not a cash
 // transaction like hiring a mercenary — the player hears their story (`blurb`, reused verbatim
 // as what the companion actually says) and chooses whether to accept, no upkeep either way.
+// combatHp/combatDmgRange feed startCombat's ally roster (see "Party in combat" in
+// context/combat.md) — companions fight now, same as mercenaries, but roll a bit tougher across
+// the board since they're the real deal rather than a hired sword: Brannoc (a knight) and Thrain
+// (a dwarf warrior) are built to take a hit, Wren (a hedge-mage) hits hardest but has the least HP
+// of the three. party.html's own COMPANIONS copy skips these fields, same reasoning as its
+// MERCENARY_TYPES copy — that page never runs combat, only displays the roster.
 const COMPANIONS = [
-  { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png", homeBurgId:"19" },
-  { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png", homeBurgId:"346" },
-  { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png", homeBurgId:"7" },
+  { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png", homeBurgId:"19", combatHp:65, combatDmgRange:[9,15] },
+  { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png", homeBurgId:"346", combatHp:40, combatDmgRange:[10,18] },
+  { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png", homeBurgId:"7", combatHp:70, combatDmgRange:[8,14] },
 ];
 function getParty(){ try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; } }
 function saveParty(list){ localStorage.setItem(PARTY_KEY, JSON.stringify(list)); }
@@ -4391,21 +4407,33 @@ function getCompanionForBurg(burgId){
   if(!home || getController(companion.homeBurgId) !== home.race) return null;
   return companion;
 }
-// Snapshots the current hired mercenaries into fresh combat-only HP pools — see startCombat and
-// "Party in combat" in context/combat.md. Companions (goblinwar_party) don't join yet since
-// nothing can recruit one; when that ships, this is where it'd start pulling them in too. A
-// mercenary's combat HP is never persisted — it's full at the start of every fight — so the only
-// lasting consequence of one dropping to 0 is mercenaryFalls() removing them from the roster
-// outright, not a wound that carries between fights.
+// Snapshots the current hired mercenaries AND recruited companions into fresh combat-only HP
+// pools — see startCombat and "Party in combat" in context/combat.md. Neither's combat HP is
+// ever persisted — both are full at the start of every fight — so the only lasting consequence of
+// one dropping to 0 is allyFalls() removing them from their respective roster outright (gated on
+// permadeathMercenaries/permadeathCompanions — see allyFalls), not a wound that carries between
+// fights. `kind` is what lets allyFalls/pickDefender treat the two rosters differently (which
+// difficulty toggle gates them, which storage key and id field to remove them from) while sharing
+// every other bit of combat code — renderAllies/runAllyAttacks/applyEnemyHit don't care which
+// kind an ally is at all.
 function buildCombatAllies(){
-  return getMercenaries().map(m => {
+  const mercAllies = getMercenaries().map(m => {
     const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
     if(!type) return null;
     return {
-      instanceId: m.instanceId, title: type.title, portrait: type.portrait,
+      kind:'mercenary', id: m.instanceId, title: type.title, portrait: type.portrait,
       hp: type.combatHp, maxHp: type.combatHp, dmgRange: type.combatDmgRange.slice()
     };
   }).filter(Boolean);
+  const companionAllies = getParty().map(id => {
+    const c = COMPANIONS.find(c => c.id === id);
+    if(!c) return null;
+    return {
+      kind:'companion', id: c.id, title: c.name, portrait: c.portrait,
+      hp: c.combatHp, maxHp: c.combatHp, dmgRange: c.combatDmgRange.slice()
+    };
+  }).filter(Boolean);
+  return [...mercAllies, ...companionAllies];
 }
 function buildMercenaryHireHTML(burgId){
   const full = getActivePartySize() >= MAX_PARTY_SIZE;

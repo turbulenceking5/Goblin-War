@@ -100,7 +100,7 @@
 <script src="assets/auth-client.js"></script>
 <script>
 const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids
-const MAX_PARTY_SIZE = 3; // how many companions can be active at once — recruiting isn't built yet, but the roster is ready to enforce this the moment it is
+const MAX_PARTY_SIZE = 3; // shared cap across recruited companions and hired mercenaries combined
 
 // Catalog of every recruitable companion, matching the ENEMY_VARIANTS/NOTABLE_FIGURES pattern
 // in index.html — one array entry plus a portrait file, no other code changes needed once a
@@ -130,9 +130,10 @@ const COMPANIONS = [
 // art stays consistent with "hired sword, not a character" even though it's no longer a
 // placeholder silhouette). Duplicated from index.html's own MERCENARY_TYPES per the no-modules
 // convention — this copy skips index.html's combatHp/combatDmgRange fields since this page
-// never runs combat, only displays the roster. Mercenaries fight and can die permanently now
-// (see context/combat.md's "Party in combat"); a roster entry vanishing from this page after a
-// fight, with no Dismiss click involved, means exactly that.
+// never runs combat, only displays the roster. Mercenaries and recruited companions alike fight
+// and can die permanently now (see context/combat.md's "Party in combat" — COMPANIONS above skips
+// those same fields for the same reason); a roster entry vanishing from this page after a fight,
+// with no Dismiss/Part Ways click involved, means exactly that.
 const MERCENARY_KEY = "goblinwar_mercenaries";
 const MERCENARY_TYPES = [
   { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       upkeep:5, portrait:"assets/mercenaries/sellsword.png" },

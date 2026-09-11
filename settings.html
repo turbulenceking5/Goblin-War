@@ -173,6 +173,7 @@ const QUEST_KEY = "goblinwar_quests";
 const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
 const PARTY_KEY = "goblinwar_party"; // JSON array of recruited companion ids — see party.html
 const MERCENARY_KEY = "goblinwar_mercenaries"; // JSON array of hired mercenary instances — see party.html
+const LOYALTY_KEY = "goblinwar_companionLoyalty"; // {companionId: 0-100} — see index.html's adjustPartyLoyalty
 const KILLS_KEY = "goblinwar_kills"; // {race: count} — feeds character.html's Titles line
 const VISITED_BURGS_KEY = "goblinwar_visitedBurgs"; // JSON array — feeds achievements.html
 const DEFEATED_VARIANTS_KEY = "goblinwar_defeatedVariants"; // {enemyName: true} — feeds achievements.html
@@ -280,6 +281,7 @@ function collectCharacterSnapshot(){
     defeatedVariants: localStorage.getItem(DEFEATED_VARIANTS_KEY) || "{}",
     party: localStorage.getItem(PARTY_KEY) || "[]",
     mercenaries: localStorage.getItem(MERCENARY_KEY) || "[]",
+    companionLoyalty: localStorage.getItem(LOYALTY_KEY) || "{}",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

@@ -173,7 +173,7 @@ function freshCharacterData(name, burgId, difficulty){
     level: 1, xp: 0, skillPoints: 0,
     stats: JSON.stringify({str:0,agi:0,int:0}), skills: "{}", kills: "{}",
     quests: "[]", completedQuests: "[]", questsCompletedTotal: 0,
-    visitedBurgs: "[]", defeatedVariants: "{}", party: "[]", mercenaries: "[]",
+    visitedBurgs: "[]", defeatedVariants: "{}", party: "[]", mercenaries: "[]", companionLoyalty: "{}",
     territoryControl: "{}", relations: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
@@ -223,6 +223,7 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_defeatedVariants", merged.defeatedVariants);
   localStorage.setItem("goblinwar_party", merged.party);
   localStorage.setItem("goblinwar_mercenaries", merged.mercenaries);
+  localStorage.setItem("goblinwar_companionLoyalty", merged.companionLoyalty);
   localStorage.setItem("goblinwar_territoryControl", merged.territoryControl);
   localStorage.setItem("goblinwar_relations", merged.relations);
   localStorage.setItem("goblinwar_reinforcements", merged.reinforcements);

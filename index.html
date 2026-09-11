@@ -267,6 +267,29 @@
   .whats-new-entry li{ font-size:14px; color:var(--parchment); margin-bottom:4px; line-height:1.4; }
   #whats-new-dismiss{ width:100%; margin-top:6px; }
 
+  /* A random road event's choice modal — see triggerWorldEvent/WORLD_EVENTS below. Structurally a
+     copy of #whats-new-modal (centered card overlay, not a full-screen page like #combat-view),
+     but z-index 75: it can fire the moment travel arrives, before #location-view (60) is even
+     open, and must still outrank #combat-view (70) — an ambush and a world event never fire on the
+     same arrival (see beginTravel), but the layering convention (CLAUDE.md) still wants every
+     overlay ordered relative to the others, not just the ones that happen to coexist today. */
+  #world-event-modal{
+    position:fixed; inset:0; z-index:75; display:none;
+    background:rgba(10,7,3,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #world-event-modal.show{ display:flex; }
+  #world-event-card{
+    max-width:380px; width:100%; max-height:80vh; overflow-y:auto;
+    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #world-event-title{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--gold-lt); margin:0 0 12px; text-align:center; text-shadow:none; }
+  #world-event-text{ font-size:14.5px; line-height:1.55; color:var(--parchment); font-style:italic; margin-bottom:16px; }
+  #world-event-choices{ display:flex; flex-direction:column; gap:8px; }
+
   #location-view{ position:fixed; inset:0; z-index:60; display:none; background:var(--water-dk); }
   #location-view.show{ display:block; }
   #loc-actions{
@@ -526,6 +549,14 @@
       <h2 id="whats-new-title">What's New</h2>
       <div id="whats-new-list"></div>
       <button class="btn btn-primary" id="whats-new-dismiss">Got it</button>
+    </div>
+  </div>
+
+  <div id="world-event-modal">
+    <div id="world-event-card">
+      <h2 id="world-event-title">—</h2>
+      <div id="world-event-text"></div>
+      <div id="world-event-choices"></div>
     </div>
   </div>
 
@@ -981,6 +1012,12 @@ const CHANGELOG = [
   ]},
   { id:51, date:"2026-09-12", changes:[
     "Recruited companions now fight alongside you in combat, just like hired mercenaries — they swing every round and can draw an enemy's attack in your place."
+  ]},
+  { id:52, date:"2026-09-12", changes:[
+    "Companions now have a loyalty meter, shown on the Party tab — it rises when you Aid the Refugees or Negotiate Peace, and falls if you do wrong by the world. A companion whose loyalty runs out leaves your service for good.",
+    "Added Raid the Village, a new action at any settlement — take gold by force, at the cost of that settlement's people and your companions' trust in you.",
+    "Added Incite War, a third Palace option alongside Petition for Troops and Negotiate Peace — get paid to provoke a war between two kingdoms at peace.",
+    "The road can now throw a random event at you mid-journey — a chance to help a stranger in trouble, or walk on by."
   ]},
 ];
 
@@ -2647,6 +2684,75 @@ function rollAmbush(hours, startHour){
   const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
+
+// ===================== WORLD EVENTS (random road encounters) =====================
+// A second, independent roll on arrival alongside rollAmbush (see beginTravel) — flat per-trip
+// chance, deliberately simpler than rollAmbush's day/night-scaled math (same "flat, no scaling"
+// simplicity NIGHT_AMBUSH_CHANCE already uses for camping). Only one interruption ever fires per
+// trip: this is only rolled when the ambush roll already missed. Each entry is a small vignette
+// with a genuine help-or-walk-away choice — the direct source of "letting NPCs come to harm" for
+// companion loyalty (see adjustPartyLoyalty), the mirror image of Raid a Village/Incite War's
+// deliberate bad acts. Plain data, generically consumed by resolveWorldEvent below — adding a new
+// event is one more array entry, no other code changes, same shape as ENEMY_VARIANTS/
+// MERCENARY_TYPES rather than MOVES' per-id switch.
+const WORLD_EVENT_CHANCE = 0.10;
+const WORLD_EVENTS = [
+  { id:'wounded_traveler', title:"A Wounded Traveler",
+    text:"A stranger lies slumped against a milestone, bleeding from a gash they don't look likely to survive alone.",
+    good:{ label:"Tend their wounds", gold:-10, loyalty:8, xp:8, resultText:"You bind the wound and share what you can spare. They thank you by name before you're back on the road." },
+    bad:{ label:"Keep walking", gold:5, loyalty:-10, xp:0, resultText:"You take the coin purse they dropped and don't look back." } },
+  { id:'merchant_bandits', title:"A Merchant Cornered",
+    text:"Ahead, a merchant's cart has been stopped by three armed men who don't look like they're asking for a toll.",
+    good:{ label:"Step in", gold:15, loyalty:10, xp:12, resultText:"A show of steel is enough to send them running. The merchant presses coin into your hand, shaking with relief." },
+    bad:{ label:"Slip past unnoticed", gold:0, loyalty:-12, xp:0, resultText:"You keep to the treeline and let the road have its own business. The merchant's cries fade behind you." } },
+  { id:'begging_family', title:"A Family at the Crossroads",
+    text:"A family sits huddled by the crossroads marker, their few belongings piled beside them, asking anyone who passes for a coin.",
+    good:{ label:"Share some coin", gold:-8, loyalty:6, xp:5, resultText:"It isn't much, but the children's faces say it's more than they expected today." },
+    bad:{ label:"Walk past", gold:0, loyalty:-8, xp:0, resultText:"You don't meet their eyes as you pass." } },
+  { id:'burning_farmstead', title:"A Burning Farmstead",
+    text:"Smoke rises from a farmstead just off the road. Someone is screaming from inside — the roof won't hold much longer.",
+    good:{ label:"Rush in", gold:0, loyalty:15, xp:20, healthCost:10, resultText:"You drag them out moments before the roof caves in. Your companions won't forget this." },
+    bad:{ label:"Keep moving", gold:0, loyalty:-20, xp:0, resultText:"The screaming stops before you're out of earshot. Nobody in your party says a word for a while." } },
+  { id:'wolf_flock', title:"A Flock Under Attack",
+    text:"A shepherd shouts for help as a wolf tears into their scattered flock at the treeline.",
+    good:{ label:"Drive it off", gold:8, loyalty:6, xp:8, staminaCost:15, resultText:"The wolf bolts at the first real fight back. The shepherd insists you take something for your trouble." },
+    bad:{ label:"It's not your flock", gold:0, loyalty:-6, xp:0, resultText:"You let the shepherd deal with it alone." } },
+];
+function rollWorldEvent(){ return Math.random() < WORLD_EVENT_CHANCE; }
+let activeWorldEvent = null; // {event, onEnd} while #world-event-modal is open
+function triggerWorldEvent(onEnd){
+  const event = WORLD_EVENTS[Math.floor(Math.random()*WORLD_EVENTS.length)];
+  activeWorldEvent = { event, onEnd };
+  document.getElementById('world-event-title').textContent = event.title;
+  document.getElementById('world-event-text').textContent = event.text;
+  const choicesEl = document.getElementById('world-event-choices');
+  choicesEl.innerHTML = `
+    <button class="btn btn-primary" data-choice="good">${event.good.label}</button>
+    <button class="btn btn-secondary" data-choice="bad">${event.bad.label}</button>
+  `;
+  choicesEl.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=> resolveWorldEvent(btn.dataset.choice));
+  });
+  document.getElementById('world-event-modal').classList.add('show');
+}
+// gold can go either direction (clamped at 0, same floor every gold spend in the game already
+// uses); healthCost/staminaCost are optional stakes on the riskier "good" choices, floored at 1/0
+// respectively so helping someone can never itself be fatal.
+function resolveWorldEvent(choiceKey){
+  if(!activeWorldEvent) return;
+  const { event, onEnd } = activeWorldEvent;
+  const choice = event[choiceKey];
+  activeWorldEvent = null;
+  document.getElementById('world-event-modal').classList.remove('show');
+  if(choice.gold) setGold(Math.max(0, playerGold + choice.gold));
+  if(choice.healthCost) setHealth(Math.max(1, playerHealth - choice.healthCost));
+  if(choice.staminaCost) setStamina(Math.max(0, playerStamina - choice.staminaCost));
+  const leveledUp = choice.xp ? addXp(choice.xp) : false;
+  adjustPartyLoyalty(choice.loyalty);
+  showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  onEnd();
+}
+
 // ===================== HUNGER & THIRST =====================
 // Replaces the old "Food is silently spent per trip" model. Travel, waiting, and combat all
 // drain these two 0-100 meters (100 = full/hydrated, 0 = starving/parched — same "starts full,
@@ -3388,6 +3494,8 @@ function beginTravel(destId){
     refreshReachability();
     if(rollAmbush(t.hours, startHour)){
       triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
+    } else if(rollWorldEvent()){
+      triggerWorldEvent(()=> showLocationView(currentBurg));
     } else {
       showLocationView(currentBurg);
     }
@@ -4061,6 +4169,9 @@ function showCompanionPanel(burgId){
       const party = getParty();
       party.push(c.id);
       saveParty(party);
+      const loyalty = getCompanionLoyalty();
+      loyalty[c.id] = 50; // neutral starting point — see adjustPartyLoyalty
+      saveCompanionLoyalty(loyalty);
       showToast(`${c.name} joins your party.`);
       showLocationView(burgId);
     });
@@ -4093,6 +4204,7 @@ function showLocationView(burgId){
     { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : workBlockedByNight ? "Nobody's hiring after dark — come back in daylight" : "Take on odd jobs for a few hours' pay", action:'work', disabled: workedToday || workBlockedByNight },
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'talk' },
     { icon:`<path d="M6 3h12v4H6z"/><path d="M9 7v14M9 9h6M9 12h6M9 15h4"/>`, title:"Quest Board", desc:"See what work needs doing", action:'questboard' },
+    { icon:`<path d="M12 2l3 6 6 1-4.5 4 1 6-5.5-3-5.5 3 1-6L3 9l6-1z"/>`, title:"Raid the Village", desc: hasRaidedToday(burgId) ? "You've already raided here today — come back tomorrow" : "Take what you can by force", action:'raid_village', disabled: hasRaidedToday(burgId) },
   ];
   // City/Capital settlements get extra actions on top of the base five, so a big
   // settlement actually feels bigger rather than just carrying a fancier building icon.
@@ -4149,7 +4261,7 @@ function showLocationView(burgId){
         wireMercenaryButtons(burgId);
       }
       else if(btn.dataset.action === 'palace'){
-        showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
+        showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
         wirePalaceButtons(burgId);
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
@@ -4160,6 +4272,11 @@ function showLocationView(burgId){
         showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
         const aidBtn = document.getElementById('refugee-aid-btn');
         if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+      }
+      else if(btn.dataset.action === 'raid_village'){
+        showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
+        const raidBtn = document.getElementById('raid-village-btn');
+        if(raidBtn) raidBtn.addEventListener('click', ()=> acceptRaidVillage(burgId));
       }
       else showToast("Not built yet — coming in a future update.");
     });
@@ -4395,6 +4512,62 @@ function saveParty(list){ localStorage.setItem(PARTY_KEY, JSON.stringify(list));
 function getMercenaries(){ try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; } }
 function saveMercenaries(list){ localStorage.setItem(MERCENARY_KEY, JSON.stringify(list)); }
 function getActivePartySize(){ return getParty().length + getMercenaries().length; }
+
+// Companion loyalty — a recruited companion's own approval meter, distinct from a mercenary's
+// purely transactional upkeep (see context/roadmap.md's "Companion loyalty"). 0-100, defaulting to
+// 50 (neutral) the moment a companion is recruited (see showCompanionPanel's recruit handler).
+// Every action that should move it — good (Aid the Refugees, Negotiate Peace, a world event's
+// helpful choice) or bad (Raid a Village, Incite War, a world event's callous choice) — calls
+// adjustPartyLoyalty once; nothing tracks per-companion opinions of a *specific* action yet, every
+// recruited companion reacts the same amount to the same event.
+const LOYALTY_KEY = "goblinwar_companionLoyalty";
+// Shared loyalty-delta constants, referenced from every action that moves the meter (see below
+// and Raid a Village/Incite War further down) so the relative weighting stays visible in one
+// place: a world event's bad choice is a moment of apathy (smallest penalty), Raid a Village is a
+// deliberate act against one settlement (bigger), and Incite War is deliberately starting a whole
+// war for coin — the single biggest loyalty hit in the game.
+const GOOD_ACTION_LOYALTY_GAIN = 6;
+const RAID_LOYALTY_PENALTY = 15;
+const INCITE_WAR_LOYALTY_PENALTY = 25;
+function getCompanionLoyalty(){ try{ return JSON.parse(localStorage.getItem(LOYALTY_KEY)) || {}; }catch(e){ return {}; } }
+function saveCompanionLoyalty(map){ localStorage.setItem(LOYALTY_KEY, JSON.stringify(map)); }
+// Buckets a raw 0-100 value into a short mood word for display — party.html duplicates this
+// exactly, same no-modules convention as everything else shared between the two pages.
+function loyaltyLabel(val){
+  if(val >= 80) return "Devoted";
+  if(val >= 55) return "Content";
+  if(val >= 30) return "Wary";
+  if(val >= 10) return "Resentful";
+  return "Hostile";
+}
+// Applies delta to every currently-recruited companion at once (no per-companion personality yet —
+// see the comment above). A companion whose loyalty hits 0 leaves for good, same permanent-loss
+// shape as allyFalls but a different door out: this is quitting on the player, not dying in combat,
+// so it's untouched by permadeathCompanions (that toggle only gates a *combat* death) and fires
+// regardless of its setting.
+function adjustPartyLoyalty(delta){
+  const party = getParty();
+  if(!party.length) return;
+  const loyalty = getCompanionLoyalty();
+  const departed = [];
+  const kept = party.filter(id => {
+    const current = loyalty[id] === undefined ? 50 : loyalty[id];
+    const next = Math.max(0, Math.min(100, current + delta));
+    if(next <= 0){
+      delete loyalty[id];
+      const c = COMPANIONS.find(c2 => c2.id === id);
+      departed.push(c ? c.name : id);
+      return false;
+    }
+    loyalty[id] = next;
+    return true;
+  });
+  saveCompanionLoyalty(loyalty);
+  if(departed.length){
+    saveParty(kept);
+    showToast(`${departed.join(', ')} lost all faith in you and left your service for good.`);
+  }
+}
 // Returns the companion whose home this is, or null if there's no companion here at all,
 // they're already recruited, or their home's been captured by another race since — same three
 // checks (place, state, captured) getFigureForBurg runs for NOTABLE_FIGURES, and the same
@@ -4561,7 +4734,7 @@ function acceptPetition(burgId){
   const leveledUp = addXp(offer.xp);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
-  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
+  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
 
@@ -4613,18 +4786,74 @@ function acceptNegotiatePeace(burgId){
   setRelation(offer.kingdom, offer.enemy, 'peace');
   cancelSiegesBetween(offer.kingdom, offer.enemy);
   buildFrontlineMarkers();
+  adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.`);
-  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId));
+  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
-// Both Palace cards can appear together in the same panel render, so their click handlers are
-// wired from one shared place rather than duplicating the "if the button exists, wire it" guard
-// at every call site that re-renders the panel.
+
+// Incite War — the direct opposite of Negotiate Peace, per the project owner: instead of bribing
+// envoys to end a war, pay agitators to *start* one, for a fee from whoever wants it started. Same
+// eligibility gate as Negotiate Peace (a legitimate court still sitting), but picks an
+// opposite-alliance kingdom currently at *peace* with this one — the strongest such candidate, not
+// the weakest, since provoking a bigger fight is worth more to whoever's paying for it. The same
+// ratio math Negotiate Peace uses to price a truce prices the payout here, just inverted (a
+// stronger target pays better rather than costing more).
+const INCITE_WAR_BASE_GOLD = 120;
+function generateInciteWarOffer(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  const candidates = ALL_KINGDOMS.filter(k =>
+    k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== ALLIANCE[KINGDOM_RACE[kingdom]] && getRelation(kingdom, k) !== 'war'
+  );
+  if(!candidates.length) return null;
+  const myStrength = getArmyStrength(kingdom);
+  candidates.sort((a,b2) => getArmyStrength(a) - getArmyStrength(b2));
+  const target = candidates[candidates.length - 1]; // strongest qualifying target — pays the most
+  const targetStrength = getArmyStrength(target);
+  const ratio = targetStrength / ((myStrength + targetStrength) || 1);
+  const gold = Math.round(INCITE_WAR_BASE_GOLD * Math.max(0.4, Math.min(1.6, ratio * 2)));
+  return { kingdom, target, gold };
+}
+function buildInciteWarHTML(burgId){
+  const offer = generateInciteWarOffer(burgId);
+  if(!offer) return '';
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Incite War</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at peace with ${offer.target}. Pay agitators to provoke a war between them.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#7fbf6a; font-weight:700;">+${offer.gold}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="incite-war-btn">Incite</button>
+      </div>
+    </div>
+  `;
+}
+// The single biggest loyalty hit in the game (see INCITE_WAR_LOYALTY_PENALTY) — deliberately
+// starting a war for coin is the sharpest "helping bad characters" act the player can take.
+function acceptInciteWar(burgId){
+  const offer = generateInciteWarOffer(burgId);
+  if(!offer){ showLocationView(burgId); return; } // relations shifted since the panel opened
+  setRelation(offer.kingdom, offer.target, 'war');
+  buildFrontlineMarkers();
+  setGold(playerGold + offer.gold);
+  adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
+  showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.`);
+  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
+  wirePalaceButtons(burgId);
+}
+
+// All three Palace cards can appear together in the same panel render, so their click handlers
+// are wired from one shared place rather than duplicating the "if the button exists, wire it"
+// guard at every call site that re-renders the panel.
 function wirePalaceButtons(burgId){
   const petitionBtn = document.getElementById('petition-accept-btn');
   if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
   const negotiateBtn = document.getElementById('negotiate-peace-btn');
   if(negotiateBtn) negotiateBtn.addEventListener('click', ()=> acceptNegotiatePeace(burgId));
+  const inciteBtn = document.getElementById('incite-war-btn');
+  if(inciteBtn) inciteBtn.addEventListener('click', ()=> acceptInciteWar(burgId));
 }
 
 // Aid the Refugees — the simplest of the three player-involvement hooks, deliberately: spend
@@ -4654,10 +4883,60 @@ function acceptRefugeeAid(burgId){
   setPopulation(burgId, getPopulation(burgId) + REFUGEE_AID_POP_BOOST);
   const xp = randRange(REFUGEE_AID_XP_RANGE);
   const leveledUp = addXp(xp);
+  adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
   showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
   const aidBtn = document.getElementById('refugee-aid-btn');
   if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+}
+
+// Raid a Village — the direct opposite of Aid the Refugees, per the project owner: available at
+// any settlement, any tier (unlike Refugee Camp/Defend the Walls, it's not conditional on world
+// state — raiding is always an option, not a reaction to one), gated by the same once-per-
+// settlement-per-day cooldown pattern as Work (see hasWorkedToday). Pays out gold scaled by the
+// settlement's own tier, at the cost of a real population hit to that settlement and a loyalty hit
+// to every companion in the party — bigger than any single world event's bad choice (see
+// WORLD_EVENTS below), since this is a deliberate act, not a moment of apathy.
+const RAID_COOLDOWN_KEY = "goblinwar_raidCooldowns";
+const RAID_GOLD_RANGES = { village:[15,30], town:[25,50], city:[40,80], capital:[40,80] };
+const RAID_POP_LOSS_RATE = 0.03;
+const RAID_LINES = [
+  "Doors are kicked in before anyone can raise the alarm.",
+  "You take what isn't nailed down while the watch is still waking up.",
+  "A strongbox splits open under a boot heel.",
+  "Someone screams for the guard. Nobody comes in time.",
+  "By the time anyone's properly armed, you're already gone with the coin.",
+];
+function getRaidCooldowns(){ try{ return JSON.parse(localStorage.getItem(RAID_COOLDOWN_KEY)) || {}; }catch(e){ return {}; } }
+function hasRaidedToday(burgId){ return getRaidCooldowns()[burgId] === gameDay; }
+function recordRaided(burgId){
+  const cd = getRaidCooldowns();
+  cd[burgId] = gameDay;
+  localStorage.setItem(RAID_COOLDOWN_KEY, JSON.stringify(cd));
+}
+function buildRaidVillageHTML(burgId){
+  const b = graph.burgs[burgId];
+  const done = hasRaidedToday(burgId);
+  const range = RAID_GOLD_RANGES[b.tier] || RAID_GOLD_RANGES.village;
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Raid the Village</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${done ? "You've already raided here today — word travels fast, come back tomorrow." : `Take what you can by force. Roughly ${range[0]}-${range[1]}g, at the cost of this settlement's people and your companions' trust in you.`}</div>
+      ${done ? '' : `<button class="btn btn-primary" style="padding:8px 16px;" id="raid-village-btn">Raid</button>`}
+    </div>
+  `;
+}
+function acceptRaidVillage(burgId){
+  if(hasRaidedToday(burgId)){ showLocationView(burgId); return; }
+  const b = graph.burgs[burgId];
+  const range = RAID_GOLD_RANGES[b.tier] || RAID_GOLD_RANGES.village;
+  const gold = randRange(range);
+  setGold(playerGold + gold);
+  setPopulation(burgId, getPopulation(burgId) * (1 - RAID_POP_LOSS_RATE));
+  recordRaided(burgId);
+  adjustPartyLoyalty(-RAID_LOYALTY_PENALTY);
+  showToast(`You raid ${b.name} for ${gold}g.`);
+  showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
 }
 
 // Defend the Walls — fighting in an active siege's defense (see goblinwar_sieges/advanceSiege).
@@ -5094,6 +5373,7 @@ function collectCharacterSnapshot(){
     defeatedVariants: localStorage.getItem(DEFEATED_VARIANTS_KEY) || "{}",
     party: localStorage.getItem(PARTY_KEY) || "[]",
     mercenaries: localStorage.getItem(MERCENARY_KEY) || "[]",
+    companionLoyalty: localStorage.getItem(LOYALTY_KEY) || "{}",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

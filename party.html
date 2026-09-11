@@ -105,9 +105,12 @@ const MAX_PARTY_SIZE = 3; // how many companions can be active at once — recru
 // Catalog of every recruitable companion, matching the ENEMY_VARIANTS/NOTABLE_FIGURES pattern
 // in index.html — one array entry plus a portrait file, no other code changes needed once a
 // companion's art exists. `portrait` should point at a transparent-background PNG under
-// assets/party/, downscaled to a 600px longest edge, matching the enemy-art convention in
-// context/combat.md — a companion with no `portrait` falls back to the same placeholder
-// silhouette character.html's hero sheet uses for the player's own not-yet-drawn portrait.
+// assets/party/, downscaled to a 200px longest edge — smaller than the enemy-art convention in
+// context/combat.md (600px), since a companion/mercenary portrait is never shown larger than a
+// 64px thumbnail anywhere (`.companion-portrait`, below) — the original 600px imports were
+// 270-390KB each and measurably slowed this page down on a real connection, per the project
+// owner. A companion with no `portrait` falls back to the same placeholder silhouette
+// character.html's hero sheet uses for the player's own not-yet-drawn portrait.
 // Prompts for these three live in the "Character Forge" tracker artifact, ready to generate;
 // there's still no recruit action anywhere in the game, so none of them are in anyone's
 // goblinwar_party yet — see context/roadmap.md's "Party / Companions".

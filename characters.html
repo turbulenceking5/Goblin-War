@@ -74,8 +74,16 @@
   input::placeholder{ color:#7a6b4d; }
   select{ font-family:'EB Garamond', serif; } /* Safari ignores the shorthand rule's font-family on <select> otherwise */
   .field-label{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-bottom:-4px; }
+  .difficulty-options{ display:flex; flex-direction:column; gap:8px; }
+  .difficulty-check{ display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:var(--parchment); line-height:1.4; cursor:pointer; }
+  .difficulty-check input{ width:auto; flex:none; margin-top:2px; accent-color:var(--gold); }
+  .difficulty-note{ font-size:10.5px; color:#a9926a; font-style:italic; }
   .error{ font-size:13px; color:var(--bad); min-height:0; }
   .create-btn-row{ display:flex; gap:10px; }
+  .deceased-badge{
+    display:inline-block; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px;
+    color:var(--bad); border:1px solid var(--bad); border-radius:5px; padding:2px 7px; margin-left:8px;
+  }
 </style>
 </head>
 <body>
@@ -94,6 +102,13 @@
         <input id="new-name" type="text" placeholder="Character name" maxlength="24" autocomplete="off">
         <div class="field-label">Starting City</div>
         <select id="start-city"><option value="5">Loading cities…</option></select>
+        <div class="field-label">Difficulty</div>
+        <div class="difficulty-options">
+          <label class="difficulty-check"><input type="checkbox" id="diff-player">Permadeath: you — losing a fight ends this character for good, instead of surviving at 10 HP</label>
+          <label class="difficulty-check"><input type="checkbox" id="diff-companions" checked>Permadeath: companions — not relevant yet, since none can be recruited, but locked in now for when they can</label>
+          <label class="difficulty-check"><input type="checkbox" id="diff-mercenaries" checked>Permadeath: mercenaries — a hired sword can die for good in a fight (already true by default)</label>
+        </div>
+        <div class="difficulty-note">Chosen once, here — there's no way to change it after this character is created.</div>
         <div class="error" id="create-error"></div>
         <div class="create-btn-row">
           <button class="btn btn-secondary" id="cancel-create-btn">Cancel</button>
@@ -135,14 +150,23 @@ function escapeHTML(str){
 // of read off live localStorage keys. Matches initPlayerStateIfMissing()'s defaults in
 // index.html (see CLAUDE.md's no-modules convention — duplicated, not shared). burgId defaults
 // to Bary (the original hardcoded start) so a save loaded before the Starting City picker
-// existed, or one somehow missing the field, still lands somewhere real.
-function freshCharacterData(name, burgId){
+// existed, or one somehow missing the field, still lands somewhere real. `difficulty`'s three
+// defaults below (player off, companions/mercenaries on) match the game's original,
+// pre-difficulty-setting behavior exactly — see index.html's PERMADEATH_* consts — so a
+// character predating this field (or created via a path that never passes one) plays exactly
+// as it always did.
+function freshCharacterData(name, burgId, difficulty){
+  const diff = Object.assign({ permadeathPlayer:false, permadeathCompanions:true, permadeathMercenaries:true }, difficulty);
   return {
     name,
     burgId: burgId || "5", day: 0, heading: 0,
     health: 100, maxHealth: 100,
     stamina: 100, maxStamina: 100,
     hunger: 100, thirst: 100,
+    isDead: false,
+    permadeathPlayer: diff.permadeathPlayer,
+    permadeathCompanions: diff.permadeathCompanions,
+    permadeathMercenaries: diff.permadeathMercenaries,
     age: "24", gold: 50,
     inventory: JSON.stringify(DEFAULT_INVENTORY),
     equipped: "{}",
@@ -177,6 +201,10 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_maxStamina", String(merged.maxStamina));
   localStorage.setItem("goblinwar_hunger", String(merged.hunger));
   localStorage.setItem("goblinwar_thirst", String(merged.thirst));
+  localStorage.setItem("goblinwar_isDead", String(merged.isDead));
+  localStorage.setItem("goblinwar_permadeathPlayer", String(merged.permadeathPlayer));
+  localStorage.setItem("goblinwar_permadeathCompanions", String(merged.permadeathCompanions));
+  localStorage.setItem("goblinwar_permadeathMercenaries", String(merged.permadeathMercenaries));
   localStorage.setItem("goblinwar_age", String(merged.age));
   localStorage.setItem("goblinwar_gold", String(merged.gold));
   localStorage.setItem("goblinwar_inventory", merged.inventory);
@@ -212,6 +240,10 @@ function targetPage(){
 }
 
 function playCharacter(row){
+  // Defense in depth alongside loadCharacters() simply not rendering a Play button for a
+  // deceased character (permadeath, see below) — this is what actually stops a resumed session
+  // in this codebase (dead or alive) from continuing, if a Play click ever reaches this function.
+  if(row.data && row.data.isDead){ alert(`${row.name} has fallen — this character can't be continued.`); return; }
   localStorage.setItem('goblinwar_activeCharacterId', row.id);
   // Seeds settings.html's stale-save check (goblinwar_localSyncedAt) with the server timestamp
   // this device just loaded, so it has something real to compare against later rather than
@@ -246,8 +278,13 @@ document.getElementById('confirm-create-btn').addEventListener('click', async ()
   if(!name){ errorEl.textContent = 'Give your hero a name.'; return; }
   if(!session){ errorEl.textContent = 'Still signing you in — try again in a moment.'; return; }
   const burgId = document.getElementById('start-city').value;
+  const difficulty = {
+    permadeathPlayer: document.getElementById('diff-player').checked,
+    permadeathCompanions: document.getElementById('diff-companions').checked,
+    permadeathMercenaries: document.getElementById('diff-mercenaries').checked,
+  };
   const { data: row, error } = await sb.from('characters')
-    .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId) })
+    .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId, difficulty) })
     .select().single();
   if(error){ errorEl.textContent = error.message; return; }
   playCharacter(row);
@@ -266,13 +303,18 @@ async function loadCharacters(){
   listEl.innerHTML = rows.map(row => {
     const d = row.data || {};
     const hp = (d.health!==undefined) ? `${d.health}/${d.maxHealth||100} HP &middot; ` : '';
+    // A permadeath character (see the Difficulty options above) gets no Play button at all —
+    // "no more continuing this save" per the project owner — just a deceased badge and Delete.
+    // playCharacter() also refuses on the data itself as defense in depth, but this is what
+    // actually stops a resumed session in the normal case.
+    const playBtn = d.isDead ? '' : `<button class="btn btn-primary" data-play="${row.id}">Play</button>`;
     return `
       <div class="char-card" data-id="${row.id}">
-        <div class="char-name">${escapeHTML(row.name)}</div>
+        <div class="char-name">${escapeHTML(row.name)}${d.isDead ? '<span class="deceased-badge">Deceased</span>' : ''}</div>
         <div class="char-summary">${hp}${locationName(d.burgId)} &middot; ${dateStr(d.day||0)}</div>
         <div class="char-actions">
           <button class="btn-danger" data-delete="${row.id}">Delete</button>
-          <button class="btn btn-primary" data-play="${row.id}">Play</button>
+          ${playBtn}
         </div>
       </div>
     `;

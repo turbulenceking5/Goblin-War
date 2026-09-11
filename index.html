@@ -879,6 +879,9 @@ const CHANGELOG = [
   { id:46, date:"2026-09-11", changes:[
     "The Party tab loads much faster, especially with a full party — mercenary and companion portraits were needlessly large images; they're a fraction of the size now with no visible quality loss."
   ]},
+  { id:47, date:"2026-09-11", changes:[
+    "Added a Difficulty choice to character creation — Permadeath toggles for you, companions, and mercenaries. On for you, losing a fight ends that character for good instead of surviving at 10 HP; off keeps today's behavior. Mercenary permadeath (already the default) can now be turned off too. Your choice shows read-only on the Settings screen."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1487,6 +1490,18 @@ const STAMINA_KEY = "goblinwar_stamina";
 const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const HUNGER_KEY = "goblinwar_hunger";
 const THIRST_KEY = "goblinwar_thirst";
+// Difficulty — permadeath, chosen once at character creation (characters.html) and never
+// changed afterward. Per the project owner: three independent toggles rather than one global
+// switch. Defaults below all match the game's original, pre-difficulty-setting behavior exactly,
+// so an existing character (predating this field, filled in by applyCharacterData's merge onto
+// freshCharacterData) never silently changes how it plays. permadeathCompanions is stored and
+// round-tripped like the other two but genuinely unused right now — nothing can recruit a
+// companion yet (see context/roadmap.md's "Party / Companions"), so there's nothing for it to
+// gate; it exists now so that flow doesn't also need a snapshot-shape migration later.
+const ISDEAD_KEY = "goblinwar_isDead";
+const PERMADEATH_PLAYER_KEY = "goblinwar_permadeathPlayer";
+const PERMADEATH_COMPANIONS_KEY = "goblinwar_permadeathCompanions";
+const PERMADEATH_MERCENARIES_KEY = "goblinwar_permadeathMercenaries";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -1673,6 +1688,11 @@ function initPlayerStateIfMissing(){
   if(localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) === null) localStorage.setItem(SIEGE_DEFENSE_COOLDOWN_KEY, JSON.stringify({}));
   if(localStorage.getItem(HUNGER_KEY) === null) localStorage.setItem(HUNGER_KEY, "100");
   if(localStorage.getItem(THIRST_KEY) === null) localStorage.setItem(THIRST_KEY, "100");
+  // Matches the game's pre-difficulty-setting behavior exactly — see the const block above.
+  if(localStorage.getItem(ISDEAD_KEY) === null) localStorage.setItem(ISDEAD_KEY, "false");
+  if(localStorage.getItem(PERMADEATH_PLAYER_KEY) === null) localStorage.setItem(PERMADEATH_PLAYER_KEY, "false");
+  if(localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === null) localStorage.setItem(PERMADEATH_COMPANIONS_KEY, "true");
+  if(localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === null) localStorage.setItem(PERMADEATH_MERCENARIES_KEY, "true");
 }
 initPlayerStateIfMissing();
 
@@ -1682,6 +1702,10 @@ let playerStamina = parseInt(localStorage.getItem(STAMINA_KEY), 10);
 let playerMaxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY), 10);
 let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY), 10);
 let playerThirst = parseInt(localStorage.getItem(THIRST_KEY), 10);
+let playerIsDead = localStorage.getItem(ISDEAD_KEY) === 'true';
+const permadeathPlayer = localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true';
+const permadeathCompanions = localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true'; // unused today, see const block above
+const permadeathMercenaries = localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true';
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
 let playerLevel = parseInt(localStorage.getItem(LEVEL_KEY), 10);
 let playerXp = parseInt(localStorage.getItem(XP_KEY), 10);
@@ -1965,13 +1989,22 @@ function combatLog(msg){
   log.scrollTop = log.scrollHeight;
 }
 
-// A hired mercenary's combat HP is never persisted (see buildCombatAllies) — dropping to 0
-// removes them from goblinwar_mercenaries right then, permanently, per the project owner,
+// A hired mercenary's combat HP is never persisted (see buildCombatAllies) — with the
+// permadeathMercenaries difficulty toggle on (the default, matching the original unconditional
+// behavior — see the PERMADEATH_* consts and context/roadmap.md's "Difficulty setting —
+// permadeath"), dropping to 0 removes them from goblinwar_mercenaries right then, permanently,
 // rather than waiting to see how the fight itself ends. combat.fallenAllies just tracks the
 // names so endCombat's toast can name who was lost, on any outcome (victory included — winning
-// the fight doesn't undo a mercenary who already fell mid-fight).
+// the fight doesn't undo a mercenary who already fell mid-fight). With the toggle off, they're
+// merely knocked out of the rest of *this* fight (already excluded from pickDefender/
+// runAllyAttacks by the hp<=0 checks those use) and roster back in fully healed next time,
+// same as the player's own no-permadeath default.
 function mercenaryFalls(ally){
   ally.hp = 0;
+  if(!permadeathMercenaries){
+    combatLog(`${ally.title} is knocked out of the fight, but will be back on your side next time.`);
+    return;
+  }
   saveMercenaries(getMercenaries().filter(m => m.instanceId !== ally.instanceId));
   combat.fallenAllies.push(ally.title);
   combatLog(`${ally.title} falls, and won't be getting back up.`);
@@ -2211,6 +2244,7 @@ function endCombat(result){
   // or fleeing are all real exertion, per the project owner.
   addHunger(COMBAT_HUNGER_GAIN);
   addThirst(COMBAT_THIRST_GAIN);
+  let permadeathTriggered = false; // set below — skips the normal onEnd() call at the bottom, since a redirect to characters.html is already underway by then
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
     // Named regardless of outcome — a mercenary who fell mid-fight stays fallen even if the
@@ -2273,14 +2307,32 @@ function endCombat(result){
       if(anyLevelUp) msg += ` Level up! You are now level ${playerLevel}.`;
       showToast(msg + fallenNote);
     } else if(result === 'defeat'){
-      setHealth(10);
-      showToast(`You were beaten badly but managed to escape with your life.` + fallenNote);
+      if(permadeathPlayer){
+        // Per the project owner's difficulty setting (see the PERMADEATH_* consts and
+        // context/roadmap.md's "Difficulty setting — permadeath"): with this toggle on, a
+        // defeat is final — no HP-10 safety net, no continuing this save. Explicitly awaited
+        // (unlike goTo()'s routine, keepalive-backed navigation saves) since this is a rare,
+        // high-stakes write — losing it would let a "dead" character wrongly reappear as alive
+        // next time characters.html loads. onEnd() is deliberately skipped below; whatever it
+        // would have done (usually reopening the location view) is moot once this redirects.
+        permadeathTriggered = true;
+        setHealth(0);
+        playerIsDead = true;
+        localStorage.setItem(ISDEAD_KEY, 'true');
+        showToast(`${localStorage.getItem(NAME_KEY) || 'Your hero'} has fallen. This journey ends here.` + fallenNote);
+        saveActiveCharacter().finally(()=>{
+          setTimeout(()=>{ location.href = 'characters.html?_=' + Date.now(); }, 1800);
+        });
+      } else {
+        setHealth(10);
+        showToast(`You were beaten badly but managed to escape with your life.` + fallenNote);
+      }
     } else {
       addHunger(FLEE_HUNGER_PENALTY);
       addThirst(FLEE_THIRST_PENALTY);
       showToast(`You flee from the fight, breathless and worse for wear.` + fallenNote);
     }
-    if(onEnd) onEnd(result);
+    if(onEnd && !permadeathTriggered) onEnd(result);
   }, result === 'victory' || result === 'defeat' ? 700 : 0);
 }
 
@@ -4759,6 +4811,10 @@ function collectCharacterSnapshot(){
     maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
     hunger: parseInt(localStorage.getItem(HUNGER_KEY) || "100", 10),
     thirst: parseInt(localStorage.getItem(THIRST_KEY) || "100", 10),
+    isDead: localStorage.getItem(ISDEAD_KEY) === 'true',
+    permadeathPlayer: localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true',
+    permadeathCompanions: localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true',
+    permadeathMercenaries: localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true',
     age: localStorage.getItem(AGE_KEY) || "24",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),

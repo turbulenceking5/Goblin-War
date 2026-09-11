@@ -103,6 +103,7 @@
       <b id="current-name">—</b>
       <div id="current-location">—</div>
       <div id="current-date">—</div>
+      <div id="current-difficulty" style="font-size:11px; font-style:italic;">—</div>
     </div>
 
     <div class="section-label">Account</div>
@@ -146,6 +147,10 @@ const STAMINA_KEY = "goblinwar_stamina";
 const MAXSTAMINA_KEY = "goblinwar_maxStamina";
 const HUNGER_KEY = "goblinwar_hunger";
 const THIRST_KEY = "goblinwar_thirst";
+const ISDEAD_KEY = "goblinwar_isDead";
+const PERMADEATH_PLAYER_KEY = "goblinwar_permadeathPlayer";
+const PERMADEATH_COMPANIONS_KEY = "goblinwar_permadeathCompanions";
+const PERMADEATH_MERCENARIES_KEY = "goblinwar_permadeathMercenaries";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -220,6 +225,10 @@ function renderCurrent(){
   document.getElementById('current-name').textContent = localStorage.getItem(NAME_KEY) || "Unnamed Hero";
   document.getElementById('current-location').textContent = locationName(burgId);
   document.getElementById('current-date').textContent = `${dateStr(day)} · ${hp}/${maxHp} HP · ${stamina}/${maxStamina} STA · ${gold}g`;
+  // Read-only — chosen once at character creation (see characters.html), can't be changed here.
+  const onOff = v => v === 'true' ? 'On' : 'Off';
+  document.getElementById('current-difficulty').textContent =
+    `Permadeath — You: ${onOff(localStorage.getItem(PERMADEATH_PLAYER_KEY))} · Companions: ${onOff(localStorage.getItem(PERMADEATH_COMPANIONS_KEY))} · Mercenaries: ${onOff(localStorage.getItem(PERMADEATH_MERCENARIES_KEY))}`;
 }
 
 // Same snapshot shape index.html's collectCharacterSnapshot() and characters.html's
@@ -239,6 +248,10 @@ function collectCharacterSnapshot(){
     maxStamina: parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10),
     hunger: parseInt(localStorage.getItem(HUNGER_KEY) || "100", 10),
     thirst: parseInt(localStorage.getItem(THIRST_KEY) || "100", 10),
+    isDead: localStorage.getItem(ISDEAD_KEY) === 'true',
+    permadeathPlayer: localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true',
+    permadeathCompanions: localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true',
+    permadeathMercenaries: localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true',
     age: localStorage.getItem(AGE_KEY) || "24",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),

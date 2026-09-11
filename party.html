@@ -124,7 +124,10 @@ const COMPANIONS = [
 // assets/mercenaries/ (faceless by design — full helm or a shadowed hood, never a face — so the
 // art stays consistent with "hired sword, not a character" even though it's no longer a
 // placeholder silhouette). Duplicated from index.html's own MERCENARY_TYPES per the no-modules
-// convention.
+// convention — this copy skips index.html's combatHp/combatDmgRange fields since this page
+// never runs combat, only displays the roster. Mercenaries fight and can die permanently now
+// (see context/combat.md's "Party in combat"); a roster entry vanishing from this page after a
+// fight, with no Dismiss click involved, means exactly that.
 const MERCENARY_KEY = "goblinwar_mercenaries";
 const MERCENARY_TYPES = [
   { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       upkeep:5, portrait:"assets/mercenaries/sellsword.png" },

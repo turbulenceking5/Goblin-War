@@ -85,6 +85,15 @@ There is no random-encounter-while-walking system — ambushes only roll at two 
 
 Both call sites are examples of the `onEnd` pattern above: the fight is spliced into an existing flow and the flow's normal continuation (open location view / apply rest) becomes the combat callback.
 
+## Party in combat
+
+Hired mercenaries (see [secondary-pages.md](secondary-pages.md)'s party.html section and `MERCENARY_TYPES`) now fight alongside the player — the first real payoff of the party system existing at all. `buildCombatAllies()` snapshots the player's current `getMercenaries()` into `combat.allies` at `startCombat` time: `{instanceId, title, portrait, hp, maxHp, dmgRange}` per hired mercenary, HP/damage sourced from each `MERCENARY_TYPES` entry's `combatHp`/`combatDmgRange` (index.html's copy of the catalog only — party.html's duplicate skips these fields since it never runs combat). A mercenary's combat HP is never persisted; it's always full at the start of a fight, so the only lasting consequence of losing it is death, not a carried wound. Companions (`goblinwar_party`) don't join yet since nothing can recruit one — when that ships, this is the natural place to fold them in too.
+
+- **Automatic, no new UI.** Every alive ally deals one damage roll per round, right after the player's own Attack/Special resolves (`runAllyAttacks`, called from both `combatAttack` and `combatSpecial`) — always at whichever enemy is currently targeted, retargeting mid-loop if an earlier ally's hit just finished it off. There's no way to direct a mercenary at a different enemy or hold them back.
+- **Enemies can hit them too.** `pickDefender()` picks the player or a random still-alive mercenary as the target of each individual enemy's counter-attack (`runEnemyCounters` → `applyEnemyHit`) — hiring a fuller party measurably lowers the odds of any single enemy swing landing on the player. Reckless Swing's "ignores armor/Evasion" clause only matters when the player happens to be the one picked; mercenaries have neither stat to ignore.
+- **Mercenaries can die permanently, per the project owner.** A mercenary whose HP hits 0 from an enemy counter (`mercenaryFalls`) is removed from `goblinwar_mercenaries` immediately — mid-fight, not gated on whether the fight is ultimately won — and stays gone; there's no revive or heal-back path. `combat.fallenAllies` collects their names so `endCombat`'s toast can name who was lost on any outcome, victory included.
+- **Not yet a difficulty toggle.** Right now mercenary permadeath is unconditional. The project owner wants an eventual character-creation difficulty setting controlling this independently for the player (permadeath vs. today's "defeat sets HP to 10"), companions, and mercenaries — see [roadmap.md](roadmap.md)'s "Difficulty setting — permadeath" for the idea, not yet built.
+
 ## Adding a new enemy variant or race
 
 More art for an existing race: drop the PNG in `assets/enemies/`, add one entry to `ENEMY_VARIANTS.bandit`/`.goblin`/`.ork` with its own `hp`/`enemyDmgRange`/`goldRange`/`art` — nothing else needs to change, `triggerEnemyFight` already picks uniformly at random from the array.

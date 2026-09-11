@@ -68,22 +68,49 @@
   .stats-note{ font-size:10.5px; color:#a9926a; text-align:center; margin-top:8px; font-style:italic; }
   .stats-note b{ color:var(--gold-lt); font-style:normal; }
 
-  .perks-list{ display:flex; flex-direction:column; gap:8px; }
-  .perk-row{
-    display:flex; justify-content:space-between; align-items:center; gap:10px;
-    background:rgba(255,255,255,.05); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
-    padding:10px 12px;
-  }
-  .perk-row.unlocked{ border-color:var(--gold); background:rgba(209,164,69,.15); }
-  .perk-name{ font-family:'Cinzel', serif; font-size:13px; color:var(--parchment); }
-  .perk-desc{ font-size:11px; color:#a9926a; margin-top:2px; }
-  .perk-req{ font-size:10px; color:#a9926a; margin-top:2px; font-style:italic; }
   .perk-unlock-btn{
     flex:none; font-family:'Cinzel', serif; font-size:11px; padding:8px 12px; border-radius:8px; cursor:pointer;
     border:1.5px solid var(--gold); background:rgba(209,164,69,.2); color:var(--gold-lt); font-weight:700;
   }
   .perk-unlock-btn:disabled{ opacity:.35; cursor:not-allowed; }
   .perk-unlocked-badge{ flex:none; font-family:'Cinzel', serif; font-size:11px; color:#7fbf6a; font-weight:700; }
+
+  /* Skill tree — Perks and Special Attacks rendered as one branching tree per stat, Cyberpunk-
+     style, rather than two flat lists. See "Skill tree" comment near renderBranch() in the
+     script below for how PERKS/MOVES map onto tiers/nodes. */
+  .tree-branch{ margin-bottom:20px; }
+  .tree-branch:last-child{ margin-bottom:0; }
+  .tree-branch-header{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
+  .tree-branch-name{ font-family:'Cinzel Decorative', serif; font-size:14px; color:var(--gold-lt); }
+  .tree-branch-value{ font-family:'Cinzel', serif; font-size:11px; color:#a9926a; letter-spacing:.5px; }
+  .tree-branch-value b{ color:var(--parchment); font-size:13px; }
+  .tree-row{ display:flex; align-items:center; gap:0; overflow-x:auto; padding:2px 2px 6px; }
+  .tree-tier{ display:flex; flex-direction:column; gap:8px; justify-content:center; flex:none; }
+  .tree-link{ flex:none; width:14px; height:2px; align-self:center; background:rgba(209,164,69,.35); }
+  .tree-node{
+    flex:none; width:70px; min-height:58px; border-radius:10px; border:1.5px dashed rgba(209,164,69,.35);
+    background:rgba(255,255,255,.04); display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px; padding:6px 4px; cursor:pointer; text-align:center; transition:border-color .15s, background .15s;
+  }
+  .tree-node .node-icon{ font-size:13px; color:#a9926a; }
+  .tree-node .node-name{ font-family:'Cinzel', serif; font-size:8.5px; line-height:1.25; color:#a9926a; }
+  .tree-node.ready{ border-style:solid; border-color:var(--gold); background:rgba(209,164,69,.12); }
+  .tree-node.ready .node-name, .tree-node.ready .node-icon{ color:var(--parchment); }
+  .tree-node.unlocked{ border-style:solid; border-color:#7fbf6a; background:rgba(127,191,106,.15); }
+  .tree-node.unlocked .node-name{ color:var(--parchment); }
+  .tree-node.unlocked .node-icon{ color:#7fbf6a; }
+  .tree-node.selected{ box-shadow:0 0 0 2px var(--gold-lt); }
+
+  .node-detail{
+    margin-top:6px; background:rgba(255,255,255,.05); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:12px; display:none;
+  }
+  .node-detail.show{ display:block; }
+  .node-detail-name{ font-family:'Cinzel', serif; font-size:13px; color:var(--parchment); font-weight:700; }
+  .node-detail-name span{ font-size:10px; color:#a9926a; font-weight:400; margin-left:4px; }
+  .node-detail-desc{ font-size:12px; color:#a9926a; margin-top:4px; line-height:1.5; }
+  .node-detail-req{ font-size:10.5px; color:#a9926a; margin-top:6px; font-style:italic; }
+  .node-detail-action{ margin-top:10px; }
 
   #toast{
     position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
@@ -136,15 +163,10 @@
     </div>
 
     <div class="card">
-      <div class="stat-label">Perks</div>
-      <div class="perks-list" id="perks-list"></div>
-      <div class="stats-note">A perk costs 1 skill point too, once its stat requirement is met.</div>
-    </div>
-
-    <div class="card">
-      <div class="stat-label">Special Attacks</div>
-      <div class="perks-list" id="moves-list"></div>
-      <div class="stats-note">Active moves usable once per fight from the Specials button in combat — unlocking one also costs 1 skill point.</div>
+      <div class="stat-label">Skill Tree</div>
+      <div id="skill-tree"></div>
+      <div class="node-detail" id="node-detail"></div>
+      <div class="stats-note">Tap a node for details. ✦ passive perks, ⚔ special attacks — each costs 1 skill point once its stat requirement is met.</div>
     </div>
   </main>
   <div id="toast"></div>
@@ -200,50 +222,93 @@ function xpForLevel(level){ return Math.round(40 * Math.pow(level, 1.5)); }
 function getStats(){ try{ return Object.assign({str:0,agi:0,int:0}, JSON.parse(localStorage.getItem(STATS_KEY))); }catch(e){ return {str:0,agi:0,int:0}; } }
 function getUnlockedSkills(){ try{ return JSON.parse(localStorage.getItem(SKILLS_KEY)) || {}; }catch(e){ return {}; } }
 
-// A skill point can be spent raising a raw stat (below), unlocking a passive perk, or
-// unlocking an active special attack — PERKS and MOVES render through this same function
-// since the unlock rules (gated on a stat threshold, costs 1 point, shared goblinwar_skills
-// storage) are identical; only the effects differ; those live entirely in index.html
-// (getEquipDamageBonus, getCarryCapacity, combatAttack, combatSpecial, getBuyPrice, etc.) —
-// this page only drives the unlock UI.
-function renderSkillList(list, containerId){
+// Skill tree — per the project owner, Perks and Special Attacks should read as one branching
+// tree per stat (like Cyberpunk 2077's attribute trees), not two flat lists. The unlock rules
+// haven't changed at all (gated on a stat threshold, costs 1 shared skill point, same
+// goblinwar_skills storage PERKS and MOVES have always shared) — only the presentation is new.
+// ALL_SKILLS merges both catalogs, tagged by `type`, so one render path can group them; a tree
+// "tier" is just every skill at the same {stat, req} pair (index.html's actual mechanical
+// effects are untouched — see the PERKS/MOVES comments above).
+const ALL_SKILLS = [
+  ...PERKS.map(p => ({ ...p, type:'perk' })),
+  ...MOVES.map(m => ({ ...m, type:'move' })),
+];
+function findSkill(id){ return ALL_SKILLS.find(s => s.id === id); }
+// Every distinct `req` value for a stat, ascending, becomes one column (tier) of the tree; every
+// skill sharing that {stat, req} pair becomes one node stacked in that column. A gold connector
+// line is drawn between adjacent tiers so unlocking reads as progressing rightward along a branch.
+function buildTiers(stat){
+  const items = ALL_SKILLS.filter(s => s.stat === stat);
+  const reqs = [...new Set(items.map(s => s.req))].sort((a,b) => a - b);
+  return reqs.map(req => items.filter(s => s.req === req));
+}
+
+let selectedSkillId = null;
+
+function renderNodeDetail(){
+  const panel = document.getElementById('node-detail');
+  const skill = selectedSkillId && findSkill(selectedSkillId);
+  if(!skill){
+    panel.classList.remove('show');
+    panel.innerHTML = '';
+    return;
+  }
   const stats = getStats();
   const skillPoints = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
   const unlocked = getUnlockedSkills();
-  document.getElementById(containerId).innerHTML = list.map(p => {
-    const isUnlocked = !!unlocked[p.id];
-    const meetsReq = stats[p.stat] >= p.req;
-    const action = isUnlocked
-      ? `<span class="perk-unlocked-badge">Unlocked</span>`
-      : `<button class="perk-unlock-btn" data-perk="${p.id}" ${(!meetsReq || skillPoints <= 0) ? 'disabled' : ''}>Unlock</button>`;
-    return `
-      <div class="perk-row ${isUnlocked ? 'unlocked' : ''}">
-        <div>
-          <div class="perk-name">${p.name}</div>
-          <div class="perk-desc">${p.desc}</div>
-          <div class="perk-req">Requires ${STAT_LABELS[p.stat]} ${p.req}${meetsReq || isUnlocked ? '' : ` (have ${stats[p.stat]})`}</div>
-        </div>
-        ${action}
-      </div>
-    `;
-  }).join('');
-  document.querySelectorAll(`#${containerId} .perk-unlock-btn`).forEach(btn => {
-    btn.addEventListener('click', ()=>{
-      const points = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
-      if(points <= 0) return;
-      const item = list.find(p => p.id === btn.dataset.perk);
-      const unlockedNow = getUnlockedSkills();
-      unlockedNow[item.id] = true;
-      localStorage.setItem(SKILLS_KEY, JSON.stringify(unlockedNow));
-      localStorage.setItem(SKILLPOINTS_KEY, String(points - 1));
-      showToast(`Unlocked ${item.name}.`);
-      renderProgression();
-    });
+  const isUnlocked = !!unlocked[skill.id];
+  const meetsReq = stats[skill.stat] >= skill.req;
+  const action = isUnlocked
+    ? `<span class="perk-unlocked-badge">Unlocked</span>`
+    : `<button class="perk-unlock-btn" id="node-unlock-btn" ${(!meetsReq || skillPoints <= 0) ? 'disabled' : ''}>Unlock (1 point)</button>`;
+  panel.innerHTML = `
+    <div class="node-detail-name">${skill.name}<span>${skill.type === 'move' ? 'Special Attack' : 'Passive Perk'}</span></div>
+    <div class="node-detail-desc">${skill.desc}</div>
+    <div class="node-detail-req">Requires ${STAT_LABELS[skill.stat]} ${skill.req}${meetsReq || isUnlocked ? '' : ` (have ${stats[skill.stat]})`}</div>
+    <div class="node-detail-action">${action}</div>
+  `;
+  panel.classList.add('show');
+  const btn = document.getElementById('node-unlock-btn');
+  if(btn) btn.addEventListener('click', ()=>{
+    const points = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
+    if(points <= 0) return;
+    const unlockedNow = getUnlockedSkills();
+    unlockedNow[skill.id] = true;
+    localStorage.setItem(SKILLS_KEY, JSON.stringify(unlockedNow));
+    localStorage.setItem(SKILLPOINTS_KEY, String(points - 1));
+    showToast(`Unlocked ${skill.name}.`);
+    renderProgression();
   });
 }
 
+function renderBranch(stat){
+  const stats = getStats();
+  const unlocked = getUnlockedSkills();
+  const tiers = buildTiers(stat);
+  const rowHTML = tiers.map((tier, i) => {
+    const nodesHTML = tier.map(s => {
+      const isUnlocked = !!unlocked[s.id];
+      const meetsReq = stats[stat] >= s.req;
+      const cls = isUnlocked ? 'unlocked' : (meetsReq ? 'ready' : '');
+      const icon = isUnlocked ? '&#10003;' : (s.type === 'move' ? '&#9876;' : '&#10022;');
+      return `<div class="tree-node ${cls}" data-skill="${s.id}"><div class="node-icon">${icon}</div><div class="node-name">${s.name}</div></div>`;
+    }).join('');
+    const link = i < tiers.length - 1 ? `<div class="tree-link"></div>` : '';
+    return `<div class="tree-tier">${nodesHTML}</div>${link}`;
+  }).join('');
+  return `
+    <div class="tree-branch" data-branch="${stat}">
+      <div class="tree-branch-header">
+        <div class="tree-branch-name">${STAT_LABELS[stat]}</div>
+        <div class="tree-branch-value">Stat: <b>${stats[stat]}</b></div>
+      </div>
+      <div class="tree-row">${rowHTML}</div>
+    </div>
+  `;
+}
+
 // Spending a point on a raw stat here only raises the Strength/Agility/Intelligence number —
-// see renderSkillList() above for where a point instead unlocks a perk or special attack.
+// see renderBranch()/renderNodeDetail() above for where a point instead unlocks a tree node.
 function renderProgression(){
   const level = parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10);
   const xp = parseInt(localStorage.getItem(XP_KEY) || "0", 10);
@@ -261,8 +326,18 @@ function renderProgression(){
   document.querySelectorAll('.stat-plus-btn').forEach(btn => {
     btn.disabled = skillPoints <= 0;
   });
-  renderSkillList(PERKS, 'perks-list');
-  renderSkillList(MOVES, 'moves-list');
+
+  document.getElementById('skill-tree').innerHTML = Object.keys(STAT_LABELS).map(renderBranch).join('');
+  document.querySelectorAll('.tree-node').forEach(el => {
+    if(el.dataset.skill === selectedSkillId) el.classList.add('selected');
+    el.addEventListener('click', ()=>{
+      selectedSkillId = el.dataset.skill;
+      document.querySelectorAll('.tree-node.selected').forEach(n => n.classList.remove('selected'));
+      el.classList.add('selected');
+      renderNodeDetail();
+    });
+  });
+  renderNodeDetail();
 }
 renderProgression();
 

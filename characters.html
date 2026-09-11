@@ -66,12 +66,14 @@
   }
   .create-form{ display:none; flex-direction:column; gap:10px; }
   .create-form.show{ display:flex; }
-  input{
+  input, select{
     font-family:'EB Garamond', serif; font-size:15px; color:var(--parchment);
     background:rgba(0,0,0,.25); border:1.5px solid rgba(209,164,69,.4); border-radius:8px;
     padding:11px 12px; width:100%;
   }
   input::placeholder{ color:#7a6b4d; }
+  select{ font-family:'EB Garamond', serif; } /* Safari ignores the shorthand rule's font-family on <select> otherwise */
+  .field-label{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-bottom:-4px; }
   .error{ font-size:13px; color:var(--bad); min-height:0; }
   .create-btn-row{ display:flex; gap:10px; }
 </style>
@@ -90,6 +92,8 @@
       <button class="create-prompt" id="show-create-btn">+ Create New Character</button>
       <div class="create-form" id="create-form">
         <input id="new-name" type="text" placeholder="Character name" maxlength="24" autocomplete="off">
+        <div class="field-label">Starting City</div>
+        <select id="start-city"><option value="5">Loading cities…</option></select>
         <div class="error" id="create-error"></div>
         <div class="create-btn-row">
           <button class="btn btn-secondary" id="cancel-create-btn">Cancel</button>
@@ -129,11 +133,13 @@ function escapeHTML(str){
 // A brand-new character's starting snapshot — same shape collectLiveState()/
 // applyLoadedState() in index.html and settings.html use, just built from scratch instead
 // of read off live localStorage keys. Matches initPlayerStateIfMissing()'s defaults in
-// index.html (see CLAUDE.md's no-modules convention — duplicated, not shared).
-function freshCharacterData(name){
+// index.html (see CLAUDE.md's no-modules convention — duplicated, not shared). burgId defaults
+// to Bary (the original hardcoded start) so a save loaded before the Starting City picker
+// existed, or one somehow missing the field, still lands somewhere real.
+function freshCharacterData(name, burgId){
   return {
     name,
-    burgId: "5", day: 0, heading: 0,
+    burgId: burgId || "5", day: 0, heading: 0,
     health: 100, maxHealth: 100,
     stamina: 100, maxStamina: 100,
     hunger: 100, thirst: 100,
@@ -239,8 +245,9 @@ document.getElementById('confirm-create-btn').addEventListener('click', async ()
   const name = document.getElementById('new-name').value.trim();
   if(!name){ errorEl.textContent = 'Give your hero a name.'; return; }
   if(!session){ errorEl.textContent = 'Still signing you in — try again in a moment.'; return; }
+  const burgId = document.getElementById('start-city').value;
   const { data: row, error } = await sb.from('characters')
-    .insert({ user_id: session.user.id, name, data: freshCharacterData(name) })
+    .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId) })
     .select().single();
   if(error){ errorEl.textContent = error.message; return; }
   playCharacter(row);
@@ -292,11 +299,30 @@ async function loadCharacters(){
   });
 }
 
+// Starting City choice, per the project owner: Human cities/capitals only — a fresh character
+// always begins somewhere in Human territory, never a Dwarf/Ork/Goblin settlement. Sorted
+// capitals-first (they're the more recognizable, story-relevant starts), then alphabetically.
+function populateStartCitySelect(data){
+  const sel = document.getElementById('start-city');
+  const humanCities = Object.entries(data.burgs)
+    .filter(([id, b]) => b.race === 'human' && (b.tier === 'city' || b.tier === 'capital'))
+    .sort((a, b) => {
+      const [, ab] = a, [, bb] = b;
+      if((ab.tier === 'capital') !== (bb.tier === 'capital')) return ab.tier === 'capital' ? -1 : 1;
+      return ab.name.localeCompare(bb.name);
+    });
+  sel.innerHTML = humanCities.map(([id, b]) =>
+    `<option value="${id}">${escapeHTML(b.name)} — ${b.tier === 'capital' ? 'Capital' : 'City'}, ${escapeHTML(b.state)}</option>`
+  ).join('');
+  if(sel.querySelector('option[value="5"]')) sel.value = "5"; // Bary — the original default start
+}
+
 authGateReady.then(s=>{
   if(!s) return; // already being redirected
   session = s;
   fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
     Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);
+    populateStartCitySelect(data);
     loadCharacters();
   }).catch(()=>{
     // still usable without name resolution — fall back to raw ids

@@ -57,46 +57,36 @@
   .stat-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:6px 0 10px; }
 
   .item-row{
-    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
-    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
-    padding:12px 14px; margin-bottom:10px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:9px;
+    padding:8px 10px; margin-bottom:6px;
   }
   .item-row.equipped{ border-color:var(--gold); background:rgba(209,164,69,.15); }
-  .item-icon{ width:26px; height:26px; flex:none; color:var(--parchment); }
-  .item-info{ flex:1; min-width:140px; }
-  .item-name{ font-family:'Cinzel', serif; font-size:13.5px; color:var(--parchment); }
+  .item-icon{ width:19px; height:19px; flex:none; color:var(--parchment); }
+  .item-info{ flex:1; min-width:120px; }
+  .item-name{ font-family:'Cinzel', serif; font-size:12.5px; color:var(--parchment); }
   .item-qty{
-    font-family:'Cinzel', serif; font-size:12px; color:#a9926a;
-    background:rgba(255,255,255,.08); border-radius:20px; padding:3px 10px;
+    font-family:'Cinzel', serif; font-size:11px; color:#a9926a;
+    background:rgba(255,255,255,.08); border-radius:20px; padding:2px 8px;
   }
-  .item-weight{ font-size:11.5px; color:#a9926a; margin-top:2px; }
-  .item-value{ font-family:'Cinzel', serif; font-size:11px; color:var(--gold-lt); white-space:nowrap; }
-  .item-stats{ font-size:11px; color:#7fbf6a; margin-top:2px; }
+  .item-weight{ font-size:10.5px; color:#a9926a; margin-top:1px; }
+  .item-value{ font-family:'Cinzel', serif; font-size:10.5px; color:var(--gold-lt); white-space:nowrap; }
+  .item-stats{ font-size:10.5px; color:#7fbf6a; margin-top:1px; }
   .equip-btn{
-    flex:none; font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:.5px;
-    border-radius:7px; padding:7px 12px; cursor:pointer; border:1.5px solid var(--gold);
+    flex:none; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px;
+    border-radius:6px; padding:6px 10px; cursor:pointer; border:1.5px solid var(--gold);
     background:transparent; color:var(--parchment); width:100%;
   }
   .equip-btn.is-equipped{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; }
   .equip-btn:disabled{ opacity:.4; cursor:default; }
   .drop-btn{
-    flex:none; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px;
-    border-radius:7px; padding:6px 10px; cursor:pointer; border:1.5px solid rgba(224,110,110,.5);
+    flex:none; font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:.5px;
+    border-radius:6px; padding:5px 9px; cursor:pointer; border:1.5px solid rgba(224,110,110,.5);
     background:transparent; color:#c98a8a;
   }
   .drop-btn:hover{ background:rgba(224,110,110,.12); }
   .empty-note{ text-align:center; color:#a9926a; font-style:italic; padding:20px; }
 
-  .slot-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:9px; margin-top:4px; }
-  .equip-slot{
-    aspect-ratio:1; border:1.5px dashed rgba(209,164,69,.35); border-radius:8px;
-    background:rgba(255,255,255,.05); display:flex; flex-direction:column; align-items:center; justify-content:center;
-    font-family:'Cinzel', serif; font-size:7.5px; letter-spacing:.3px; text-transform:uppercase;
-    color:#a9926a; text-align:center; padding:4px;
-  }
-  .equip-slot.filled{ border-style:solid; border-color:var(--gold); background:rgba(209,164,69,.2); color:var(--parchment); }
-  .equip-slot .slot-label{ font-size:6.5px; opacity:.7; margin-bottom:2px; }
-  .equip-slot .slot-item{ font-size:9px; font-weight:700; line-height:1.2; }
   .combat-bonus{ text-align:center; font-size:12px; color:var(--parchment); margin-top:12px; }
   .combat-bonus b{ color:#7fbf6a; }
 
@@ -142,8 +132,6 @@
     <div class="stat-label">Carried Items</div>
     <div id="item-list"></div>
 
-    <div class="stat-label" style="margin-top:20px;">Equipment &amp; Accessories</div>
-    <div class="slot-grid" id="equip-grid"></div>
     <div class="combat-bonus" id="combat-bonus"></div>
   </main>
   <div id="toast"></div>
@@ -158,9 +146,12 @@ const CARRY_CAPACITY = 40;
 const SKILLS_KEY = "goblinwar_skills";
 const HUNGER_KEY = "goblinwar_hunger";
 const THIRST_KEY = "goblinwar_thirst";
-// Food and Waterskin are the game's two real consumables (see the item-list special cases
-// below) — eating/drinking fights Hunger/Thirst (see index.html's HUNGER & THIRST section),
-// not Stamina; per the project owner, neither item touches Stamina at all anymore.
+// Food and Waterskin are the game's two real consumables — but there's no Eat/Drink button
+// here anymore. Per the project owner, eating/drinking is automatic: index.html's
+// autoEatForHunger/autoDrinkForThirst quietly consume a unit whenever Hunger/Thirst would
+// otherwise drain, so a fuller bag just means more travel before either meter actually moves.
+// These two constants only feed ITEM_NOTES' explanatory text below now, matching index.html's
+// own copies (duplicated per the no-modules convention).
 const FOOD_HUNGER_RESTORE = 35;
 const WATERSKIN_THIRST_RESTORE = 35;
 // Mirrors index.html's getCarryCapacity()/getEquipDamageBonus()/getEquipDefenseBonus() — only
@@ -172,13 +163,11 @@ function getCarryCapacity(){
   return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0);
 }
 // The last 8 are the Accessories slots (character.html) — same equip pattern, smaller bonuses.
+// No separate slot-grid here anymore (see render() below) — every equippable item's own row in
+// the flat Carried Items list already shows an Equip/Unequip button and, once equipped, the
+// item-row.equipped highlight, so a redundant grid of slot boxes duplicated that same state.
 const EQUIP_SLOTS = ["head","chest","legs","weapon","shield","trinket",
   "ring_left","ring_right","amulet","cloak","belt","bracers","earring","charm"];
-const SLOT_LABEL = {
-  head:"Head", chest:"Chest", legs:"Legs", weapon:"Weapon", shield:"Shield", trinket:"Trinket",
-  ring_left:"Ring L", ring_right:"Ring R", amulet:"Amulet", cloak:"Cloak",
-  belt:"Belt", bracers:"Bracers", earring:"Earring", charm:"Charm",
-};
 // Mirrors index.html's MARKET_ITEMS slot/dmg/def data for the items that are actually
 // equippable — duplicated per the no-modules convention (see CLAUDE.md).
 const ITEM_STATS = {
@@ -220,19 +209,10 @@ function setEquippedSlot(slot, itemName){
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
 
+// Read-only here now — eating/drinking is automatic (index.html's autoEatForHunger/
+// autoDrinkForThirst), so this page only ever displays these two meters, never changes them.
 let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY) || "100", 10);
 let playerThirst = parseInt(localStorage.getItem(THIRST_KEY) || "100", 10);
-// Simple clamped setters — unlike index.html's addHunger/addThirst, this page only ever raises
-// either meter (eating/drinking), so there's no "underflow past 0 costs Health" case to handle
-// here at all; that logic lives entirely in index.html, the only place either meter ever drains.
-function setHunger(v){
-  playerHunger = Math.max(0, Math.min(100, v));
-  localStorage.setItem(HUNGER_KEY, String(playerHunger));
-}
-function setThirst(v){
-  playerThirst = Math.max(0, Math.min(100, v));
-  localStorage.setItem(THIRST_KEY, String(playerThirst));
-}
 function getItem(name){ return items.find(it => it.name === name); }
 function consumeItem(name, qty){
   const existing = getItem(name);
@@ -248,11 +228,14 @@ document.getElementById('gold-value').textContent = gold;
 let items = [];
 try{ items = JSON.parse(localStorage.getItem(INV_KEY) || "[]"); }catch(e){ items = []; }
 
-// Bedroll has no button — both its effects are passive, just from being carried (see
-// index.html's BEDROLL_AMBUSH_MULT/BEDROLL_STAMINA_BONUS) — so this is purely informational,
-// the same spot an equip stat-line would go.
+// Bedroll, Food, and Waterskin all have no button — every one of their effects is passive, just
+// from being carried (see index.html's BEDROLL_AMBUSH_MULT/BEDROLL_STAMINA_BONUS and
+// autoEatForHunger/autoDrinkForThirst) — so this is purely informational, the same spot an equip
+// stat-line would go.
 const ITEM_NOTES = {
   "Bedroll": "Makes camping safer, and leaves you a little extra rested afterward — both just from being carried.",
+  "Food": `Automatically eaten to stave off Hunger while you travel — each unit covers ${FOOD_HUNGER_RESTORE} Hunger. No need to eat it yourself.`,
+  "Waterskin": `Automatically drunk to stave off Thirst while you travel — each unit covers ${WATERSKIN_THIRST_RESTORE} Thirst. No need to drink it yourself.`,
 };
 
 function render(){
@@ -273,12 +256,9 @@ function render(){
       const stats = ITEM_STATS[it.name];
       const isEquipped = stats && equipped[stats.slot] === it.name;
       const statLine = stats ? `${stats.dmg ? `+${stats.dmg} dmg` : `-${stats.def} dmg taken`} while equipped` : '';
-      const isFood = it.name === 'Food';
-      const isWaterskin = it.name === 'Waterskin';
-      let actionHTML = '';
-      if(stats) actionHTML = `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`;
-      else if(isFood) actionHTML = `<button class="equip-btn" id="eat-food-btn" ${playerHunger >= 100 ? 'disabled' : ''}>${playerHunger >= 100 ? 'Not Hungry' : `Eat (+${FOOD_HUNGER_RESTORE} Hunger)`}</button>`;
-      else if(isWaterskin) actionHTML = `<button class="equip-btn" id="drink-waterskin-btn" ${playerThirst >= 100 ? 'disabled' : ''}>${playerThirst >= 100 ? 'Not Thirsty' : `Drink (+${WATERSKIN_THIRST_RESTORE} Thirst)`}</button>`;
+      const actionHTML = stats
+        ? `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`
+        : '';
       return `
       <div class="item-row ${isEquipped ? 'equipped' : ''}">
         <svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -320,50 +300,7 @@ function render(){
         render();
       });
     });
-    const eatBtn = document.getElementById('eat-food-btn');
-    if(eatBtn){
-      eatBtn.addEventListener('click', ()=>{
-        if(playerHunger >= 100){ showToast("You're not hungry right now."); return; }
-        const relief = Math.min(FOOD_HUNGER_RESTORE, 100 - playerHunger);
-        setHunger(playerHunger + relief);
-        consumeItem('Food', 1);
-        showToast(`You eat. +${relief} Hunger.`);
-        render();
-      });
-    }
-    const drinkBtn = document.getElementById('drink-waterskin-btn');
-    if(drinkBtn){
-      drinkBtn.addEventListener('click', ()=>{
-        if(playerThirst >= 100){ showToast("You're not thirsty right now."); return; }
-        const relief = Math.min(WATERSKIN_THIRST_RESTORE, 100 - playerThirst);
-        setThirst(playerThirst + relief);
-        consumeItem('Waterskin', 1);
-        showToast(`You take a long drink. +${relief} Thirst.`);
-        render();
-      });
-    }
   }
-
-  const grid = document.getElementById('equip-grid');
-  grid.innerHTML = EQUIP_SLOTS.map(slot => {
-    const itemName = equipped[slot];
-    return `
-      <div class="equip-slot ${itemName ? 'filled' : ''}" data-slot="${slot}">
-        <div class="slot-label">${SLOT_LABEL[slot]}</div>
-        ${itemName ? `<div class="slot-item">${itemName}</div>` : ''}
-      </div>
-    `;
-  }).join('');
-  grid.querySelectorAll('.equip-slot.filled').forEach(el=>{
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', ()=>{
-      const slot = el.dataset.slot;
-      const name = getEquipped()[slot];
-      setEquippedSlot(slot, null);
-      showToast(`Unequipped ${name}.`);
-      render();
-    });
-  });
 
   // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
   // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/

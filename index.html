@@ -345,6 +345,16 @@
   #combat-enemies .combat-enemy-slot:only-child{ max-width:320px; cursor:default; }
   #combat-enemies .combat-enemy-slot:only-child .combat-enemy-icon img{ max-width:190px; max-height:210px; }
   #combat-enemies .combat-enemy-slot:only-child.selected{ border-color:transparent; background:none; }
+  /* Your hired mercenaries, if any — see "Party in combat" in context/combat.md. No selection
+     ring (they're never a target, only enemies are) and no click handler, just a live HP bar
+     per ally that empties out and grays if they fall in the fight. */
+  #combat-allies{ display:flex; gap:10px; justify-content:center; align-items:flex-end; flex-wrap:wrap; width:100%; max-width:340px; }
+  .combat-ally-slot{ display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; max-width:100px; }
+  .combat-ally-slot .combat-ally-icon{ filter:drop-shadow(0 3px 6px rgba(0,0,0,.5)); display:flex; align-items:center; justify-content:center; }
+  .combat-ally-slot .combat-ally-icon img{ display:block; width:auto; height:auto; max-width:52px; max-height:64px; object-fit:contain; }
+  .combat-ally-slot .combat-name{ font-size:10px; margin-bottom:0; }
+  .combat-ally-slot .combat-bar-track{ width:100%; height:8px; }
+  .combat-ally-slot.dead{ opacity:.35; filter:grayscale(1); }
   .combat-bar-row{ width:100%; max-width:320px; }
   .combat-name{ font-family:'Cinzel', serif; font-size:12px; color:var(--parchment); margin-bottom:4px; display:flex; justify-content:space-between; letter-spacing:.5px; }
   .combat-bar-track{ background:rgba(0,0,0,.35); border-radius:8px; height:14px; overflow:hidden; border:1px solid rgba(255,255,255,.15); }
@@ -352,6 +362,7 @@
   .combat-bar-fill.enemy{ background:linear-gradient(90deg,#8c3a3a,#c0524f); }
   .combat-bar-fill.player{ background:linear-gradient(90deg,#3d7a3d,#5ba05b); }
   .combat-bar-fill.stamina{ background:linear-gradient(90deg,#3d5f7a,#5b8fc7); }
+  .combat-bar-fill.ally{ background:linear-gradient(90deg,#8a6a2e,#d1a445); }
   #combat-log{
     width:100%; max-width:320px; height:100px; overflow-y:auto;
     background:rgba(0,0,0,.3); border-radius:8px; padding:10px 12px;
@@ -514,6 +525,7 @@
     </div>
     <div id="combat-stage">
       <div id="combat-enemies"></div>
+      <div id="combat-allies"></div>
       <div class="combat-bar-row">
         <div class="combat-name"><span>You</span><span id="combat-player-hp-text">100/100</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill player" id="combat-player-hp-bar" style="width:100%"></div></div>
@@ -854,6 +866,16 @@ const CHANGELOG = [
   { id:43, date:"2026-09-10", changes:[
     "Mercenaries now have real portrait art — a hooded sellsword, a hooded archer, and an armored veteran guard — shown when hiring at a Guard House and on your Party roster. Still nameless, just no longer a placeholder silhouette."
   ]},
+  { id:44, date:"2026-09-11", changes:[
+    "Hired mercenaries now fight alongside you — each one in your party swings automatically every round, and enemies can strike them instead of you. Warning: a mercenary who falls in a fight is gone for good."
+  ]},
+  { id:45, date:"2026-09-11", changes:[
+    "Screens should feel noticeably snappier — tapping a toolbar icon no longer waits on a save to the cloud before moving to the next screen.",
+    "Food and Waterskin are now eaten and drunk automatically as you travel — no more manual Eat/Drink buttons in your Bag. Carry more to go longer before needing to restock.",
+    "The Bag screen is tidier: smaller item rows, and equipment/accessories are just listed as items now instead of a separate grid.",
+    "Creating a new character now lets you choose your starting city, from any city or capital in Human territory.",
+    "Perks and Special Attacks on the Skills tab are now one branching skill tree per stat, instead of two separate lists."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -912,7 +934,8 @@ function checkForUpdate(){
     .catch(()=>{}); // offline or unreachable — silently retry on the next interval
 }
 document.getElementById('update-banner').addEventListener('click', ()=>{
-  saveActiveCharacter().finally(()=>{ location.href = location.pathname + '?_=' + Date.now(); });
+  saveActiveCharacter(); // keepalive (see assets/auth-client.js) — survives the reload below without blocking it
+  location.href = location.pathname + '?_=' + Date.now();
 });
 setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') checkForUpdate(); });
@@ -1518,7 +1541,7 @@ const DEFAULT_INVENTORY = [
 // consumed, see BEDROLL_AMBUSH_MULT/BEDROLL_STAMINA_BONUS below) that pays for itself over a
 // long enough game, rather than an ongoing cost like Food/Waterskin.
 const MARKET_ITEMS = [
-  { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Eat to ease your hunger" },
+  { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Automatically eaten to stave off hunger while you travel" },
   { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4 },
   { name:"Shield", price:25, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3 },
   { name:"Leather Cap", price:8, weight:1, desc:"Simple boiled-leather headgear", slot:"head", def:1 },
@@ -1538,7 +1561,7 @@ const MARKET_ITEMS = [
   { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
   { name:"Books", price:7, weight:2, desc:"Lore and local history" },
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
-  { name:"Waterskin", price:8, weight:2, desc:"Drink to ease your thirst" },
+  { name:"Waterskin", price:8, weight:2, desc:"Automatically drunk to stave off thirst while you travel" },
   { name:"Bedroll", price:45, weight:3, desc:"Quality bedding — safer camping, and a little extra rest" },
   { name:"Horse", price:80, weight:0, desc:"A sturdy mount — speeds up overland road travel" },
   // Blacksmith-exclusive tier-2 gear (see showBlacksmithPanel) — a masterwork counterpart to
@@ -1852,6 +1875,7 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race){
       goldRange: s.goldRange, xpRange: s.xpRange, art: s.art
     })),
     targetIndex: 0,
+    allies: buildCombatAllies(), fallenAllies: [],
     playerDmgRange, onEnd, usedMoves: {}, race
   };
   const multi = combat.enemies.length > 1;
@@ -1870,6 +1894,7 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race){
 function updateCombatUI(){
   if(!combat) return;
   renderEnemies();
+  renderAllies();
   document.getElementById('combat-player-hp-bar').style.width = Math.max(0, Math.round((playerHealth/playerMaxHealth)*100)) + '%';
   document.getElementById('combat-player-hp-text').textContent = `${playerHealth}/${playerMaxHealth}`;
   document.getElementById('combat-player-stamina-bar').style.width = Math.max(0, Math.round((playerStamina/playerMaxStamina)*100)) + '%';
@@ -1906,6 +1931,29 @@ function renderEnemies(){
   });
 }
 
+// Your hired mercenaries' HP, if any — not clickable, they're never a target, only shown so a
+// falling ally reads as a real loss rather than a silent stat change. See "Party in combat" in
+// context/combat.md.
+function renderAllies(){
+  const wrap = document.getElementById('combat-allies');
+  // #combat-stage lays its children out with a flex `gap` — an empty-but-present div would
+  // still eat a gap slot on every fight with no hired mercenaries (the common case), so this
+  // toggles display rather than just clearing innerHTML.
+  if(!combat || !combat.allies.length){ wrap.innerHTML = ''; wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  wrap.innerHTML = combat.allies.map(a => {
+    const dead = a.hp <= 0;
+    const pct = Math.max(0, Math.round((a.hp / a.maxHp) * 100));
+    return `
+      <div class="combat-ally-slot${dead?' dead':''}">
+        <div class="combat-ally-icon"><img src="${a.portrait}" alt="${a.title}"></div>
+        <div class="combat-name"><span>${a.title}</span><span>${Math.max(0,a.hp)}/${a.maxHp}</span></div>
+        <div class="combat-bar-track"><div class="combat-bar-fill ally" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  }).join('');
+}
+
 function combatLog(msg){
   const log = document.getElementById('combat-log');
   const div = document.createElement('div');
@@ -1914,16 +1962,49 @@ function combatLog(msg){
   log.scrollTop = log.scrollHeight;
 }
 
-// One enemy's counter-attack. Evasion/defense roll independently per hit — dodging one
-// enemy's swing doesn't dodge another's.
-function enemyCounter(enemy){
-  if(hasPerk('evasion') && Math.random() < 0.15){
-    combatLog(`You dodge the ${enemy.name}'s counter-attack entirely.`);
-    return;
+// A hired mercenary's combat HP is never persisted (see buildCombatAllies) — dropping to 0
+// removes them from goblinwar_mercenaries right then, permanently, per the project owner,
+// rather than waiting to see how the fight itself ends. combat.fallenAllies just tracks the
+// names so endCombat's toast can name who was lost, on any outcome (victory included — winning
+// the fight doesn't undo a mercenary who already fell mid-fight).
+function mercenaryFalls(ally){
+  ally.hp = 0;
+  saveMercenaries(getMercenaries().filter(m => m.instanceId !== ally.instanceId));
+  combat.fallenAllies.push(ally.title);
+  combatLog(`${ally.title} falls, and won't be getting back up.`);
+}
+
+// Picks who defends against one incoming enemy swing this round: the player, or a random still-
+// alive mercenary. Hiring a fuller party now has real defensive value — every extra sword in
+// your roster is one more chance an enemy swings at them instead of you. See "Party in combat"
+// in context/combat.md.
+function pickDefender(){
+  const aliveAllies = combat.allies.filter(a => a.hp > 0);
+  const pool = [{ isPlayer:true }, ...aliveAllies.map(a => ({ isPlayer:false, ally:a }))];
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+// Resolves one enemy's hit against whichever defender pickDefender chose. ignoreDefense
+// (Reckless Swing's targeted enemy only) skips Evasion and armor — mercenaries have neither
+// stat, so it only changes anything when the player ends up being the one hit.
+function applyEnemyHit(enemy, defender, ignoreDefense){
+  if(defender.isPlayer){
+    if(!ignoreDefense && hasPerk('evasion') && Math.random() < 0.15){
+      combatLog(`You dodge the ${enemy.name}'s counter-attack entirely.`);
+      return;
+    }
+    const edmg = ignoreDefense ? randRange(enemy.dmgRange) : Math.max(1, randRange(enemy.dmgRange) - getEquipDefenseBonus());
+    setHealth(playerHealth - edmg);
+    combatLog(ignoreDefense
+      ? `The ${enemy.name} makes you pay for it — ${edmg} damage, ignoring your armor.`
+      : `The ${enemy.name} hits you for ${edmg} damage.`);
+  } else {
+    const ally = defender.ally;
+    const edmg = Math.max(1, randRange(enemy.dmgRange));
+    ally.hp -= edmg;
+    combatLog(`The ${enemy.name} hits your ${ally.title} for ${edmg} damage.`);
+    if(ally.hp <= 0) mercenaryFalls(ally);
   }
-  const edmg = Math.max(1, randRange(enemy.dmgRange) - getEquipDefenseBonus());
-  setHealth(playerHealth - edmg);
-  combatLog(`The ${enemy.name} hits you for ${edmg} damage.`);
 }
 
 // Every alive enemy counters each round — the real difficulty lever for a multi-enemy fight.
@@ -1934,14 +2015,24 @@ function runEnemyCounters(bypassEnemy){
   for(const enemy of combat.enemies){
     if(enemy.hp <= 0) continue;
     if(playerHealth <= 0) break;
-    if(enemy === bypassEnemy){
-      const edmg = randRange(enemy.dmgRange);
-      setHealth(playerHealth - edmg);
-      combatLog(`The ${enemy.name} makes you pay for it — ${edmg} damage, ignoring your armor.`);
-    } else {
-      enemyCounter(enemy);
-    }
+    applyEnemyHit(enemy, pickDefender(), enemy === bypassEnemy);
   }
+}
+
+// Every alive mercenary swings once per round too, right after the player's own action —
+// automatic, no extra UI, always at whichever enemy is currently targeted (retargeting mid-loop
+// if an earlier ally's hit just finished it off). See "Party in combat" in context/combat.md.
+function runAllyAttacks(){
+  for(const ally of combat.allies){
+    if(ally.hp <= 0) continue;
+    if(aliveEnemies().length === 0) return;
+    autoAdvanceTarget();
+    const target = combat.enemies[combat.targetIndex];
+    const dmg = randRange(ally.dmgRange);
+    target.hp -= dmg;
+    combatLog(`Your ${ally.title} hits the ${target.name} for ${dmg} damage.`);
+  }
+  autoAdvanceTarget();
 }
 
 function aliveEnemies(){ return combat.enemies.filter(e => e.hp > 0); }
@@ -1973,6 +2064,12 @@ function combatAttack(){
     return;
   }
   autoAdvanceTarget();
+  runAllyAttacks();
+  if(aliveEnemies().length === 0){
+    updateCombatUI();
+    endCombat('victory');
+    return;
+  }
   runEnemyCounters(null);
   updateCombatUI();
   if(playerHealth <= 0){ endCombat('defeat'); }
@@ -2049,6 +2146,12 @@ function combatSpecial(moveId){
   }
 
   autoAdvanceTarget();
+  runAllyAttacks();
+  if(aliveEnemies().length === 0){
+    updateCombatUI();
+    endCombat('victory');
+    return;
+  }
   runEnemyCounters(moveId === 'reckless_swing' ? target : null);
 
   document.getElementById('combat-specials-panel').classList.remove('show');
@@ -2094,6 +2197,7 @@ function endCombat(result){
   const onEnd = combat ? combat.onEnd : null;
   const enemyRace = combat ? combat.race : null;
   const attackerKingdom = combat ? combat.attackerKingdom : null;
+  const fallenAllies = combat ? combat.fallenAllies : [];
   // Nulled synchronously (not inside the setTimeout below) so a click during the
   // victory/defeat delay hits combatAttack/combatFlee's `if(!combat) return;` guard
   // instead of re-entering — without this, mashing Attack right as the killing blow
@@ -2106,6 +2210,11 @@ function endCombat(result){
   addThirst(COMBAT_THIRST_GAIN);
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
+    // Named regardless of outcome — a mercenary who fell mid-fight stays fallen even if the
+    // fight itself was ultimately won. See mercenaryFalls.
+    const fallenNote = fallenAllies.length
+      ? ` ${fallenAllies.join(', ')} fell in the fight and won't be coming back.`
+      : '';
     if(result === 'victory'){
       let goldTotal = 0, xpTotal = 0;
       const lootFound = [], lootLeftBehind = [];
@@ -2159,14 +2268,14 @@ function endCombat(result){
       }
 
       if(anyLevelUp) msg += ` Level up! You are now level ${playerLevel}.`;
-      showToast(msg);
+      showToast(msg + fallenNote);
     } else if(result === 'defeat'){
       setHealth(10);
-      showToast(`You were beaten badly but managed to escape with your life.`);
+      showToast(`You were beaten badly but managed to escape with your life.` + fallenNote);
     } else {
       addHunger(FLEE_HUNGER_PENALTY);
       addThirst(FLEE_THIRST_PENALTY);
-      showToast(`You flee from the fight, breathless and worse for wear.`);
+      showToast(`You flee from the fight, breathless and worse for wear.` + fallenNote);
     }
     if(onEnd) onEnd(result);
   }, result === 'victory' || result === 'defeat' ? 700 : 0);
@@ -2362,16 +2471,20 @@ function hoursToDaysElapsed(hours){ return Math.floor(hours/HOURS_PER_DAY); }
 // ===================== HUNGER & THIRST =====================
 // Replaces the old "Food is silently spent per trip" model. Travel, waiting, and combat all
 // drain these two 0-100 meters (100 = full/hydrated, 0 = starving/parched — same "starts full,
-// depletes with use" convention as Health/Stamina) instead of consuming Food/Waterskin items
-// directly — the player has to proactively eat/drink (see inventory.html's Eat/Drink buttons) to
-// bring them back up. Letting either one bottom out doesn't just sit there looking bad: any
-// amount that would push a meter below 0 becomes real Health damage instead (see
-// addHunger/addThirst below), floored so starvation alone can never be fatal on its own — combat
-// is still the only way to actually reach 0 HP. Per the project owner: Food and Waterskin no
-// longer restore Stamina at all: their only job now is fighting off Hunger/Thirst depletion.
-// HUNGER_KEY/THIRST_KEY and playerHunger/playerThirst themselves live up near
-// playerHealth/playerStamina (initPlayerStateIfMissing needs them before this point in the file
-// executes) — just the rest of the mechanic lives here.
+// depletes with use" convention as Health/Stamina). Per the project owner, Food and Waterskin are
+// a passive travel-range reserve, not something manually eaten — there's no Eat/Drink button
+// anywhere anymore (inventory.html dropped them). Instead, every positive (draining) call to
+// addHunger/addThirst below is paid for out of carried Food/Waterskin automatically, one unit at
+// a time, before it ever touches the meter — see autoEatForHunger/autoDrinkForThirst. As long as
+// you're carrying enough, the meter just stays full; it only starts actually dropping once supply
+// runs out, which is what tells the player it's time to buy more. Letting either one bottom out
+// doesn't just sit there looking bad: any amount that would push a meter below 0 becomes real
+// Health damage instead (see addHunger/addThirst below), floored so starvation alone can never be
+// fatal on its own — combat is still the only way to actually reach 0 HP. Per the project owner:
+// Food and Waterskin no longer restore Stamina at all: their only job now is fighting off
+// Hunger/Thirst depletion. HUNGER_KEY/THIRST_KEY and playerHunger/playerThirst themselves live up
+// near playerHealth/playerStamina (initPlayerStateIfMissing needs them before this point in the
+// file executes) — just the rest of the mechanic lives here.
 const HUNGER_PER_DAY = 20;   // hunger lost per full day of travel/waiting
 const THIRST_PER_DAY = 25;   // thirst lost per full day — drains faster than hunger
 const COMBAT_HUNGER_GAIN = 8;    // flat drain per fight, any outcome — exertion either way
@@ -2387,6 +2500,8 @@ const FLEE_THIRST_PENALTY = 8;
 const HUNGER_OVERFLOW_HEALTH_MULT = 0.5; // Health lost per point of hunger that would drop below 0
 const THIRST_OVERFLOW_HEALTH_MULT = 0.8; // thirst overflow hurts more — dehydration is more urgent
 const STARVATION_HEALTH_FLOOR = 1;       // hunger/thirst overflow alone can never drop you below this
+const FOOD_HUNGER_RESTORE = 35;      // hunger one unit of Food automatically covers
+const WATERSKIN_THIRST_RESTORE = 35; // thirst one unit of Waterskin automatically covers
 // hasPerk('field_rations') used to cut travel's Food cost 10% (see roadmap.md's Skills &
 // Progression section) — now that travel drains Hunger/Thirst instead of spending Food
 // directly, its discount carries over to these instead, its natural equivalent.
@@ -2399,11 +2514,33 @@ function hoursToThirstGain(hours){
   return Math.max(2, Math.round((hours/HOURS_PER_DAY)*THIRST_PER_DAY*mult));
 }
 
+// A positive (draining) hunger/thirst amount is paid for out of carried Food/Waterskin first,
+// one unit at a time, before it's allowed to touch the meter at all — per the project owner,
+// eating/drinking is automatic now, not a player action (see the HUNGER & THIRST header comment
+// above). Only whatever Food/Waterskin can't fully cover — a partial last unit, or none carried
+// — actually reaches addHunger/addThirst's own clamp/overflow logic below. Returns the leftover.
+function autoEatForHunger(amount){
+  while(amount > 0 && getFoodQty() > 0){
+    consumeItem(FOOD_NAME, 1);
+    amount -= FOOD_HUNGER_RESTORE;
+  }
+  return Math.max(0, amount);
+}
+function autoDrinkForThirst(amount){
+  while(amount > 0 && getItem("Waterskin")){
+    consumeItem("Waterskin", 1);
+    amount -= WATERSKIN_THIRST_RESTORE;
+  }
+  return Math.max(0, amount);
+}
+
 // Shared by both meters: clamps to [0,100], persists, and — only when amount is positive and
 // pushes the raw total below 0 — converts the shortfall into Health damage rather than just
-// clipping it away. A negative amount (eating/drinking) never triggers this, since raw is always
-// >= 0 whenever the meter isn't already empty.
+// clipping it away. A negative amount (only the Tavern's Meal & Drink calls one now, see
+// buildTavernMealHTML) skips the auto-eat/drink step above entirely and never triggers this
+// overflow, since raw is always >= 0 whenever the meter isn't already empty.
 function addHunger(amount){
+  if(amount > 0) amount = autoEatForHunger(amount);
   const raw = playerHunger - amount;
   playerHunger = Math.max(0, Math.min(100, raw));
   localStorage.setItem(HUNGER_KEY, String(playerHunger));
@@ -2412,6 +2549,7 @@ function addHunger(amount){
   refreshPlayerStatUI();
 }
 function addThirst(amount){
+  if(amount > 0) amount = autoDrinkForThirst(amount);
   const raw = playerThirst - amount;
   playerThirst = Math.max(0, Math.min(100, raw));
   localStorage.setItem(THIRST_KEY, String(playerThirst));
@@ -3950,19 +4088,38 @@ function buildGuardHouseStats(burgId){
 // here and in party.html's roster. That's what keeps this distinct from the COMPANIONS catalog's
 // three named, real-portrait entries, which stay reserved for a future recruit-with-loyalty flow
 // (see context/roadmap.md's "Party / Companions" and "Companion loyalty" — a mercenary never
-// gets that system, it's cash only). No combat participation yet either — see roadmap.md, that's
-// still a separate unbuilt step.
+// gets that system, it's cash only). Mercenaries now fight too — each type's combatHp/
+// combatDmgRange feed startCombat's ally roster (see "Party in combat" in context/combat.md) —
+// and can die for good mid-fight, per the project owner; MERCENARY_TYPES here is where a new
+// role's combat stats live alongside its hire price, since party.html's duplicate copy never
+// needs them (it only displays the roster, it doesn't run combat).
 const MERCENARY_KEY = "goblinwar_mercenaries"; // JSON array of {instanceId, typeId, hiredDay, lastUpkeepDay}
 const MAX_PARTY_SIZE = 3; // shared cap across recruited companions (goblinwar_party) and hired mercenaries
 const MERCENARY_TYPES = [
-  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       hireCost:40, upkeep:5, portrait:"assets/mercenaries/sellsword.png" },
-  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", hireCost:35, upkeep:5, portrait:"assets/mercenaries/mercenary-archer.png" },
-  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", hireCost:55, upkeep:6, portrait:"assets/mercenaries/veteran-guard.png" },
+  { id:"sellsword",        title:"Hired Sellsword",   blurb:"A blade for hire, hood up, face down.",       hireCost:40, upkeep:5, portrait:"assets/mercenaries/sellsword.png",        combatHp:40, combatDmgRange:[8,14] },
+  { id:"mercenary_archer", title:"Mercenary Archer",  blurb:"Keeps to the back line and never gives a name.", hireCost:35, upkeep:5, portrait:"assets/mercenaries/mercenary-archer.png", combatHp:30, combatDmgRange:[7,13] },
+  { id:"veteran_guard",    title:"Veteran Guard",     blurb:"Old armor, older habits — steady in a fight.", hireCost:55, upkeep:6, portrait:"assets/mercenaries/veteran-guard.png",    combatHp:55, combatDmgRange:[6,11] },
 ];
 function getParty(){ try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; } }
 function getMercenaries(){ try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; } }
 function saveMercenaries(list){ localStorage.setItem(MERCENARY_KEY, JSON.stringify(list)); }
 function getActivePartySize(){ return getParty().length + getMercenaries().length; }
+// Snapshots the current hired mercenaries into fresh combat-only HP pools — see startCombat and
+// "Party in combat" in context/combat.md. Companions (goblinwar_party) don't join yet since
+// nothing can recruit one; when that ships, this is where it'd start pulling them in too. A
+// mercenary's combat HP is never persisted — it's full at the start of every fight — so the only
+// lasting consequence of one dropping to 0 is mercenaryFalls() removing them from the roster
+// outright, not a wound that carries between fights.
+function buildCombatAllies(){
+  return getMercenaries().map(m => {
+    const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
+    if(!type) return null;
+    return {
+      instanceId: m.instanceId, title: type.title, portrait: type.portrait,
+      hp: type.combatHp, maxHp: type.combatHp, dmgRange: type.combatDmgRange.slice()
+    };
+  }).filter(Boolean);
+}
 function buildMercenaryHireHTML(burgId){
   const full = getActivePartySize() >= MAX_PARTY_SIZE;
   const rows = MERCENARY_TYPES.map(t => `
@@ -4652,9 +4809,16 @@ document.addEventListener('visibilitychange', ()=>{
 
 // Every nav-bar link to another page goes through this instead of a bare location.href, so
 // the active character is saved before we leave — otherwise anything since the last autosave
-// tick would be lost the moment the player taps to Inventory/Hero/Settings.
+// tick would be lost the moment the player taps to Inventory/Hero/Settings. Per the project
+// owner, this used to visibly block navigation (await the save, then navigate) since a plain
+// fetch can get aborted when the browser unloads this page for the next one — that's what made
+// every single toolbar tap feel slow. assets/auth-client.js's shared `sb` client now sends
+// every request with `keepalive:true`, which is the fetch spec's own mechanism for a request
+// surviving exactly that unload, so the save no longer needs to finish before navigating away —
+// same guarantee, without the wait.
 function goTo(page){
-  saveActiveCharacter().finally(()=>{ location.href = page + '?_=' + Date.now(); });
+  saveActiveCharacter();
+  location.href = page + '?_=' + Date.now();
 }
 </script>
 </body>

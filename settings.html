@@ -140,6 +140,7 @@
 const NAME_KEY = "goblinwar_characterName";
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
+const HOUR_KEY = "goblinwar_gameHour";
 const HEADING_KEY = "goblinwar_heading";
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
@@ -200,6 +201,14 @@ function dateStr(dayCount){
   const year = Math.floor(dayCount / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
   return `Day ${day}, Month ${month}, Year ${year}`;
 }
+// Mirrors index.html's timeStr exactly (duplicated per the no-modules convention).
+function timeStr(hour){
+  const h24 = Math.floor(hour) % 24;
+  const mm = Math.round((hour - Math.floor(hour)) * 60) % 60;
+  const period = h24 < 12 ? 'AM' : 'PM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(mm).padStart(2,'0')} ${period}`;
+}
 
 function locationName(burgId){
   return burgNames[burgId] || `Location #${burgId}`;
@@ -217,6 +226,7 @@ function showToast(msg){
 function renderCurrent(){
   const burgId = localStorage.getItem(LOC_KEY) || "5";
   const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
+  const hour = parseFloat(localStorage.getItem(HOUR_KEY) || "8");
   const hp = localStorage.getItem(HEALTH_KEY) || "100";
   const maxHp = localStorage.getItem(MAXHEALTH_KEY) || "100";
   const stamina = localStorage.getItem(STAMINA_KEY) || "100";
@@ -224,7 +234,7 @@ function renderCurrent(){
   const gold = localStorage.getItem(GOLD_KEY) || "50";
   document.getElementById('current-name').textContent = localStorage.getItem(NAME_KEY) || "Unnamed Hero";
   document.getElementById('current-location').textContent = locationName(burgId);
-  document.getElementById('current-date').textContent = `${dateStr(day)} · ${hp}/${maxHp} HP · ${stamina}/${maxStamina} STA · ${gold}g`;
+  document.getElementById('current-date').textContent = `${dateStr(day)} · ${timeStr(hour)} · ${hp}/${maxHp} HP · ${stamina}/${maxStamina} STA · ${gold}g`;
   // Read-only — chosen once at character creation (see characters.html), can't be changed here.
   const onOff = v => v === 'true' ? 'On' : 'Off';
   document.getElementById('current-difficulty').textContent =
@@ -241,6 +251,7 @@ function collectCharacterSnapshot(){
     name: localStorage.getItem(NAME_KEY) || "Unnamed Hero",
     burgId: localStorage.getItem(LOC_KEY) || "5",
     day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
+    hour: parseFloat(localStorage.getItem(HOUR_KEY) || "8"),
     heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),
     health: parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10),
     maxHealth: parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10),

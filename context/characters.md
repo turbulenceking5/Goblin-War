@@ -31,7 +31,7 @@ Every character's `data` column holds:
 ```js
 {
   name,
-  burgId, day, heading,
+  burgId, day, hour, heading,
   health, maxHealth,
   stamina, maxStamina,
   isDead,                                                              // permadeath — see below
@@ -52,6 +52,7 @@ Every character's `data` column holds:
 
 This is the old local-save-slot shape (see player-state.md) plus three additions:
 - **`name`** — new. Set once at character creation, shown in character.html's header and settings.html's current-character card, never edited afterward (no rename feature).
+- **`hour`** — the real hour-of-day clock (`goblinwar_gameHour`, 0-24 float), alongside `day`'s existing whole-day counter — see [travel-and-map.md](travel-and-map.md)'s "Calendar and the clock". Defaults to `8` (a fresh character starts on a morning) wherever a `data` predates this field, same reset-onto-`freshCharacterData` merge as everything else here.
 - **`territoryControl`/`relations`/`reinforcements`/`lastWarTick`/`population`/`sieges`/`refugeeArrivals`/`siegeDefenseCooldowns`** — these are pure device-local "world state" that would otherwise never round-trip through a save at all (see [factions-and-territory.md](factions-and-territory.md); `relations` replaced the earlier per-kingdom `warState` field). Now that one account can run multiple characters sharing the same browser's `localStorage`, that gap became a real bug rather than a theoretical one: without carrying these along, switching characters on the same device would let one character's faction/war progress bleed into another's, since they'd all be reading/writing the same flat keys. So each character now has its own copy — and `applyCharacterData`'s reset-onto-`freshCharacterData` merge (see above) is what actually makes that hold for *every* character, including ones saved before these fields existed.
 - **`level`/`xp`/`skillPoints`/`stats`/`skills`** — the Skills & Progression system (see [player-state.md](player-state.md) and [roadmap.md](roadmap.md)). Without these, switching characters or logging in on another device would silently reset a character's level back to the freshly-created default.
 - **`kills`** — cumulative combat-victory kills by enemy race, backing character.html's small cosmetic Titles line (see [player-state.md](player-state.md)'s "Titles"). Same reasoning as `level`/`xp`/etc. above: without it, switching characters would silently reset progress toward a title.

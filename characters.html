@@ -159,7 +159,7 @@ function freshCharacterData(name, burgId, difficulty){
   const diff = Object.assign({ permadeathPlayer:false, permadeathCompanions:true, permadeathMercenaries:true }, difficulty);
   return {
     name,
-    burgId: burgId || "5", day: 0, heading: 0,
+    burgId: burgId || "5", day: 0, hour: 8, heading: 0,
     health: 100, maxHealth: 100,
     stamina: 100, maxStamina: 100,
     hunger: 100, thirst: 100,
@@ -194,6 +194,7 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_characterName", merged.name);
   localStorage.setItem("goblinwar_currentBurg", merged.burgId);
   localStorage.setItem("goblinwar_gameDay", String(merged.day));
+  localStorage.setItem("goblinwar_gameHour", String(merged.hour));
   localStorage.setItem("goblinwar_heading", String(merged.heading));
   localStorage.setItem("goblinwar_health", String(merged.health));
   localStorage.setItem("goblinwar_maxHealth", String(merged.maxHealth));

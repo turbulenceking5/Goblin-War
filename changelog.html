@@ -287,6 +287,10 @@ const CHANGELOG = [
   { id:60, date:"2026-09-13", changes:[
     "Fixed the map still looking blurry when zoomed in on a phone — the earlier fix for this only kicked in past a zoom level most phones never actually reach."
   ]},
+  { id:61, date:"2026-09-13", changes:[
+    "Rebuilt how the map zooms so it actually stays crisp on real phones — the previous two attempts at this didn't take effect in every browser.",
+    "Toned down the water's blur so it looks as crisp as the rest of the map instead of standing out as smooth."
+  ]},
 ];
 
 function renderChangelog(){

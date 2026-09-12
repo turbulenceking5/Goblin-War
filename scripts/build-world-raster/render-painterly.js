@@ -545,7 +545,13 @@ async function main() {
   // Per the project owner: the water-band fade needed to be genuinely soft, not just
   // mathematically continuous — see buildWaterBandRaster's own comment. In raster px (the
   // raster is 4x the logical coordinate space), applied only to the water layer itself.
-  const waterBlurSigma = parseFloat(getArg("water-blur", "18"));
+  // Dialed back hard from an earlier 18 once the map committed to a real pixel-art look — at 18,
+  // the blur was strong enough to wash out the whole-image pixelation pass entirely, so water
+  // stayed smooth/blurry (correctly, by this parameter's own design) while every other surface
+  // read as crisp blocks, an inconsistency the project owner caught after the crisp-zoom CSS fix
+  // actually started working. Small enough now to still soften the hard distance-threshold seams
+  // without fighting the pixelation.
+  const waterBlurSigma = parseFloat(getArg("water-blur", "3"));
 
   console.log(`Loading ${GAME_MAP_PATH}...`);
   const pack = loadPack();

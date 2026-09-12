@@ -96,21 +96,26 @@
     will-change:transform;
   }
   /* The map art is a deliberately pixelated render (see scripts/build-world-raster/
-     render-painterly.js) — crisp hard-edged blocks, not a smooth painting. A first attempt only
-     applied image-rendering:pixelated above view.scale>=1 (CSS scale 1 = the raster's own native
-     pixel size), reasoning that below that the image is still being downscaled, where a crisp
-     mode causes aliasing/moire instead of a clean overview. That threshold check was wrong on any
-     real phone: `view.scale` is a *CSS* pixel scale, but what actually determines whether the
-     browser is upscaling past the source image's real resolution is CSS scale × devicePixelRatio
-     — a typical phone's devicePixelRatio (2–3) means real upscaling was already happening at
-     view.scale well under 1, so the class this depended on was rarely ever turned on in practice,
-     and the map still looked blurry once zoomed in. Simplified to always-on instead of chasing
-     the exact right threshold (and re-deriving it correctly through every device's own DPR):
-     `#map-stage` gets it too, not just `#map-img`, since the actual up/downscaling happens via
-     this element's CSS transform, one level above the image itself. */
-  #map-stage, #map-img{ image-rendering:pixelated; image-rendering:-webkit-optimize-contrast; image-rendering:crisp-edges; }
-  #map-img{ position:absolute; inset:0; width:10240px; height:5108px; display:block; user-select:none; -webkit-user-drag:none; }
-  #overlay{ position:absolute; inset:0; width:10240px; height:5108px; }
+     render-painterly.js) — crisp hard-edged blocks, not a smooth painting. Two earlier attempts
+     tried to get the browser to honor that on zoom purely via CSS: image-rendering:pixelated
+     conditional on view.scale>=1 (wrong threshold — real upscaling depends on scale ×
+     devicePixelRatio, not scale alone), then applying it unconditionally to both #map-img and
+     #map-stage. Neither actually fixed it on a real phone — #map-img's own box never changes
+     size (only the *ancestor* #map-stage's CSS transform scales it), and a transform-scaled,
+     will-change-promoted layer gets rasterized once at its unscaled size and then GPU-resampled
+     by the compositor, which isn't guaranteed to consult a descendant's image-rendering hint at
+     all. image-rendering is kept here as a harmless fallback for engines that do respect it, but
+     applyView() below now forces real crispness a different way — by actually resizing #map-img's
+     own CSS width/height to the zoomed size on every scale change, so the browser has no choice
+     but to rasterize it at that real target size (where image-rendering is unambiguously
+     honored), rather than relying on a transform + compositor resample. */
+  #map-img{ image-rendering:pixelated; image-rendering:-webkit-optimize-contrast; image-rendering:crisp-edges; }
+  #map-img{ position:absolute; left:0; top:0; width:10240px; height:5108px; display:block; user-select:none; -webkit-user-drag:none; }
+  /* #overlay is vector (SVG) — no crispness concern, so it keeps scaling the cheap way (its own
+     transform, set alongside #map-img's resize in applyView()) rather than needing real layout
+     resizing like the raster image does. transform-origin matches #map-stage's own 0 0 so both
+     children scale from the same corner and stay pixel-aligned with each other. */
+  #overlay{ position:absolute; inset:0; width:10240px; height:5108px; transform-origin:0 0; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
   .map-label{
@@ -652,9 +657,28 @@ function clampView(){
   view.tx = Math.max(vw - scaledW, Math.min(0, view.tx));
   view.ty = Math.max(vh - scaledH, Math.min(0, view.ty));
 }
+// #map-img's width/height (not a transform:scale — see its own CSS comment above for why) only
+// needs updating once per rendered frame, same rAF-batching scheduleViewUpdate already uses for
+// panning — setting an element's own width/height triggers real layout (unlike the cheap
+// compositor-only transform on #map-stage/#overlay), so this keeps that reflow from firing on
+// every single pointermove during a fast two-finger pinch (zoomBy calls applyView() directly,
+// unthrottled, once per pinch move event). The callback reads the *current* view.scale when the
+// frame actually fires, not whatever it was when scheduled, so it always converges on the latest
+// value even if several applyView() calls happened first.
+let mapImgResizeQueued = false;
 function applyView(){
   clampView();
-  document.getElementById('map-stage').style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;
+  document.getElementById('map-stage').style.transform = `translate(${view.tx}px,${view.ty}px)`;
+  document.getElementById('overlay').style.transform = `scale(${view.scale})`;
+  if(!mapImgResizeQueued){
+    mapImgResizeQueued = true;
+    requestAnimationFrame(()=>{
+      mapImgResizeQueued = false;
+      const img = document.getElementById('map-img');
+      img.style.width = (STAGE_W * view.scale) + 'px';
+      img.style.height = (STAGE_H * view.scale) + 'px';
+    });
+  }
 }
 function centerOnLogical(lx, ly, scale){
   const holder = document.getElementById('map-viewport');
@@ -1071,6 +1095,10 @@ const CHANGELOG = [
   ]},
   { id:60, date:"2026-09-13", changes:[
     "Fixed the map still looking blurry when zoomed in on a phone — the earlier fix for this only kicked in past a zoom level most phones never actually reach."
+  ]},
+  { id:61, date:"2026-09-13", changes:[
+    "Rebuilt how the map zooms so it actually stays crisp on real phones — the previous two attempts at this didn't take effect in every browser.",
+    "Toned down the water's blur so it looks as crisp as the rest of the map instead of standing out as smooth."
   ]},
 ];
 

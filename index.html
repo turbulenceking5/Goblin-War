@@ -1019,6 +1019,10 @@ const CHANGELOG = [
     "Added Incite War, a third Palace option alongside Petition for Troops and Negotiate Peace — get paid to provoke a war between two kingdoms at peace.",
     "The road can now throw a random event at you mid-journey — a chance to help a stranger in trouble, or walk on by."
   ]},
+  { id:53, date:"2026-09-12", changes:[
+    "Kingdoms now remember how you've treated them — check a Guard House for that kingdom's opinion of you.",
+    "Trusted kingdoms sell for less at the Marketplace and Blacksmith, and their people speak more freely at Talk to Townsfolk; a kingdom that dislikes you charges more."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1455,8 +1459,21 @@ function getSettlementDiscount(mi, burgId){
   if(mi.name === "Food" && b.tier === "village") return VILLAGE_FOOD_DISCOUNT;
   return 1;
 }
+// Payoff 2 of per-kingdom reputation (see adjustReputation/REPUTATION_KEY, defined further down
+// alongside the rest of the reputation system) — a settlement's own controller trusting the
+// player enough to deal fairly, or not, folds in as one more multiplicative factor in getBuyPrice
+// exactly like getSettlementDiscount/the silver_tongue perk already do. showBlacksmithPanel prices
+// every row through this same function, so the discount applies there too with no extra wiring.
+function getReputationDiscount(burgId){
+  const rep = reputationLabel(getReputation(getControllerKingdom(burgId)));
+  if(rep === 'Trusted') return 0.85;
+  if(rep === 'Friendly') return 0.93;
+  if(rep === 'Unfriendly') return 1.07;
+  if(rep === 'Hostile') return 1.15;
+  return 1;
+}
 function getBuyPrice(mi, burgId){
-  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId));
+  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId));
 }
 function getSellPrice(mi, burgId){
   return (isWarRelevant(mi) && isAtWarAt(burgId))
@@ -2445,6 +2462,7 @@ function endCombat(result){
           saveQuests(remaining);
           recordCompletedQuest(questReward);
           refreshQuestBadge();
+          adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
           msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.`;
         }
       }
@@ -3934,6 +3952,7 @@ function checkQuestTurnIns(burgId){
       showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
         + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
       recordCompletedQuest(q);
+      adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
       anyCompleted = true;
     } else {
       remaining.push(q);
@@ -4408,6 +4427,17 @@ const TOWNSFOLK_LINES_CAPTURED = [
   "Life's gone on much the same since new banners went up over the gate — for better or worse, depending who you ask.",
   "Someone spits at the mention of the old rulers, and someone else at the mention of the new ones.",
 ];
+// Payoff 1 of per-kingdom reputation (see adjustReputation/REPUTATION_KEY above and
+// context/roadmap.md's "Per-kingdom reputation") — a settlement's own folk talk more freely once
+// their kingdom actually trusts you, concatenated on top exactly the way TOWNSFOLK_LINES_CAPTURED
+// already layers onto the base pool.
+const TOWNSFOLK_LINES_TRUSTED = [
+  "A guard nods you through without the usual questions — word of you has gotten around.",
+  "Someone quietly mentions which roads the patrols have been thinning out lately, in case that's useful to know.",
+  "A merchant offers you first look at a shipment before it even reaches the stalls.",
+  "\"You're the one they've been talking about,\" an old woman says, and tells you more than she probably should.",
+  "The watch-captain's second nods to you like you're already one of their own.",
+];
 const TOWNSFOLK_LINES_VILLAGE = [
   "A farmer complains the goats got into the vegetable patch again.",
   "Two neighbours are arguing over whose fence line is whose — again.",
@@ -4426,9 +4456,12 @@ const TOWNSFOLK_LINES_CITY = [
 ];
 function getTownsfolkLines(burgId){
   const b = graph.burgs[burgId];
-  const pool = (isAtWarAt(burgId) ? TOWNSFOLK_LINES_WAR : TOWNSFOLK_LINES_PEACE)
+  let pool = (isAtWarAt(burgId) ? TOWNSFOLK_LINES_WAR : TOWNSFOLK_LINES_PEACE)
     .concat(b.tier === 'village' || b.tier === 'town' ? TOWNSFOLK_LINES_VILLAGE : TOWNSFOLK_LINES_CITY);
-  return getController(burgId) !== b.race ? pool.concat(TOWNSFOLK_LINES_CAPTURED) : pool;
+  if(getController(burgId) !== b.race) pool = pool.concat(TOWNSFOLK_LINES_CAPTURED);
+  const rep = reputationLabel(getReputation(getControllerKingdom(burgId)));
+  if(rep === 'Friendly' || rep === 'Trusted') pool = pool.concat(TOWNSFOLK_LINES_TRUSTED);
+  return pool;
 }
 function showFlavorPanel(burgId, title, lines, extraHTML){
   const b = graph.burgs[burgId];
@@ -4463,7 +4496,8 @@ function buildGuardHouseStats(burgId){
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
-      <div style="display:flex; justify-content:space-between;"><span>${controllerKingdom || 'Unknown'} forces</span><b>${formatPopulation(army)}</b></div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>${controllerKingdom || 'Unknown'} forces</span><b>${formatPopulation(army)}</b></div>
+      <div style="display:flex; justify-content:space-between;"><span>${controllerKingdom || 'This kingdom'}'s opinion of you</span><b>${reputationLabel(getReputation(controllerKingdom))}</b></div>
       ${siegeRow}
     </div>
   `;
@@ -4568,6 +4602,43 @@ function adjustPartyLoyalty(delta){
     showToast(`${departed.join(', ')} lost all faith in you and left your service for good.`);
   }
 }
+
+// Per-kingdom reputation — a second, independent standing number from companion loyalty, tracked
+// per *kingdom* rather than per companion (see context/roadmap.md's "Per-kingdom reputation").
+// -100 to 100, sparse (an absent kingdom is neutral/0 — same sparse-override shape as
+// goblinwar_relations/goblinwar_territoryControl, see context/factions-and-territory.md). Fed by
+// the same actions that already move companion loyalty, but crediting/blaming the specific
+// kingdom each action actually concerns rather than every recruited companion at once — see each
+// call site (checkQuestTurnIns, acceptRefugeeAid, acceptNegotiatePeace, acceptPetition,
+// resolveSiegeDefense, acceptRaidVillage, acceptInciteWar) for exactly which kingdom that is.
+const REPUTATION_KEY = "goblinwar_reputation";
+function getReputation(kingdom){
+  try{ return (JSON.parse(localStorage.getItem(REPUTATION_KEY)) || {})[kingdom] || 0; }catch(e){ return 0; }
+}
+function saveReputationMap(map){ localStorage.setItem(REPUTATION_KEY, JSON.stringify(map)); }
+function reputationLabel(val){
+  if(val > 50) return "Trusted";
+  if(val > 10) return "Friendly";
+  if(val >= -10) return "Neutral";
+  if(val >= -50) return "Unfriendly";
+  return "Hostile";
+}
+// No-op if kingdom is falsy — a couple of call sites (a captured/neutral settlement with no real
+// court left) can legitimately have nothing to credit.
+function adjustReputation(kingdom, delta){
+  if(!kingdom) return;
+  let map;
+  try{ map = JSON.parse(localStorage.getItem(REPUTATION_KEY)) || {}; }catch(e){ map = {}; }
+  const current = map[kingdom] || 0;
+  map[kingdom] = Math.max(-100, Math.min(100, current + delta));
+  saveReputationMap(map);
+}
+// First-pass delta constants — easy to retune later, same spirit as LOOT_CHANCE/RAID_AMBUSH_CHANCE.
+const REP_GAIN_MINOR = 3;    // a delivery quest turn-in, Aid the Refugees
+const REP_GAIN_MEDIUM = 5;   // a Notable Figure kill-quest turn-in, Petition for Troops
+const REP_GAIN_MAJOR = 8;    // Negotiate Peace, a Defend the Walls victory
+const REP_LOSS_MAJOR = -12;  // Raid a Village
+const REP_LOSS_SEVERE = -18; // Incite War — the single biggest reputation hit, same as loyalty's
 // Returns the companion whose home this is, or null if there's no companion here at all,
 // they're already recruited, or their home's been captured by another race since — same three
 // checks (place, state, captured) getFigureForBurg runs for NOTABLE_FIGURES, and the same
@@ -4732,6 +4803,7 @@ function acceptPetition(burgId){
   setReinforcement(offer.ally, getArmyStrength(offer.kingdom) * REINFORCEMENT_FRACTION, offer.kingdom);
   setGold(playerGold + offer.gold);
   const leveledUp = addXp(offer.xp);
+  adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
@@ -4787,6 +4859,7 @@ function acceptNegotiatePeace(burgId){
   cancelSiegesBetween(offer.kingdom, offer.enemy);
   buildFrontlineMarkers();
   adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
   showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.`);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
@@ -4839,6 +4912,7 @@ function acceptInciteWar(burgId){
   buildFrontlineMarkers();
   setGold(playerGold + offer.gold);
   adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
+  adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
   showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.`);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
@@ -4884,6 +4958,7 @@ function acceptRefugeeAid(burgId){
   const xp = randRange(REFUGEE_AID_XP_RANGE);
   const leveledUp = addXp(xp);
   adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
   showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
   showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
   const aidBtn = document.getElementById('refugee-aid-btn');
@@ -4935,6 +5010,7 @@ function acceptRaidVillage(burgId){
   setPopulation(burgId, getPopulation(burgId) * (1 - RAID_POP_LOSS_RATE));
   recordRaided(burgId);
   adjustPartyLoyalty(-RAID_LOYALTY_PENALTY);
+  adjustReputation(getControllerKingdom(burgId), REP_LOSS_MAJOR);
   showToast(`You raid ${b.name} for ${gold}g.`);
   showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
 }
@@ -4996,6 +5072,7 @@ function resolveSiegeDefense(burgId, result){
     const xp = randRange(SIEGE_DEFENSE_XP_RANGE);
     setGold(playerGold + gold);
     const leveledUp = addXp(xp);
+    adjustReputation(siege.defenderKingdom, REP_GAIN_MAJOR);
     showToast(`You help drive back ${siege.attackerKingdom}'s attack! The siege eases — +${gold}g, +${xp} XP.`
       + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
   } else {
@@ -5374,6 +5451,7 @@ function collectCharacterSnapshot(){
     party: localStorage.getItem(PARTY_KEY) || "[]",
     mercenaries: localStorage.getItem(MERCENARY_KEY) || "[]",
     companionLoyalty: localStorage.getItem(LOYALTY_KEY) || "{}",
+    reputation: localStorage.getItem(REPUTATION_KEY) || "{}",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

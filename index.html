@@ -1023,6 +1023,9 @@ const CHANGELOG = [
     "Kingdoms now remember how you've treated them — check a Guard House for that kingdom's opinion of you.",
     "Trusted kingdoms sell for less at the Marketplace and Blacksmith, and their people speak more freely at Talk to Townsfolk; a kingdom that dislikes you charges more."
   ]},
+  { id:54, date:"2026-09-12", changes:[
+    "Trusted kingdoms now act on their own — reinforcing hard-pressed allies without you needing to ask, and holding their own walls a little tougher against a siege."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1110,6 +1113,9 @@ const RAID_CHANCE = 0.35;           // per kingdom, per enemy it's at war with, 
 const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered when no real border exists (see pickRaidTarget)
 const RAID_SUCCESS_MIN = 0.2, RAID_SUCCESS_MAX = 0.8; // siege progress per tick is population-driven (see pickRaidTarget/advanceSiege) but always stays uncertain
 const SIEGE_PROGRESS_MAX_PER_TICK = 45; // % progress a siege can gain in one tick, at the highest clamped success chance
+// War Help payoff of per-kingdom reputation — see advanceSiege below and
+// context/factions-and-territory.md's "Per-kingdom reputation".
+const TRUSTED_DEFENSE_BONUS = 1.15; // a Trusted defender's effective strength in advanceSiege's ratio math
 
 // Tick-scoped read cache for the sparse override maps below (territory control, population,
 // relations, sieges, reinforcements). Every getXxx() normally does a fresh JSON.parse on every
@@ -1335,6 +1341,11 @@ function hasRecentRefugeeArrival(burgId){
 // can't be farmed into an ever-growing bonus.
 const REINFORCEMENT_FRACTION = 0.25;  // the petitioned kingdom sends this fraction of its own strength
 const REINFORCEMENT_DURATION_DAYS = 14;
+// Troops payoff of per-kingdom reputation — see runFactionAITick's third pass, and
+// context/factions-and-territory.md's "Per-kingdom reputation". A Trusted, currently-peaceful
+// kingdom rolls this chance every weekly tick to reinforce its own most-threatened ally
+// unprompted, same as a player Petition but not guaranteed every week.
+const TRUSTED_REINFORCEMENT_CHANCE = 0.35;
 function getReinforcements(){
   if(_tickCache) return _tickCache.reinforcements;
   try{ return JSON.parse(localStorage.getItem(REINFORCE_KEY)) || {}; }catch(e){ return {}; }
@@ -1548,7 +1559,12 @@ function advanceSiege(attackerKingdom, defenderKingdom){
   }
 
   const attackerStrength = getArmyStrength(attackerKingdom);
-  const defenderStrength = getArmyStrength(defenderKingdom);
+  // War Help payoff of per-kingdom reputation (see context/factions-and-territory.md's
+  // "Per-kingdom reputation") — a Trusted defender's own garrison fights harder in the background,
+  // a flat multiplier on its effective strength here rather than anything touching the player's
+  // own Defend the Walls fight (startCombat/triggerSiegeDefenseFight are untouched by this).
+  const defenderStrength = getArmyStrength(defenderKingdom)
+    * (reputationLabel(getReputation(defenderKingdom)) === 'Trusted' ? TRUSTED_DEFENSE_BONUS : 1);
   const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
   const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
   siege.progress += successChance * SIEGE_PROGRESS_MAX_PER_TICK;
@@ -1616,6 +1632,22 @@ function runFactionAITick(){
           }
         }
       });
+    });
+    // Troops payoff of per-kingdom reputation (see context/factions-and-territory.md's "Per-kingdom
+    // reputation") — a third, independent pass: a kingdom that trusts the player enough can act on
+    // its own, reusing the exact same reinforcement math Petition for Troops already triggers
+    // (findAllyNeedingReinforcement/setReinforcement/getArmyStrength above), just autonomous rather
+    // than player-triggered. Not guaranteed every week (TRUSTED_REINFORCEMENT_CHANCE), same "rolls,
+    // doesn't always fire" spirit as WAR_DECLARE_CHANCE/RAID_CHANCE above. Deliberately silent, no
+    // events.push — this file's own convention is only settlement captures are worth a toast (see
+    // "The weekly tick" in context/factions-and-territory.md); setReinforcement already overwrites
+    // rather than stacks, so this can never combine with a player Petition into a bigger bonus.
+    ALL_KINGDOMS.forEach(kingdom=>{
+      if(getWarState(kingdom) !== 'peace') return;
+      if(reputationLabel(getReputation(kingdom)) !== 'Trusted') return;
+      if(Math.random() >= TRUSTED_REINFORCEMENT_CHANCE) return;
+      const ally = findAllyNeedingReinforcement(kingdom);
+      if(ally) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
     });
     return events;
   } finally {

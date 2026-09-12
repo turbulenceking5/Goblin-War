@@ -13,7 +13,7 @@ The world data and the rendered image use different scales, and the code convert
 
 ## Camera (pan/zoom)
 
-- `view = { scale, tx, ty }` is the single source of truth for the camera; `applyView()` writes it to `#map-stage`'s CSS transform after `clampView()` keeps it in bounds (can't zoom out past fitting the map, can't zoom in past `maxScale=3.0`).
+- `view = { scale, tx, ty }` is the single source of truth for the camera; `applyView()` writes it to `#map-stage`'s CSS transform after `clampView()` keeps it in bounds (can't zoom out past fitting the map, can't zoom in past `maxScale=3.0`). Since `maxScale` deliberately allows zooming in past the raster's own native pixel size, `applyView()` also toggles `#map-img`'s `.pixel-zoom` class on `view.scale >= 1` — the map art is a deliberately pixelated render (see [roadmap.md](roadmap.md)'s "World map rebuilt as a painterly render"), and without this the browser's default smooth upscaling blurred those intentional hard-edged blocks back into mush once zoomed in past 1:1. Only applied above scale 1, not as a blanket rule: at the more common zoomed-out scales the image is being *downscaled*, where the same `image-rendering:pixelated` would cause aliasing/moire instead of a clean overview.
 - `centerOnLogical(lx, ly, scale)` is the one function that points the camera at a logical coordinate — used on load, on recenter, and (critically) every frame during travel animation.
 - Panning/pinch-zoom is handled with raw Pointer Events (`pointerdown`/`pointermove`/`pointerup`) rather than touch/mouse-specific listeners, so it works the same on desktop and mobile. A single pointer that doesn't move more than 6px counts as a tap (`handleTap`), not a drag.
 

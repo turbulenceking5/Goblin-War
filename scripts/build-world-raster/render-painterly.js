@@ -478,6 +478,29 @@ function buildSVG(pack) {
     }
   }
 
+  // Land grain — per-cell scattered speckle dots (same per-cell noise technique as
+  // trees/hachures/waves above), replacing an earlier globally-tiled dot pattern. That pattern
+  // repeated on a fixed 15x15 screen-space grid regardless of terrain, so at real in-game zoom
+  // (well past this file's own native resolution — the map viewer's own maxScale intentionally
+  // allows zooming in further than that) it read as an obviously mechanical printed mesh rather
+  // than organic grain. Per-cell noise can't repeat like that — no two cells scatter identically.
+  let grain = "";
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    if (c.biome === 0) continue;
+    const rand = mulberry32(c.i * 1720392781);
+    const [cx, cy] = c.p;
+    const r = cellRadius(polys[i], cx, cy) * 0.9;
+    const count = Math.max(6, Math.round(r * 0.9));
+    for (let t = 0; t < count; t++) {
+      const ang = rand() * Math.PI * 2;
+      const rad = rand() * r;
+      const x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad;
+      const gr = 0.35 + rand() * 0.5;
+      grain += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${gr.toFixed(2)}" fill="#2a2115" fill-opacity="0.22"/>`;
+    }
+  }
+
   // Per the project owner: dropped the baked-in dashed kingdom-border line entirely (drawn from
   // the Azgaar export's original/historical state field, not live territory control) — it read as
   // visual clutter, and it was already redundant with the game's real border rendering: the live
@@ -493,34 +516,8 @@ function buildSVG(pack) {
     // main() can give just this one a touch of blur (softens rare river-on-river crossings)
     // without softening the coastline/trees/hachures too.
     riverSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${riverLines}</svg>`,
-    lineSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${waves}${coastLine}${trees}${hachures}</svg>`,
+    lineSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${waves}${grain}${coastLine}${trees}${hachures}</svg>`,
   };
-}
-
-// A single pattern-filled rect (one fill region, tiled by the renderer) rasterizes in a
-// fraction of a second. Filling ~4500 individual cell polygons with the same pattern —
-// the first attempt — made librsvg recompute pattern tiling per polygon and took 10+
-// minutes before being killed; this masks the same-looking result against the already-
-// rendered land alpha channel instead, via raw pixel math.
-async function buildStippleLayer(landPng) {
-  const dotsSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}">
-    <defs><pattern id="dots" width="15" height="15" patternUnits="userSpaceOnUse">
-      <circle cx="4" cy="4" r="1.9" fill="#2a2115" opacity="0.26"/>
-      <circle cx="11" cy="9" r="1.7" fill="#2a2115" opacity="0.22"/>
-      <circle cx="7" cy="12" r="1.4" fill="#2a2115" opacity="0.18"/>
-    </pattern></defs>
-    <rect width="${RASTER_W}" height="${RASTER_H}" fill="url(#dots)"/>
-  </svg>`;
-  const { data: dotData } = await sharp(Buffer.from(dotsSVG)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const { data: landData } = await sharp(landPng).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const n = RASTER_W * RASTER_H;
-  const out = Buffer.alloc(n * 4);
-  for (let i = 0; i < n; i++) {
-    const di = i * 4, li = i * 4;
-    out[di] = dotData[di]; out[di + 1] = dotData[di + 1]; out[di + 2] = dotData[di + 2];
-    out[di + 3] = Math.round((dotData[di + 3] * landData[li + 3]) / 255);
-  }
-  return sharp(out, { raw: { width: RASTER_W, height: RASTER_H, channels: 4 } }).png().toBuffer();
 }
 
 async function main() {
@@ -570,18 +567,18 @@ async function main() {
   console.log(`Blurring (sigma=${blurSigma}) for soft blending...`);
   const blurred = await sharp(merged).blur(blurSigma).png().toBuffer();
 
-  console.log("Building stipple texture (masked to land)...");
-  const stipplePng = await buildStippleLayer(landPng);
-
   console.log(`Rasterizing river layer and blurring it slightly (sigma=${riverBlurSigma})...`);
   const riverPng = await sharp(Buffer.from(riverSVG)).blur(riverBlurSigma).png().toBuffer();
 
+  // The land-grain speckle (see buildSVG's "Land grain" section) now rides inside lineSVG
+  // itself, generated per-cell in logical space rather than as a separate globally-tiled-pattern
+  // layer masked against the land alpha channel — no more need for a dedicated stipple pass here.
   console.log("Rasterizing crisp linework layer...");
   const linePng = await sharp(Buffer.from(lineSVG)).png().toBuffer();
 
   console.log("Compositing...");
   let composite = sharp(blurred)
-    .composite([{ input: stipplePng, left: 0, top: 0 }, { input: riverPng, left: 0, top: 0 }, { input: linePng, left: 0, top: 0 }]);
+    .composite([{ input: riverPng, left: 0, top: 0 }, { input: linePng, left: 0, top: 0 }]);
 
   if (pixelBlock > 1) {
     // The actual pixel-art trick: shrink with a smoothing kernel (each tiny output pixel becomes

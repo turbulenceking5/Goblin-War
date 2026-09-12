@@ -96,6 +96,15 @@
     will-change:transform;
   }
   #map-img{ position:absolute; inset:0; width:10240px; height:5108px; display:block; user-select:none; -webkit-user-drag:none; }
+  /* The map art is a deliberately pixelated render (see scripts/build-world-raster/
+     render-painterly.js) — crisp hard-edged blocks, not a smooth painting. Left to the browser's
+     default smooth (bilinear/bicubic) scaling, zooming in past the raster's own native size
+     (view.scale >= 1 — the map viewer's own maxScale of 3.0 deliberately allows this) blurred
+     those intentional blocks back into mush instead of showing them crisp. Only applied above
+     scale 1 (toggled by applyView() below, not a blanket CSS rule) — at typical zoomed-out scales
+     the raster is being *downscaled*, where nearest-neighbor sampling causes aliasing/moire
+     instead of a clean overview, so this must stay conditional, not always-on. */
+  #map-img.pixel-zoom{ image-rendering:pixelated; image-rendering:-webkit-optimize-contrast; image-rendering:crisp-edges; }
   #overlay{ position:absolute; inset:0; width:10240px; height:5108px; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
@@ -641,6 +650,10 @@ function clampView(){
 function applyView(){
   clampView();
   document.getElementById('map-stage').style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;
+  // See #map-img.pixel-zoom's own CSS comment — only render crisp/pixelated once we're actually
+  // zoomed in past the raster's native resolution; zoomed out, the image is being downscaled and
+  // should stay on the browser's normal smooth sampling instead.
+  document.getElementById('map-img').classList.toggle('pixel-zoom', view.scale >= 1);
 }
 function centerOnLogical(lx, ly, scale){
   const holder = document.getElementById('map-viewport');
@@ -1050,6 +1063,10 @@ const CHANGELOG = [
   { id:58, date:"2026-09-12", changes:[
     "The world map has a new look — warmer golden plains, real forests of individually-drawn trees, banded rocky mountains, and a soft golden-hour glow over the whole world.",
     "The map's coastline now fades smoothly from shore to open ocean instead of stepping between color bands."
+  ]},
+  { id:59, date:"2026-09-12", changes:[
+    "Fixed the map's ground texture looking like an obvious repeating pattern up close — it's genuine per-region grain now, not a tiled dot stamp.",
+    "The map now stays crisp when you zoom in close instead of blurring — zooming out still looks smooth as before."
   ]},
 ];
 

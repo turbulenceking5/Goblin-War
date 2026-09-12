@@ -284,6 +284,9 @@ const CHANGELOG = [
     "Fixed the map's ground texture looking like an obvious repeating pattern up close — it's genuine per-region grain now, not a tiled dot stamp.",
     "The map now stays crisp when you zoom in close instead of blurring — zooming out still looks smooth as before."
   ]},
+  { id:60, date:"2026-09-13", changes:[
+    "Fixed the map still looking blurry when zoomed in on a phone — the earlier fix for this only kicked in past a zoom level most phones never actually reach."
+  ]},
 ];
 
 function renderChangelog(){

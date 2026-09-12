@@ -49,8 +49,11 @@ these:
 | Flag | Default | Effect |
 |---|---|---|
 | `--out <path>` | `assets/world-raster-preview.jpg` | Where the rendered JPEG is written. |
-| `--blur <sigma>` | `3.5` | Gaussian blur applied to the merged land/water fill before crisp linework is composited on top — higher softens biome-to-biome blending further. |
-| `--river-blur <sigma>` | `1.1` | Separate, lighter blur applied only to the river layer, to soften rare river-crossing overlaps without softening coastline/borders/trees/hachures. |
+| `--blur <sigma>` | `1.2` | Gaussian blur applied to the merged land/water fill before crisp linework is composited on top. Kept small now that `--pixel` (below) does the actual soft/blocky look — a bigger blur here just muddies fine linework into the pixelation's block-averaging. |
+| `--river-blur <sigma>` | `1.1` | Separate, lighter blur applied only to the river layer, to soften rare river-crossing overlaps without softening coastline/trees/hachures. |
+| `--water-blur <sigma>` | `18` | Blur applied only to the water-band layer (in raster px), before it's merged with land — this is what actually makes the coastline's fade-to-deep-ocean read as soft; the band colors themselves are already linearly interpolated by distance, but that alone wasn't enough. |
+| `--pixel <blockSize>` | `3` | Pixel-art pass: downsamples the whole finished composite to `width/blockSize` with a smoothing kernel, then scales back up with nearest-neighbor (no interpolation) — turns smooth curves into visible hard-edged blocks. `0` disables it. |
+| `--sundown <strength>` | `0.35` | Warm, low-sun color grade (0-1), soft-light blended over the whole map after pixelation. `0` disables it. Implemented as a full-strength blend re-composited at partial alpha — libvips' blend-mode compositing ignores an overlay's own alpha, so a naive semi-transparent overlay silently composites at 100% strength regardless of the number here. |
 
 ## Determinism
 

@@ -26,21 +26,27 @@ const SNOW_COLOR = "#f3f1ea";
 const WAVE_COLOR = "#7fb3c9";
 const CLOUD_COLOR = "#4a5f6e";
 
+// Warmed toward ochre/tan per the project owner's reference — grassland/savanna in particular
+// were reading as a cool, saturated green; the reference's open plains lean golden-brown instead.
 const BIOME_COLOR = {
-  1: "#d9c48a", // Hot desert
-  2: "#b7ab7c", // Cold desert
-  3: "#cdb571", // Savanna
-  4: "#a9b56a", // Grassland
-  5: "#8aab5a", // Tropical seasonal forest
-  6: "#7fa055", // Temperate deciduous forest
+  1: "#dcc383", // Hot desert
+  2: "#bcac7d", // Cold desert
+  3: "#d0b263", // Savanna
+  4: "#c2b26a", // Grassland
+  5: "#9aab5c", // Tropical seasonal forest
+  6: "#8a9c54", // Temperate deciduous forest
   7: "#6a9a4f", // Tropical rainforest
   8: "#5c8a4a", // Temperate rainforest
   9: "#5c7a5f", // Taiga
-  10: "#a49a84", // Tundra
+  10: "#ab9d7e", // Tundra
   11: "#e4eef0", // Glacier
-  12: "#7a8a5c", // Wetland
+  12: "#8a8d5c", // Wetland
 };
-const MOUNTAIN_COLOR = "#8f887c";
+// Mountains are no longer one flat tone — see the per-cell banding in the fill loop below
+// (buildSVG), which blends between these two based on elevation, low bands leaning brown/rocky,
+// high bands leaning cooler grey, closer to the reference's banded rock look than a single tint.
+const MOUNTAIN_COLOR_LOW = "#8a7355";
+const MOUNTAIN_COLOR_HIGH = "#9a958a";
 const HACHURE_COLOR = "#4a4038";
 const FOREST_BIOMES = new Set([5, 6, 7, 8, 9]);
 // Water depth bands, nearest-to-farthest from the coast (real pixel distance, not cell hops
@@ -51,7 +57,25 @@ const COAST_STROKE = "#1c2f3f";
 const RIVER_FILL = "#3f7ea3";
 const RIVER_HALO = "#bcdce4";
 const TREE_COLOR = "#3f6b3a";
-const BORDER_COLOR = "#8a4a3a";
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgbToHex([r, g, b]) {
+  return "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+}
+// Mountains banded by elevation instead of one flat tint — a low mountain cell (just past
+// MOUNTAIN_HEIGHT_THRESHOLD) leans brown/rocky, a high one leans cooler grey, blending linearly
+// between the two up to SNOW_HEIGHT_THRESHOLD (above that, the separate snow-cap overlay in
+// buildSVG takes over). Closer to the reference's real rock-face banding than a single tone.
+const MOUNTAIN_LOW_RGB = hexToRgb(MOUNTAIN_COLOR_LOW);
+const MOUNTAIN_HIGH_RGB = hexToRgb(MOUNTAIN_COLOR_HIGH);
+function mountainBandColor(h) {
+  const t = Math.max(0, Math.min(1, (h - MOUNTAIN_HEIGHT_THRESHOLD) / (SNOW_HEIGHT_THRESHOLD - MOUNTAIN_HEIGHT_THRESHOLD)));
+  const rgb = MOUNTAIN_LOW_RGB.map((lo, i) => lo + (MOUNTAIN_HIGH_RGB[i] - lo) * t);
+  return rgbToHex(rgb);
+}
 
 function loadPack() {
   const data = JSON.parse(fs.readFileSync(GAME_MAP_PATH, "utf8"));
@@ -140,7 +164,7 @@ function distanceFromLand(landMask, w, h) {
 // Renders just the land/mountain mask (1) vs water (0) at a modest working resolution —
 // plenty of precision for band widths of a dozen-plus logical px, and far cheaper than a
 // 10240x5108 flood fill.
-async function buildWaterBandRaster(pack, cells, polys, bandThresholds) {
+async function buildWaterBandRaster(pack, cells, polys, bandThresholds, waterBlurSigma) {
   const w = LOGICAL_W, h = LOGICAL_H;
   let maskSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">`;
   for (let i = 0; i < cells.length; i++) {
@@ -157,14 +181,41 @@ async function buildWaterBandRaster(pack, cells, polys, bandThresholds) {
     const n = parseInt(hex.slice(1), 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   });
+  // Per the project owner: a real fade between bands, not a hard-edged step. bandDistances pins
+  // each WATER_BANDS color to a specific distance-from-shore (0 for the nearest/shallowest band,
+  // then each threshold in turn for the rest), and every pixel's color is linearly interpolated
+  // between whichever two anchors its own distance falls between — continuous the whole way out,
+  // rather than snapping to whichever single band it happened to land in.
+  const bandDistances = [0, ...bandThresholds];
   const out = Buffer.alloc(w * h * 3);
   for (let i = 0; i < w * h; i++) {
-    let bi = bandColors.length - 1;
-    for (let b = 0; b < bandThresholds.length; b++) { if (dist[i] < bandThresholds[b]) { bi = b; break; } }
-    const [r, g, bch] = bandColors[bi];
+    const d = dist[i];
+    let r, g, bch;
+    if (d <= bandDistances[0]) {
+      [r, g, bch] = bandColors[0];
+    } else if (d >= bandDistances[bandDistances.length - 1]) {
+      [r, g, bch] = bandColors[bandColors.length - 1];
+    } else {
+      let seg = bandDistances.length - 2;
+      for (let s = 0; s < bandDistances.length - 1; s++) {
+        if (d >= bandDistances[s] && d < bandDistances[s + 1]) { seg = s; break; }
+      }
+      const t = (d - bandDistances[seg]) / (bandDistances[seg + 1] - bandDistances[seg]);
+      const c0 = bandColors[seg], c1 = bandColors[seg + 1];
+      r = c0[0] + (c1[0] - c0[0]) * t;
+      g = c0[1] + (c1[1] - c0[1]) * t;
+      bch = c0[2] + (c1[2] - c0[2]) * t;
+    }
     out[i * 3] = r; out[i * 3 + 1] = g; out[i * 3 + 2] = bch;
   }
-  return sharp(out, { raw: { width: w, height: h, channels: 3 } }).resize(RASTER_W, RASTER_H).png().toBuffer();
+  // Per the project owner: the linear interpolation above is smooth *in principle*, but the
+  // overall composite's own blur (main()'s blurSigma, deliberately kept tiny for the pixel-art
+  // look) wasn't enough to keep it reading as a soft blend once resized up — this blurs the
+  // water raster specifically, before that resize, so the band transitions themselves are
+  // genuinely soft rather than relying on a blur pass meant for the whole map to do it too.
+  let pipeline = sharp(out, { raw: { width: w, height: h, channels: 3 } }).resize(RASTER_W, RASTER_H);
+  if (waterBlurSigma > 0) pipeline = pipeline.blur(waterBlurSigma);
+  return pipeline.png().toBuffer();
 }
 
 // Deterministic per-cell pseudo-random, so re-running the build doesn't jitter tree
@@ -223,7 +274,7 @@ function buildSVG(pack) {
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i];
     if (c.biome === 0) continue;
-    const color = c.h >= MOUNTAIN_HEIGHT_THRESHOLD ? MOUNTAIN_COLOR : (BIOME_COLOR[c.biome] || "#a9b56a");
+    const color = c.h >= MOUNTAIN_HEIGHT_THRESHOLD ? mountainBandColor(c.h) : (BIOME_COLOR[c.biome] || "#c2b26a");
     fillLayer += `<polygon points="${pointsAttr(polys[i])}" fill="${color}"/>`;
     // Snow caps: a pale tint over just the very highest peaks, layered on top of the base
     // mountain fill so it blurs into a soft cap rather than a hard-edged patch.
@@ -324,43 +375,43 @@ function buildSVG(pack) {
   // (conifers read as pointed, not round, so taiga doesn't look identical to a deciduous
   // forest just because both are "green with dots"). Density is up substantially from the
   // first pass, which was too sparse to read as an actual forest at map scale.
+  // Redesigned as distinct rounded tree-icon sprites (per the project owner's reference) rather
+  // than a dense speckle/dot-fill texture — fewer per cell, but each one notably bigger, with a
+  // lighter highlight blob offset toward the light for a puffy, individually-readable canopy
+  // instead of many tiny dots blurring into a flat texture at a glance.
   let trees = "";
   const TREE_SHADES = ["#3f6b3a", "#4a7a44", "#365e32"];
+  const TREE_HIGHLIGHT = "#7aab5e";
   const CONIFER_SHADES = ["#3a5a3d", "#2f4d33", "#456b47"];
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i];
     if (!FOREST_BIOMES.has(c.biome) || c.h >= MOUNTAIN_HEIGHT_THRESHOLD) continue;
     const rand = mulberry32(c.i * 2654435761);
     const [cx, cy] = c.p;
-    const r = cellRadius(polys[i], cx, cy) * 0.68;
+    const r = cellRadius(polys[i], cx, cy) * 0.85;
     const isConifer = c.biome === 9; // Taiga
-    const count = c.biome === 8 || c.biome === 7 ? 9 : isConifer ? 7 : 6; // rainforest densest
+    const count = c.biome === 8 || c.biome === 7 ? 16 : isConifer ? 13 : 10; // rainforest densest
     for (let t = 0; t < count; t++) {
       const ang = rand() * Math.PI * 2;
       const rad = rand() * r;
       const x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad;
       if (isConifer) {
         const shade = CONIFER_SHADES[Math.floor(rand() * CONIFER_SHADES.length)];
-        const size = 1.1 + rand() * 0.6;
+        const size = 3 + rand() * 1.6;
         // A simple upward-pointing triangle glyph in place of a round canopy blob.
-        trees += `<polygon points="${x.toFixed(1)},${(y - size).toFixed(1)} ${(x - size * 0.75).toFixed(1)},${(y + size * 0.6).toFixed(1)} ${(x + size * 0.75).toFixed(1)},${(y + size * 0.6).toFixed(1)}" fill="${shade}" fill-opacity="0.85"/>`;
+        trees += `<polygon points="${x.toFixed(1)},${(y - size).toFixed(1)} ${(x - size * 0.72).toFixed(1)},${(y + size * 0.65).toFixed(1)} ${(x + size * 0.72).toFixed(1)},${(y + size * 0.65).toFixed(1)}" fill="${shade}" fill-opacity="0.92"/>`;
       } else {
-        // 2-3 overlapping circles per tree, jittered slightly, for a fuller canopy silhouette
-        // than a single perfect dot.
-        const blobs = 2 + Math.floor(rand() * 2);
+        // One solid base canopy blob plus a smaller, lighter highlight blob offset up-left —
+        // reads as one distinct rounded tree icon rather than a cluster of overlapping dots.
         const shade = TREE_SHADES[Math.floor(rand() * TREE_SHADES.length)];
-        const baseR = 0.55 + rand() * 0.45;
-        for (let b = 0; b < blobs; b++) {
-          const jx = x + (rand() - 0.5) * baseR * 1.6;
-          const jy = y + (rand() - 0.5) * baseR * 1.6;
-          const rr = baseR * (0.7 + rand() * 0.4);
-          // fill-opacity, not opacity — the plain "opacity" attribute forces librsvg to
-          // allocate an isolated offscreen compositing group per element, which is fine
-          // for one path but pathological repeated thousands of times on a 10240x5108
-          // canvas (this is what caused the multi-minute render hang before). fill-opacity
-          // blends directly, no group.
-          trees += `<circle cx="${jx.toFixed(1)}" cy="${jy.toFixed(1)}" r="${rr.toFixed(2)}" fill="${shade}" fill-opacity="0.8"/>`;
-        }
+        const baseR = 2.3 + rand() * 1.7;
+        // fill-opacity, not opacity — the plain "opacity" attribute forces librsvg to allocate
+        // an isolated offscreen compositing group per element, which is fine for one path but
+        // pathological repeated thousands of times on a 10240x5108 canvas (this is what caused
+        // the multi-minute render hang before). fill-opacity blends directly, no group.
+        trees += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${baseR.toFixed(2)}" fill="${shade}" fill-opacity="0.92"/>`;
+        const hx = x - baseR * 0.32, hy = y - baseR * 0.38;
+        trees += `<circle cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="${(baseR * 0.55).toFixed(2)}" fill="${TREE_HIGHLIGHT}" fill-opacity="0.55"/>`;
       }
     }
   }
@@ -393,46 +444,56 @@ function buildSVG(pack) {
 
   // Mountain hachures: short dark tick marks scattered across high-elevation cells, standing
   // in for the cross-hatch shading real hand-drawn relief maps use — cheap approximation,
-  // not a real slope-aware hachure algorithm.
+  // not a real slope-aware hachure algorithm. Count/length/opacity bumped hard (was 4 ticks
+  // per cell, barely visible) plus a scatter of small rock speckle dots on top, so mountains
+  // read as an actual textured rock face rather than a flat tinted blob with a few marks.
+  const HACHURE_LIGHT = "#c9c2b4";
   let hachures = "";
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i];
     if (c.h < MOUNTAIN_HEIGHT_THRESHOLD) continue;
     const rand = mulberry32(c.i * 1013904223);
     const [cx, cy] = c.p;
-    const r = cellRadius(polys[i], cx, cy) * 0.65;
-    const count = 4;
+    const r = cellRadius(polys[i], cx, cy) * 0.8;
+    const count = 22;
     for (let t = 0; t < count; t++) {
       const ang = rand() * Math.PI * 2;
       const rad = rand() * r;
       const x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad;
       const tickAng = rand() * Math.PI;
-      const len = 3 + rand() * 3;
+      const len = 4 + rand() * 5;
       const dx = Math.cos(tickAng) * len, dy = Math.sin(tickAng) * len;
-      hachures += `<line x1="${(x - dx / 2).toFixed(1)}" y1="${(y - dy / 2).toFixed(1)}" x2="${(x + dx / 2).toFixed(1)}" y2="${(y + dy / 2).toFixed(1)}" stroke="${HACHURE_COLOR}" stroke-width="0.7" stroke-opacity="0.5" stroke-linecap="round"/>`;
+      hachures += `<line x1="${(x - dx / 2).toFixed(1)}" y1="${(y - dy / 2).toFixed(1)}" x2="${(x + dx / 2).toFixed(1)}" y2="${(y + dy / 2).toFixed(1)}" stroke="${HACHURE_COLOR}" stroke-width="1" stroke-opacity="0.62" stroke-linecap="round"/>`;
+    }
+    // Rock speckles: small light-and-dark dots interspersed with the hachure ticks, breaking
+    // up the flat fill so it reads as mottled stone rather than one uniform tint.
+    const speckleCount = 30;
+    for (let t = 0; t < speckleCount; t++) {
+      const ang = rand() * Math.PI * 2;
+      const rad = rand() * r;
+      const x = cx + Math.cos(ang) * rad, y = cy + Math.sin(ang) * rad;
+      const light = rand() < 0.5;
+      const sr = 0.6 + rand() * 1;
+      hachures += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${sr.toFixed(2)}" fill="${light ? HACHURE_LIGHT : HACHURE_COLOR}" fill-opacity="${light ? 0.5 : 0.35}"/>`;
     }
   }
 
-  // Kingdom borders: dashed line along any land/land edge whose two cells belong to
-  // different (nonzero) states — nonzero on both sides only, so unclaimed wilderness
-  // doesn't get a border drawn around every last cell of it.
-  let borderPath = "";
-  for (const { a, b, p1, p2 } of edges) {
-    const ca = cells[a], cb = cells[b];
-    if (ca.biome === 0 || cb.biome === 0) continue;
-    if (!ca.state || !cb.state || ca.state === cb.state) continue;
-    borderPath += `M${p1[0].toFixed(1)},${p1[1].toFixed(1)} L${p2[0].toFixed(1)},${p2[1].toFixed(1)} `;
-  }
-  const borderLine = `<path d="${borderPath}" stroke="${BORDER_COLOR}" stroke-width="1.1" fill="none" stroke-dasharray="3,2.5" stroke-opacity="0.75"/>`;
+  // Per the project owner: dropped the baked-in dashed kingdom-border line entirely (drawn from
+  // the Azgaar export's original/historical state field, not live territory control) — it read as
+  // visual clutter, and it was already redundant with the game's real border rendering: the live
+  // SVG #overlay draws the actual current frontline/territory lines on top of this raster,
+  // reacting to real conquest state (see context/factions-and-territory.md's "Burg adjacency" and
+  // buildFrontlineMarkers) — this file's own doc comment always said borders belonged to that
+  // overlay, not baked into the art, so removing this also fixes that mismatch.
 
   return {
     cells, polys,
     fillSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${fillLayer}</svg>`,
     // Rivers render as their own layer, separate from the rest of the crisp linework, so
     // main() can give just this one a touch of blur (softens rare river-on-river crossings)
-    // without softening the coastline/borders/trees/hachures too.
+    // without softening the coastline/trees/hachures too.
     riverSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${riverLines}</svg>`,
-    lineSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${waves}${coastLine}${borderLine}${trees}${hachures}</svg>`,
+    lineSVG: `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}" viewBox="0 0 ${LOGICAL_W} ${LOGICAL_H}">${waves}${coastLine}${trees}${hachures}</svg>`,
   };
 }
 
@@ -443,9 +504,10 @@ function buildSVG(pack) {
 // rendered land alpha channel instead, via raw pixel math.
 async function buildStippleLayer(landPng) {
   const dotsSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${RASTER_W}" height="${RASTER_H}">
-    <defs><pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
-      <circle cx="5" cy="5" r="1.8" fill="#2a2115" opacity="0.16"/>
-      <circle cx="14" cy="12" r="1.6" fill="#2a2115" opacity="0.13"/>
+    <defs><pattern id="dots" width="15" height="15" patternUnits="userSpaceOnUse">
+      <circle cx="4" cy="4" r="1.9" fill="#2a2115" opacity="0.26"/>
+      <circle cx="11" cy="9" r="1.7" fill="#2a2115" opacity="0.22"/>
+      <circle cx="7" cy="12" r="1.4" fill="#2a2115" opacity="0.18"/>
     </pattern></defs>
     <rect width="${RASTER_W}" height="${RASTER_H}" fill="url(#dots)"/>
   </svg>`;
@@ -465,8 +527,28 @@ async function main() {
   const args = process.argv.slice(2);
   const getArg = (name, def) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : def; };
   const outPath = path.resolve(getArg("out", DEFAULT_OUT_PATH));
-  const blurSigma = parseFloat(getArg("blur", "3.5"));
+  // Softened way down from the old painterly default (3.5) — the pixelate pass below does the
+  // actual blocky-look work now; a lingering big blur before it just muddies fine linework
+  // (rivers, hachures, tree clusters) into the block-averaging instead of letting it read as
+  // real detail within each block.
+  const blurSigma = parseFloat(getArg("blur", "1.2"));
   const riverBlurSigma = parseFloat(getArg("river-blur", "1.1"));
+  // Per the project owner: pixel-art look instead of a soft painted blend — hard block edges,
+  // not smooth gradients. 0 disables it and falls back to the old painterly output untouched.
+  // Applied once, at the very end, to the *entire* composited image (fills, coastline, rivers,
+  // trees, hachures alike) rather than per-layer — one pass keeps every element on the same
+  // block grid instead of mixing crisp vector linework over a blocky background. Dialed back
+  // from an earlier 8px pass, which the project owner felt looked low-quality/chunky rather than
+  // like genuine pixel art — 3px keeps a fine pixel grain without visibly blocking up the map.
+  const pixelBlock = parseInt(getArg("pixel", "3"), 10);
+  // Per the project owner: an overall warm, low-sun lighting grade — soft-light-blended over the
+  // whole finished map, after pixelation, so the color grade itself stays smooth (it's meant to
+  // read as atmospheric light, not another blocky layer). 0 disables it.
+  const sundownStrength = parseFloat(getArg("sundown", "0.35"));
+  // Per the project owner: the water-band fade needed to be genuinely soft, not just
+  // mathematically continuous — see buildWaterBandRaster's own comment. In raster px (the
+  // raster is 4x the logical coordinate space), applied only to the water layer itself.
+  const waterBlurSigma = parseFloat(getArg("water-blur", "18"));
 
   console.log(`Loading ${GAME_MAP_PATH}...`);
   const pack = loadPack();
@@ -474,8 +556,12 @@ async function main() {
   const { cells, polys, fillSVG, riverSVG, lineSVG } = buildSVG(pack);
 
   console.log("Building water distance-from-coast bands...");
-  const bandThresholds = [7, 16, 28, 45]; // logical px; last band is "beyond all thresholds"
-  const waterPng = await buildWaterBandRaster(pack, cells, polys, bandThresholds);
+  // Pulled back in from [14,30,48,70] per the project owner, now that buildWaterBandRaster's own
+  // dedicated blur (see waterBlurSigma above) is what actually makes the fade read as soft —
+  // widening the raw distances was the wrong lever for that (it just made the whole coastal
+  // ring wider, not smoother) and made the shallow-water band cover too much area.
+  const bandThresholds = [5, 11, 19, 30]; // logical px; last band is "beyond all thresholds"
+  const waterPng = await buildWaterBandRaster(pack, cells, polys, bandThresholds, waterBlurSigma);
 
   console.log(`Rasterizing land fill layer and merging with water bands...`);
   const landPng = await sharp(Buffer.from(fillSVG)).png().toBuffer();
@@ -494,10 +580,52 @@ async function main() {
   const linePng = await sharp(Buffer.from(lineSVG)).png().toBuffer();
 
   console.log("Compositing...");
-  await sharp(blurred)
-    .composite([{ input: stipplePng, left: 0, top: 0 }, { input: riverPng, left: 0, top: 0 }, { input: linePng, left: 0, top: 0 }])
-    .jpeg({ quality: 90 })
-    .toFile(outPath);
+  let composite = sharp(blurred)
+    .composite([{ input: stipplePng, left: 0, top: 0 }, { input: riverPng, left: 0, top: 0 }, { input: linePng, left: 0, top: 0 }]);
+
+  if (pixelBlock > 1) {
+    // The actual pixel-art trick: shrink with a smoothing kernel (each tiny output pixel becomes
+    // a true area-average of its block, so color/detail from that whole block survives) then
+    // blow back up with a *nearest*-neighbor kernel (no interpolation at all — every source pixel
+    // just repeats into a hard-edged square), which is what turns smooth curves into visible
+    // blocky steps instead of a blurrier version of the same shape.
+    console.log(`Pixelating (block=${pixelBlock}px)...`);
+    const smallW = Math.max(1, Math.round(RASTER_W / pixelBlock));
+    const smallH = Math.max(1, Math.round(RASTER_H / pixelBlock));
+    const compositeBuf = await composite.png().toBuffer();
+    composite = sharp(await sharp(compositeBuf).resize(smallW, smallH, { kernel: "cubic" }).toBuffer())
+      .resize(RASTER_W, RASTER_H, { kernel: "nearest" });
+  }
+
+  if (sundownStrength > 0) {
+    // A flat warm-orange layer, "soft-light" blended rather than simply overlaid — soft-light
+    // warms midtones/highlights while leaving the darkest areas closer to untouched, the way
+    // real low-sun light actually falls across a scene, rather than tinting everything uniformly
+    // the way a plain alpha overlay would. libvips' blend-mode compositing ignores the overlay's
+    // own alpha channel entirely (any alpha > 0 composites at full strength — confirmed directly,
+    // not assumed), so --sundown's strength can't be a partially-transparent overlay the way
+    // you'd expect; instead this computes the *fully*-blended result once, then re-composites
+    // that over the original using plain "over" alpha compositing (which *does* respect alpha) to
+    // actually get a controllable, linear strength. The blend step itself always bakes in its own
+    // opaque alpha channel (confirmed: it's there even though the base going in has none), so
+    // removeAlpha() before ensureAlpha(strength) is required — ensureAlpha only fills in a
+    // *missing* alpha channel, it won't override one that's already present, and silently no-ops
+    // (always 100% strength) without the removeAlpha() first — also confirmed the hard way.
+    console.log(`Applying sundown color grade (strength=${sundownStrength})...`);
+    const strength = Math.max(0, Math.min(1, sundownStrength));
+    const baseBuf = await composite.png().toBuffer();
+    const opaqueWarm = await sharp({
+      create: { width: RASTER_W, height: RASTER_H, channels: 4, background: { r: 255, g: 145, b: 60, alpha: 255 } },
+    }).png().toBuffer();
+    const fullyBlended = await sharp(baseBuf).composite([{ input: opaqueWarm, blend: "soft-light" }])
+      .raw().toBuffer({ resolveWithObject: true });
+    const blendedWithAlpha = await sharp(fullyBlended.data, {
+      raw: { width: fullyBlended.info.width, height: fullyBlended.info.height, channels: fullyBlended.info.channels },
+    }).removeAlpha().ensureAlpha(strength).png().toBuffer();
+    composite = sharp(baseBuf).composite([{ input: blendedWithAlpha }]);
+  }
+
+  await composite.jpeg({ quality: 90 }).toFile(outPath);
 
   console.log(`Wrote ${outPath} (${RASTER_W}x${RASTER_H}).`);
 }

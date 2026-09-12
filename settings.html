@@ -164,6 +164,7 @@ const POPULATION_KEY = "goblinwar_population";
 const SIEGE_KEY = "goblinwar_sieges";
 const REFUGEE_ARRIVAL_KEY = "goblinwar_refugeeArrivals";
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns";
+const RECENT_EVENTS_KEY = "goblinwar_recentEvents"; // JSON array of {text} — real siege/attack outcomes, see index.html's recordWorldEvent
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -292,6 +293,7 @@ function collectCharacterSnapshot(){
     sieges: localStorage.getItem(SIEGE_KEY) || "{}",
     refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
+    recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

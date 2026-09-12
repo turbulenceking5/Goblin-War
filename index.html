@@ -1026,6 +1026,9 @@ const CHANGELOG = [
   { id:54, date:"2026-09-12", changes:[
     "Trusted kingdoms now act on their own — reinforcing hard-pressed allies without you needing to ask, and holding their own walls a little tougher against a siege."
   ]},
+  { id:55, date:"2026-09-12", changes:[
+    "Tavern Talk can now share real news — a settlement that's actually fallen, or a siege that was actually repelled, alongside the usual rumours."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1500,15 +1503,41 @@ function setSieges(map){ localStorage.setItem(SIEGE_KEY, JSON.stringify(map)); }
 // A settlement's own local defense, distinct from getArmyStrength(kingdom) (that kingdom's
 // whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege.
 function getGarrisonStrength(burgId){ return getPopulation(burgId) * MILITARY_FRACTION; }
+
+// A small log of real siege/attack outcomes — the "news you hear" behind Tavern Talk's rumour
+// pool (see RUMOURS/showTavernPanel below). Per the project owner, a rumour should sometimes
+// describe something that's actually true in *this* game, not only fixed flavor color — a narrow,
+// contained first step toward roadmap.md's bigger "Reactive rumors" idea, deliberately not the
+// full migration that idea describes (RUMOURS/TOWNSFOLK_LINES_*/WORK_LINES all stay exactly as
+// they are otherwise). Newest first, capped at RECENT_EVENTS_MAX so a long-lived character's save
+// doesn't grow this list forever — same trim-oldest shape as goblinwar_completedQuests'
+// recordCompletedQuest.
+const RECENT_EVENTS_KEY = "goblinwar_recentEvents";
+const RECENT_EVENTS_MAX = 15;
+function recordWorldEvent(text){
+  let history;
+  try{ history = JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []; }catch(e){ history = []; }
+  history.unshift({ text });
+  localStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(history.slice(0, RECENT_EVENTS_MAX)));
+}
+function getRecentEventTexts(){
+  try{ return (JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []).map(e => e.text); }catch(e){ return []; }
+}
+
 // Ends any siege currently running between these two specific kingdoms (either direction) —
 // called when they reach peace, since a truce leaves no one left to besiege whom. The defender
-// keeps whatever it still held; nothing else about the siege's partial progress is preserved.
+// keeps whatever it still held; nothing else about the siege's partial progress is preserved. Each
+// siege actually ended here is an "unsuccessful attack" worth a rumour (see recordWorldEvent
+// above) — the one place a repelled siege would otherwise vanish without a trace, since the siege
+// entry itself is deleted right after.
 function cancelSiegesBetween(k1, k2){
   const sieges = getSieges();
   let changed = false;
   Object.keys(sieges).forEach(bid=>{
     const s = sieges[bid];
     if((s.attackerKingdom===k1 && s.defenderKingdom===k2) || (s.attackerKingdom===k2 && s.defenderKingdom===k1)){
+      const settlement = graph.burgs[bid];
+      recordWorldEvent(`They say ${settlement ? settlement.name : 'a border settlement'} held against ${s.attackerKingdom}'s siege — the attackers withdrew.`);
       delete sieges[bid];
       changed = true;
     }
@@ -1629,6 +1658,7 @@ function runFactionAITick(){
           const result = advanceSiege(kingdom, enemy);
           if(result && result.captured){
             events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
+            recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
           }
         }
       });
@@ -5121,7 +5151,10 @@ function showTavernPanel(burgId){
   const b = graph.burgs[burgId];
   const list = document.getElementById('loc-action-list');
   function render(){
-    const rumour = RUMOURS[Math.floor(Math.random()*RUMOURS.length)];
+    // Recent real siege/attack outcomes (see recordWorldEvent above) mixed into the same random
+    // pick as the static flavor pool — sometimes what you hear actually happened in this game.
+    const rumourPool = RUMOURS.concat(getRecentEventTexts());
+    const rumour = rumourPool[Math.floor(Math.random()*rumourPool.length)];
     list.innerHTML = `
       <button class="loc-action" id="tavern-back-btn">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
@@ -5492,6 +5525,7 @@ function collectCharacterSnapshot(){
     sieges: localStorage.getItem(SIEGE_KEY) || "{}",
     refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
+    recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

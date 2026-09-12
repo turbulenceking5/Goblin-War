@@ -1029,6 +1029,9 @@ const CHANGELOG = [
   { id:55, date:"2026-09-12", changes:[
     "Tavern Talk can now share real news — a settlement that's actually fallen, or a siege that was actually repelled, alongside the usual rumours."
   ]},
+  { id:56, date:"2026-09-12", changes:[
+    "Talk to Townsfolk and Work can now mention real, current events by name — an active siege, the actual kingdom you're at war with, bordering hostile territory, a settlement that changed hands, or reinforcements that just arrived."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1178,20 +1181,25 @@ function buildBurgAdjacency(){
   });
 }
 
-// True if this settlement directly borders (via the road/sea graph) a settlement controlled by
-// an opposite-alliance kingdom it's currently at war with — a real frontline, not the old
-// proximity guess. Used both for raid targeting (pickRaidTarget) and the map's frontline
-// markers (buildFrontlineMarkers).
-function isFrontlineBurg(burgId){
+// The specific opposite-alliance kingdom this settlement directly borders (via the road/sea
+// graph) that it's currently at war with — a real frontline, not the old proximity guess — or
+// null if it isn't one. isFrontlineBurg (below) is just this reduced to a boolean, for its
+// existing caller (the map's frontline markers, buildFrontlineMarkers) that only ever needed
+// yes/no (pickRaidTarget does its own separate, simpler adjacency check); the reactive Talk to
+// Townsfolk/Work lines (see getReactiveTownsfolkLines/getReactiveWorkLines) are what actually need
+// the kingdom's name.
+function getFrontlineEnemyKingdom(burgId){
   const kingdom = getControllerKingdom(burgId);
-  if(!kingdom) return false;
-  return (burgAdjacency[burgId] || []).some(neighborId=>{
+  if(!kingdom) return null;
+  const neighborId = (burgAdjacency[burgId] || []).find(neighborId=>{
     const neighborKingdom = getControllerKingdom(neighborId);
     if(!neighborKingdom || neighborKingdom === kingdom) return false;
     if(ALLIANCE[KINGDOM_RACE[neighborKingdom]] === ALLIANCE[KINGDOM_RACE[kingdom]]) return false;
     return getRelation(kingdom, neighborKingdom) === 'war';
   });
+  return neighborId ? getControllerKingdom(neighborId) : null;
 }
+function isFrontlineBurg(burgId){ return !!getFrontlineEnemyKingdom(burgId); }
 
 // goblinwar_territoryControl overrides store the specific conquering KINGDOM now (e.g.
 // "Kingdom of Warg"), not just its race — this is what lets getArmyStrength (below) credit a
@@ -1362,6 +1370,14 @@ function getReinforcementBonus(kingdom){
   const r = getReinforcements()[kingdom];
   if(!r || gameDay > r.expiresDay) return 0;
   return r.amount;
+}
+// Sibling accessor for the one field getReinforcementBonus doesn't expose — which kingdom actually
+// sent the troops, for the reactive Talk to Townsfolk line (see getReactiveTownsfolkLines) that
+// names it. Same active-or-expired check as getReinforcementBonus.
+function getReinforcementSource(kingdom){
+  const r = getReinforcements()[kingdom];
+  if(!r || gameDay > r.expiresDay) return null;
+  return r.fromKingdom;
 }
 
 // Total population one specific kingdom currently controls, times MILITARY_FRACTION, plus any
@@ -4386,6 +4402,26 @@ const WORK_LINES = [
   "You do a few hours of odd jobs for the innkeeper.",
   "You help a merchant unload a cart of goods.",
 ];
+// Step 2 of "Reactive rumors" (see context/roadmap.md and getReactiveTownsfolkLines above) —
+// scoped to exactly siege/war/frontline for Work, unlike Talk to Townsfolk's fuller set; a
+// captured-settlement or reinforcement line reads oddly as "why you got paid to do chores" flavor.
+// Checks siege before war (a besieged settlement is also at war) so the two don't both fire for
+// the same reason with slightly redundant wording.
+function getReactiveWorkLines(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  const lines = [];
+  const siege = getSieges()[burgId];
+  if(siege){
+    lines.push(`Between odd jobs, you help shore up defenses — ${siege.attackerKingdom}'s siege isn't over yet.`);
+  } else if(kingdom && isAtWarAt(burgId)){
+    const enemies = getEnemiesAtWar(kingdom);
+    if(enemies.length) lines.push(`You spend part of the day helping the smiths keep pace with the war against ${enemies.join(' and ')}.`);
+  }
+  if(getFrontlineEnemyKingdom(burgId)){
+    lines.push(`Word is raiders have been spotted near the border recently — everyone's a little on edge.`);
+  }
+  return lines;
+}
 function doWork(burgId){
   if(hasWorkedToday(burgId)){
     showToast("Already worked here today — come back tomorrow.");
@@ -4398,7 +4434,8 @@ function doWork(burgId){
   const earned = randRange([3,15]);
   setGold(playerGold + earned);
   recordWorked(burgId);
-  const line = WORK_LINES[Math.floor(Math.random()*WORK_LINES.length)];
+  const pool = WORK_LINES.concat(getReactiveWorkLines(burgId));
+  const line = pool[Math.floor(Math.random()*pool.length)];
   showToast(`${line} You earn ${earned} gold.`);
   showLocationView(burgId);
 }
@@ -4516,6 +4553,33 @@ const TOWNSFOLK_LINES_CITY = [
   "Someone's spreading a rumour about the court that's probably half true and entirely exaggerated.",
   "A street performer draws a small crowd, juggling knives with more confidence than skill.",
 ];
+// Step 2 of "Reactive rumors" (see context/roadmap.md) — real generated lines naming the actual
+// kingdoms/attackers involved, concatenated onto the static pools below exactly the way
+// TOWNSFOLK_LINES_CAPTURED/_TRUSTED already are. Each condition is independent (a settlement can
+// be under siege, on the frontline, captured, and reinforced all at once, in principle) rather
+// than an exclusive if/else chain, same "concat whatever applies" shape getTownsfolkLines already
+// used before this.
+function getReactiveTownsfolkLines(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = getControllerKingdom(burgId);
+  const lines = [];
+  const siege = getSieges()[burgId];
+  if(siege){
+    lines.push(`Word is ${siege.attackerKingdom}'s forces have this place under siege.`);
+  }
+  if(kingdom && isAtWarAt(burgId)){
+    const enemies = getEnemiesAtWar(kingdom);
+    if(enemies.length) lines.push(`Talk here keeps turning to the war against ${enemies.join(' and ')}.`);
+  }
+  const frontlineEnemy = getFrontlineEnemyKingdom(burgId);
+  if(frontlineEnemy) lines.push(`This close to ${frontlineEnemy} territory, nobody sleeps easy.`);
+  if(getController(burgId) !== b.race && kingdom){
+    lines.push(`This settlement flies ${kingdom}'s banners now, not ${b.state}'s.`);
+  }
+  const reinforcedFrom = kingdom ? getReinforcementSource(kingdom) : null;
+  if(reinforcedFrom) lines.push(`Word is soldiers arrived from ${reinforcedFrom} to bolster the garrison here.`);
+  return lines;
+}
 function getTownsfolkLines(burgId){
   const b = graph.burgs[burgId];
   let pool = (isAtWarAt(burgId) ? TOWNSFOLK_LINES_WAR : TOWNSFOLK_LINES_PEACE)
@@ -4523,7 +4587,7 @@ function getTownsfolkLines(burgId){
   if(getController(burgId) !== b.race) pool = pool.concat(TOWNSFOLK_LINES_CAPTURED);
   const rep = reputationLabel(getReputation(getControllerKingdom(burgId)));
   if(rep === 'Friendly' || rep === 'Trusted') pool = pool.concat(TOWNSFOLK_LINES_TRUSTED);
-  return pool;
+  return pool.concat(getReactiveTownsfolkLines(burgId));
 }
 function showFlavorPanel(burgId, title, lines, extraHTML){
   const b = graph.burgs[burgId];

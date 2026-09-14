@@ -63,6 +63,9 @@ these:
 Tree icon sizes, rotation count, and per-cell placement density are constants near the top of
 `render-painterly.js` (`TREE_ICON_SIZES`, `ICON_ROTATIONS`, the `clumpCount`/`CLUMP_RADIUS` in
 `buildSVG`), not CLI flags — tune those directly if a re-render needs denser/sparser forests.
+Conifer trees pool multiple shape files the same way mountains do (`listConiferSpritePaths()`
+auto-detects any `tree-conifer*.png`, each placement rolls a random shape via `pickShapeVariant`);
+deciduous only ever had the one good shape, so it stays a single fixed path.
 
 Mountains don't place discrete icons at all (an earlier version did — per-cell count, then real
 minimum-distance/Poisson-disc thinning; see roadmap.md for the several rounds that took and why it
@@ -111,7 +114,9 @@ there directly. See [../../context/roadmap.md](../../context/roadmap.md)'s "Worl
 painterly render" section for how these were generated (a companion "Terrain Prompt Forge" Claude
 Artifact holds the actual generation prompts) and processed:
 - **Icons** (trees, mountains): magenta chroma-key de-fringing, hard-cut to real alpha rather than
-  soft antialiasing.
+  soft antialiasing. One conifer regeneration came back on a non-magenta background despite the
+  prompt — keyed out fine anyway by sampling that image's own corner pixel as the background color
+  instead of assuming `#ff00ff`.
 - **Land grain**: came back as an opaque JPEG with a literal checkerboard graphic instead of a
   real alpha channel — recovered by classifying near-neutral pixels as background.
 - **Water**: an obvious repeating pattern once tiled turned out to be a big soft light/dark blob

@@ -35,7 +35,6 @@ const CLOUD_COLOR = "#4a5f6e";
 const SPRITE_DIR = path.join(REPO_ROOT, "assets", "map-sprites");
 const SPRITE_PATHS = {
   treeDeciduous: path.join(SPRITE_DIR, "tree-deciduous.png"),
-  treeConifer: path.join(SPRITE_DIR, "tree-conifer.png"),
   grainTexture: path.join(SPRITE_DIR, "grain-texture.png"),
 };
 // Mountains support several distinct shape files, not just one — a single repeated massif shape
@@ -45,6 +44,17 @@ const SPRITE_PATHS = {
 function listMountainSpritePaths() {
   const files = fs.readdirSync(SPRITE_DIR)
     .filter((f) => /^mountain-peak(-\d+)?\.png$/.test(f))
+    .sort();
+  return files.map((f) => path.join(SPRITE_DIR, f));
+}
+// Same idea for conifer trees — v1's icon (a triangle silhouette) turned out to be a front-view
+// shape wearing a top-down instruction, not a real top-down conifer canopy; the fixed prompt came
+// back as several distinct radiating star/pinwheel shapes, so this pools all of them the same way
+// mountains do rather than picking just one. Deciduous trees only ever had the one good shape, so
+// they stay a single fixed path.
+function listConiferSpritePaths() {
+  const files = fs.readdirSync(SPRITE_DIR)
+    .filter((f) => /^tree-conifer(-\d+)?\.png$/.test(f))
     .sort();
   return files.map((f) => path.join(SPRITE_DIR, f));
 }
@@ -462,7 +472,7 @@ function buildSVG(pack) {
         const mAng = rand() * Math.PI * 2;
         const mRad = rand() * CLUMP_RADIUS;
         const x = clumpX + Math.cos(mAng) * mRad, y = clumpY + Math.sin(mAng) * mRad;
-        treePlacements.push({ x, y, isConifer, sizeRoll: rand(), rotRoll: rand() });
+        treePlacements.push({ x, y, isConifer, shapeRoll: rand(), sizeRoll: rand(), rotRoll: rand() });
       }
     }
   }
@@ -531,6 +541,14 @@ function pickVariant(variantsBySize, sizes, sizeRoll, rotRoll) {
   const size = sizes[Math.min(sizes.length - 1, Math.floor(sizeRoll * sizes.length))];
   const list = variantsBySize[size];
   return list[Math.min(list.length - 1, Math.floor(rotRoll * list.length))];
+}
+
+// For an icon with multiple distinct shape files (conifer trees — see listConiferSpritePaths):
+// `variantsByShape` is one buildIconVariants() result per shape file, and this just picks a shape
+// first, then delegates to the ordinary size/rotation pick above.
+function pickShapeVariant(variantsByShape, sizes, shapeRoll, sizeRoll, rotRoll) {
+  const shape = variantsByShape[Math.min(variantsByShape.length - 1, Math.floor(shapeRoll * variantsByShape.length))];
+  return pickVariant(shape, sizes, sizeRoll, rotRoll);
 }
 
 // Softens just the alpha channel's outer edge of a raw RGBA buffer — used on the finished
@@ -931,9 +949,10 @@ async function main() {
   console.log("Rasterizing crisp coastline layer...");
   const linePng = await sharp(Buffer.from(lineSVG)).png().toBuffer();
 
-  console.log(`Building tree icon variants (${ICON_ROTATIONS} rotations x sizes each)...`);
+  const coniferSpritePaths = listConiferSpritePaths();
+  console.log(`Building tree icon variants (${ICON_ROTATIONS} rotations x sizes each, ${coniferSpritePaths.length} conifer shape(s))...`);
   const treeDeciduousVariants = await buildIconVariants(SPRITE_PATHS.treeDeciduous, TREE_ICON_SIZES);
-  const treeConiferVariants = await buildIconVariants(SPRITE_PATHS.treeConifer, TREE_ICON_SIZES);
+  const treeConiferVariants = await Promise.all(coniferSpritePaths.map((p) => buildIconVariants(p, TREE_ICON_SIZES)));
 
   console.log(`Placing ${treePlacements.length} trees...`);
   // See blitInto's own comment: this decodes the blurred base + river layer to a single raw RGBA
@@ -943,8 +962,9 @@ async function main() {
     .composite([{ input: riverPng, left: 0, top: 0 }])
     .raw().ensureAlpha().toBuffer({ resolveWithObject: true });
   for (const p of treePlacements) {
-    const variants = p.isConifer ? treeConiferVariants : treeDeciduousVariants;
-    const v = pickVariant(variants, TREE_ICON_SIZES, p.sizeRoll, p.rotRoll);
+    const v = p.isConifer
+      ? pickShapeVariant(treeConiferVariants, TREE_ICON_SIZES, p.shapeRoll, p.sizeRoll, p.rotRoll)
+      : pickVariant(treeDeciduousVariants, TREE_ICON_SIZES, p.sizeRoll, p.rotRoll);
     blitInto(canvasData, canvasInfo.width, canvasInfo.height, v.data, v.width, v.height,
       Math.round(p.x * SCALE - v.width / 2), Math.round(p.y * SCALE - v.height / 2));
   }

@@ -325,6 +325,10 @@
   }
   #loc-banner-art{ height:100%; display:flex; align-items:center; justify-content:center; }
   #loc-banner-art svg{ height:72%; width:auto; filter:drop-shadow(0 6px 10px rgba(0,0,0,.5)); }
+  /* Guard House swaps the generic TIER_ART icon for a real interior scene (see GUARDHOUSE_ART) —
+     full-bleed cover instead of a centered icon, same banner slot. */
+  #loc-banner-art.photo{ width:100%; }
+  #loc-banner-art.photo img{ width:100%; height:100%; object-fit:cover; }
   /* A talking character (or several) overlaid on top of the settlement art above — see
      showNotableFigurePanel/showCompanionPanel (one figure, "solo") and buildMercenaryHireHTML
      (several, "lineup"). Reuses each existing full-body art asset as-is, no new art needed:
@@ -1081,6 +1085,9 @@ const CHANGELOG = [
   ]},
   { id:64, date:"2026-09-15", changes:[
     "Every settlement actually sitting on mountain terrain is now Dwarven, reassigned to the nearest Dwarf kingdom — previously a few had ended up Human/Ork/Goblin by coincidence of the original map data."
+  ]},
+  { id:65, date:"2026-09-17", changes:[
+    "The Guard House now shows a real interior scene instead of a generic building icon — one of three, so not every City/Capital's Guard House looks the same."
   ]},
 ];
 
@@ -3759,6 +3766,20 @@ const TIER_ART = {
   </svg>`
 };
 
+// Guard House gets a real interior scene instead of a TIER_ART icon (see #loc-banner-art.photo) —
+// three variants so not every settlement's Guard House looks identical. Picked deterministically
+// per burg (hashSeed, not Math.random) so a given settlement always shows the same one rather
+// than reshuffling on every visit.
+const GUARDHOUSE_ART = [
+  "assets/locations/guardhouse-hall.jpg",
+  "assets/locations/guardhouse-workshop.jpg",
+  "assets/locations/guardhouse-barracks.jpg",
+];
+function getGuardHouseArt(burgId){
+  const idx = Math.floor(seededRandom(hashSeed(`guardhouse_art_${burgId}`)) * GUARDHOUSE_ART.length);
+  return GUARDHOUSE_ART[Math.min(idx, GUARDHOUSE_ART.length - 1)];
+}
+
 const RUMOURS = [
   "A caravan guard swears he saw goblin banners moving along the eastern road.",
   "They say Kragmaw's Hold hasn't stopped burning fires on its walls for a week now.",
@@ -4335,6 +4356,7 @@ function showLocationView(burgId){
   const controller = getController(burgId);
   const controlNote = (controller !== b.race) ? ` · ${RACE_LABEL[controller]}-controlled` : '';
   document.getElementById('loc-sub').textContent = `${TIER_LABEL[b.tier]||b.tier}${controlNote}`;
+  document.getElementById('loc-banner-art').classList.remove('photo');
   document.getElementById('loc-banner-art').innerHTML = TIER_ART[b.tier] || TIER_ART.village;
   document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup');
   document.getElementById('loc-banner-portrait').innerHTML = '';
@@ -4405,6 +4427,9 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
       else if(btn.dataset.action === 'guardhouse'){
         showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId));
+        const artEl = document.getElementById('loc-banner-art');
+        artEl.classList.add('photo');
+        artEl.innerHTML = `<img src="${getGuardHouseArt(burgId)}" alt="Guard House">`;
         wireMercenaryButtons(burgId);
         showMercenaryLineupPortraits();
       }

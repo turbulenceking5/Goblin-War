@@ -1089,6 +1089,9 @@ const CHANGELOG = [
   { id:65, date:"2026-09-17", changes:[
     "The Guard House now shows a real interior scene instead of a generic building icon — one of three, so not every City/Capital's Guard House looks the same."
   ]},
+  { id:66, date:"2026-09-17", changes:[
+    "The Temple now shows a real interior scene instead of a generic building icon too — one of three, same treatment as the Guard House."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3780,6 +3783,18 @@ function getGuardHouseArt(burgId){
   return GUARDHOUSE_ART[Math.min(idx, GUARDHOUSE_ART.length - 1)];
 }
 
+// Same real-photo treatment as GUARDHOUSE_ART above, now for Temple — three variants, picked
+// deterministically per burg so a given settlement's Temple always shows the same one.
+const TEMPLE_ART = [
+  "assets/locations/temple-nave.jpg",
+  "assets/locations/temple-candlelit.jpg",
+  "assets/locations/temple-sanctuary.jpg",
+];
+function getTempleArt(burgId){
+  const idx = Math.floor(seededRandom(hashSeed(`temple_art_${burgId}`)) * TEMPLE_ART.length);
+  return TEMPLE_ART[Math.min(idx, TEMPLE_ART.length - 1)];
+}
+
 const RUMOURS = [
   "A caravan guard swears he saw goblin banners moving along the eastern road.",
   "They say Kragmaw's Hold hasn't stopped burning fires on its walls for a week now.",
@@ -4424,7 +4439,12 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'blacksmith') showBlacksmithPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
-      else if(btn.dataset.action === 'temple') showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
+      else if(btn.dataset.action === 'temple'){
+        showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
+        const artEl = document.getElementById('loc-banner-art');
+        artEl.classList.add('photo');
+        artEl.innerHTML = `<img src="${getTempleArt(burgId)}" alt="Temple">`;
+      }
       else if(btn.dataset.action === 'guardhouse'){
         showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId));
         const artEl = document.getElementById('loc-banner-art');

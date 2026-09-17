@@ -66,34 +66,46 @@ Stamina is scoped only to combat — see "Stamina: a combat-only resource" below
 
 `goblinwar_equipped` is a flat `{slot: itemName}` map, one entry per slot in `EQUIP_SLOTS` — 14 entries total: the original 6 (`head`, `chest`, `legs`, `weapon`, `shield`, `trinket`) plus the 8 Accessories slots (`ring_left`, `ring_right`, `amulet`, `cloak`, `belt`, `bracers`, `earring`, `charm`), all one flat array — duplicated as a constant in index.html, character.html, and inventory.html. It only ever points at an item already in `playerInventory` by name; equipping doesn't move, duplicate, or remove anything from the inventory array, so an equipped item's weight and quantity are unaffected and it still shows up as a normal row in inventory.html.
 
-Which items are equippable, and what they do, lives on `MARKET_ITEMS` in index.html — an item with a `slot` field is equippable, and its `dmg`/`def` fields (default `0`) are the combat bonus while equipped (see [combat.md](combat.md)):
+Which items are equippable, and what they do, lives on `MARKET_ITEMS` in index.html — an item with a `slot` field is equippable, and its `dmg`/`def` fields (default `0`) are the combat bonus while equipped (see [combat.md](combat.md)). The original 6 Equipment slots each now come in a 4-tier quality ladder — **Bronze → Iron → Steel → Mithril**, cheapest/weakest to rarest/strongest — replacing the old flat one-item-per-slot design and its separate Blacksmith "masterwork" line:
 
-| Item | Slot | Bonus |
-|---|---|---|
-| Sword | weapon | +4 damage dealt |
-| Shield | shield | -3 damage taken |
-| Leather Cap | head | -1 damage taken |
-| Leather Armour | chest | -2 damage taken |
-| Leather Boots | legs | -1 damage taken |
-| Lucky Charm | trinket | +1 damage dealt |
-| Ring of Vigor | ring_left | +1 damage dealt |
-| Band of Warding | ring_right | -1 damage taken |
-| Amulet of the Wilds | amulet | -2 damage taken |
-| Clasp of the Wayfarer | cloak | -1 damage taken |
-| Warbelt | belt | +2 damage dealt |
-| Iron Bracers | bracers | -1 damage taken |
-| Silver Earring | earring | +1 damage dealt |
-| Sigil Charm | charm | +1 damage dealt |
-| Masterwork Sword | weapon | +8 damage dealt |
-| Reinforced Shield | shield | -6 damage taken |
-| Steel Helm | head | -3 damage taken |
-| Plate Armour | chest | -5 damage taken |
-| Steel Greaves | legs | -3 damage taken |
-| Warrior's Talisman | trinket | +3 damage dealt |
+| Item | Slot | Bonus | Where sold |
+|---|---|---|---|
+| Bronze Sword | weapon | +2 damage dealt | Marketplace |
+| Iron Sword | weapon | +4 damage dealt | Marketplace |
+| Steel Sword | weapon | +8 damage dealt | Blacksmith (City/Capital) |
+| Mithril Sword | weapon | +14 damage dealt | Blacksmith (Capital only) |
+| Bronze Shield | shield | -1 damage taken | Marketplace |
+| Iron Shield | shield | -3 damage taken | Marketplace |
+| Steel Shield | shield | -6 damage taken | Blacksmith (City/Capital) |
+| Mithril Shield | shield | -10 damage taken | Blacksmith (Capital only) |
+| Bronze Helm | head | -1 damage taken | Marketplace |
+| Iron Helm | head | -2 damage taken | Marketplace |
+| Steel Helm | head | -4 damage taken | Blacksmith (City/Capital) |
+| Mithril Helm | head | -7 damage taken | Blacksmith (Capital only) |
+| Bronze Chestplate | chest | -1 damage taken | Marketplace |
+| Iron Chestplate | chest | -2 damage taken | Marketplace |
+| Steel Chestplate | chest | -5 damage taken | Blacksmith (City/Capital) |
+| Mithril Chestplate | chest | -8 damage taken | Blacksmith (Capital only) |
+| Bronze Greaves | legs | -1 damage taken | Marketplace |
+| Iron Greaves | legs | -2 damage taken | Marketplace |
+| Steel Greaves | legs | -4 damage taken | Blacksmith (City/Capital) |
+| Mithril Greaves | legs | -7 damage taken | Blacksmith (Capital only) |
+| Bronze Charm | trinket | +1 damage dealt | Marketplace |
+| Iron Charm | trinket | +2 damage dealt | Marketplace |
+| Steel Charm | trinket | +4 damage dealt | Blacksmith (City/Capital) |
+| Mithril Charm | trinket | +7 damage dealt | Blacksmith (Capital only) |
+| Ring of Vigor | ring_left | +1 damage dealt | Marketplace |
+| Band of Warding | ring_right | -1 damage taken | Marketplace |
+| Amulet of the Wilds | amulet | -2 damage taken | Marketplace |
+| Clasp of the Wayfarer | cloak | -1 damage taken | Marketplace |
+| Warbelt | belt | +2 damage dealt | Marketplace |
+| Iron Bracers | bracers | -1 damage taken | Marketplace |
+| Silver Earring | earring | +1 damage dealt | Marketplace |
+| Sigil Charm | charm | +1 damage dealt | Marketplace |
 
-The last 6 rows are Blacksmith-exclusive (`mi.shop === 'blacksmith'`, see [locations-and-camp.md](locations-and-camp.md)'s "The Blacksmith") — a masterwork tier-2 counterpart to each of the original 6 Equipment slots, sold only there and never at the Marketplace, roughly double the bonus at roughly triple the price.
+Iron and Steel carry over the old flat/masterwork tiers' real stats unchanged, just renamed to fit the ladder (Sword→Iron Sword, Masterwork Sword→Steel Sword, etc.); Bronze and Mithril are new. Every tier tagged `shop:"blacksmith"` (Steel and Mithril) is sold only at the Blacksmith, never the Marketplace — same as the old masterwork line — but `showBlacksmithPanel` now also filters `mi.tier === 'mithril'` items out entirely unless the settlement is a Capital (`b.tier === 'capital'`), so Mithril gear is rarer to find than Steel, not just pricier. This closes the "no rarity/tier variation" gap [roadmap.md](roadmap.md)'s Equipment section used to flag. `rollLoot`'s `LOOT_TABLES` (see [combat.md](combat.md)) reference the renamed items by their exact same-stat tier equivalent (e.g. the old `"Sword"` drop is now `"Iron Sword"`, same +4 bonus), so loot power is unchanged.
 
-index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARKET_ITEMS` once at load; character.html and inventory.html each hardcode their own copy of the same table (no way to equip a *new* item type without also adding it there — three places, not one, per the no-modules convention — the Blacksmith items above needed all three updated too, not just index.html's `MARKET_ITEMS`). `getEquipDamageBonus()`/`getEquipDefenseBonus()` (index.html) sum every equipped slot's `dmg`/`def`, all 14 of them — see [combat.md](combat.md) for where they're applied.
+index.html derives a `name -> {slot, dmg, def}` lookup (`ITEM_STATS`) from `MARKET_ITEMS` once at load; character.html and inventory.html each hardcode their own copy of the same table (no way to equip a *new* item type without also adding it there — three places, not one, per the no-modules convention — the tier rework above needed all three updated too, not just index.html's `MARKET_ITEMS`). `getEquipDamageBonus()`/`getEquipDefenseBonus()` (index.html) sum every equipped slot's `dmg`/`def`, all 14 of them — see [combat.md](combat.md) for where they're applied.
 
 **Where equipping happens:** inventory.html is the only place to *equip* something — every equippable item row gets an Equip/Unequip button that toggles `goblinwar_equipped[slot]` between that item's name and `null`. Its own `#equip-grid` shows all 14 slots in one grid (relabeled "Equipment & Accessories") since the page never visually split them. character.html's Equipment grid is read-only for equipping but supports *un*-equipping by tapping a filled slot (both pages re-render immediately after any change, no reload needed — see [secondary-pages.md](secondary-pages.md)); character.html alone keeps the visual 3×2 Equipment / 4×2 Accessories split, rendering both off the same shared `renderSlotGrid(gridId, slots)` helper against two different slices of `EQUIP_SLOTS`.
 

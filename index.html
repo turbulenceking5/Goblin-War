@@ -1095,6 +1095,9 @@ const CHANGELOG = [
   { id:67, date:"2026-09-17", changes:[
     "Ambushes on the road now show a real forest scene behind the fight instead of a flat background — one of three, picked fresh each encounter."
   ]},
+  { id:68, date:"2026-09-17", changes:[
+    "Equipment now comes in four quality tiers — Bronze, Iron, Steel, and Mithril — for every Sword, Shield, Helm, Chestplate, Greaves, and Charm. Bronze and Iron sell at the Marketplace; Steel at any City or Capital Blacksmith; Mithril only at a Capital Blacksmith."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1854,12 +1857,36 @@ const DEFAULT_INVENTORY = [
 // long enough game, rather than an ongoing cost like Food/Waterskin.
 const MARKET_ITEMS = [
   { name:FOOD_NAME, price:FOOD_PRICE, weight:FOOD_WEIGHT, desc:"Automatically eaten to stave off hunger while you travel" },
-  { name:"Sword", price:20, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4 },
-  { name:"Shield", price:25, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3 },
-  { name:"Leather Cap", price:8, weight:1, desc:"Simple boiled-leather headgear", slot:"head", def:1 },
-  { name:"Leather Armour", price:15, weight:4, desc:"A padded leather jerkin", slot:"chest", def:2 },
-  { name:"Leather Boots", price:6, weight:2, desc:"Sturdy travelling boots", slot:"legs", def:1 },
-  { name:"Lucky Charm", price:10, weight:0, desc:"Said to favour the wearer in a fight", slot:"trinket", dmg:1 },
+  // Equipment quality ladder — Bronze/Iron at the Marketplace, Steel at any City/Capital
+  // Blacksmith, Mithril at a Capital Blacksmith only (see showBlacksmithPanel's tier gate).
+  // Bronze and Mithril are new tiers below/above the original flat Sword/Shield/etc. and the
+  // old Blacksmith masterwork line respectively; Iron and Steel carry over those two tiers'
+  // real stats unchanged, just renamed to fit the ladder. Closes the "no rarity/tier variation"
+  // gap roadmap.md's Equipment section used to flag. See context/player-state.md.
+  { name:"Bronze Sword", price:8, weight:4, desc:"A crude blade, quickly forged", slot:"weapon", dmg:2, tier:"bronze" },
+  { name:"Iron Sword", price:15, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4, tier:"iron" },
+  { name:"Steel Sword", price:45, weight:6, desc:"A finely balanced blade, honed by a master smith", slot:"weapon", dmg:8, shop:"blacksmith", tier:"steel" },
+  { name:"Mithril Sword", price:130, weight:3, desc:"Deep-mined ore, said to never dull", slot:"weapon", dmg:14, shop:"blacksmith", tier:"mithril" },
+  { name:"Bronze Shield", price:8, weight:7, desc:"A dented disc of hammered bronze", slot:"shield", def:1, tier:"bronze" },
+  { name:"Iron Shield", price:15, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3, tier:"iron" },
+  { name:"Steel Shield", price:45, weight:9, desc:"Forged steel, built to turn a heavier blow", slot:"shield", def:6, shop:"blacksmith", tier:"steel" },
+  { name:"Mithril Shield", price:130, weight:4, desc:"Impossibly light, said to turn any blade", slot:"shield", def:10, shop:"blacksmith", tier:"mithril" },
+  { name:"Bronze Helm", price:6, weight:1, desc:"A hammered bronze skullcap", slot:"head", def:1, tier:"bronze" },
+  { name:"Iron Helm", price:12, weight:1, desc:"Plain but sturdy headgear", slot:"head", def:2, tier:"iron" },
+  { name:"Steel Helm", price:35, weight:2, desc:"A proper smith-forged helm", slot:"head", def:4, shop:"blacksmith", tier:"steel" },
+  { name:"Mithril Helm", price:100, weight:1, desc:"Impossibly light, finely engraved", slot:"head", def:7, shop:"blacksmith", tier:"mithril" },
+  { name:"Bronze Chestplate", price:10, weight:4, desc:"Bronze scraps stitched over worn leather", slot:"chest", def:1, tier:"bronze" },
+  { name:"Iron Chestplate", price:15, weight:4, desc:"A padded, iron-banded jerkin", slot:"chest", def:2, tier:"iron" },
+  { name:"Steel Chestplate", price:45, weight:7, desc:"Fitted steel plate over a mail shirt", slot:"chest", def:5, shop:"blacksmith", tier:"steel" },
+  { name:"Mithril Chestplate", price:130, weight:3, desc:"Impossibly light plate, finely engraved", slot:"chest", def:8, shop:"blacksmith", tier:"mithril" },
+  { name:"Bronze Greaves", price:6, weight:2, desc:"Bronze-shod travelling boots", slot:"legs", def:1, tier:"bronze" },
+  { name:"Iron Greaves", price:12, weight:2, desc:"Sturdy travelling boots", slot:"legs", def:2, tier:"iron" },
+  { name:"Steel Greaves", price:35, weight:4, desc:"Articulated steel leg guards", slot:"legs", def:4, shop:"blacksmith", tier:"steel" },
+  { name:"Mithril Greaves", price:100, weight:2, desc:"Impossibly light, finely engraved plate", slot:"legs", def:7, shop:"blacksmith", tier:"mithril" },
+  { name:"Bronze Charm", price:8, weight:0, desc:"A stamped bronze coin on a frayed cord", slot:"trinket", dmg:1, tier:"bronze" },
+  { name:"Iron Charm", price:15, weight:0, desc:"Said to favour the wearer in a fight", slot:"trinket", dmg:2, tier:"iron" },
+  { name:"Steel Charm", price:40, weight:0, desc:"Forge-blessed, said to steel the wearer's nerve", slot:"trinket", dmg:4, shop:"blacksmith", tier:"steel" },
+  { name:"Mithril Charm", price:110, weight:0, desc:"Said to ward off the worst luck a road can offer", slot:"trinket", dmg:7, shop:"blacksmith", tier:"mithril" },
   // The 8 Accessories slots (character.html) — same equip pattern as the gear above, just a
   // second tier of smaller bonuses so the grid stops being pure decoration. See roadmap.md.
   { name:"Ring of Vigor", price:12, weight:0, desc:"A simple band said to steady the striking arm", slot:"ring_left", dmg:1 },
@@ -1876,19 +1903,6 @@ const MARKET_ITEMS = [
   { name:"Waterskin", price:8, weight:2, desc:"Automatically drunk to stave off thirst while you travel" },
   { name:"Bedroll", price:45, weight:3, desc:"Quality bedding — safer camping, and a little extra rest" },
   { name:"Horse", price:80, weight:0, desc:"A sturdy mount — speeds up overland road travel" },
-  // Blacksmith-exclusive tier-2 gear (see showBlacksmithPanel) — a masterwork counterpart to
-  // each of the 6 core Equipment slots above, roughly double the bonus at roughly triple the
-  // price. Tagged shop:'blacksmith' so showMarketPanel excludes them and showBlacksmithPanel
-  // shows only them; everything else about buying/selling/equipping is the exact same
-  // MARKET_ITEMS/ITEM_STATS/EQUIP_SLOTS machinery, no special-casing needed. This is the
-  // "no rarity/tier variation" gap from the Equipment section of roadmap.md's first real fix —
-  // a second fixed tier via a second item name, not a per-instance upgrade system.
-  { name:"Masterwork Sword", price:70, weight:6, desc:"A finely balanced blade, honed by a master smith", slot:"weapon", dmg:8, shop:"blacksmith" },
-  { name:"Reinforced Shield", price:75, weight:9, desc:"Iron-banded oak, built to turn a heavier blow", slot:"shield", def:6, shop:"blacksmith" },
-  { name:"Steel Helm", price:40, weight:2, desc:"A proper smith-forged helm", slot:"head", def:3, shop:"blacksmith" },
-  { name:"Plate Armour", price:65, weight:7, desc:"Fitted steel plate over a mail shirt", slot:"chest", def:5, shop:"blacksmith" },
-  { name:"Steel Greaves", price:35, weight:4, desc:"Articulated steel leg guards", slot:"legs", def:3, shop:"blacksmith" },
-  { name:"Warrior's Talisman", price:45, weight:0, desc:"Forge-blessed, said to steel the wearer's nerve", slot:"trinket", dmg:3, shop:"blacksmith" },
 ];
 // name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
 const ITEM_STATS = {};
@@ -2154,10 +2168,14 @@ const ENEMY_VARIANTS = {
 // which single item. Items are referenced by name from MARKET_ITEMS above rather than
 // duplicating weight/price here — addItem() reads those straight off that entry.
 const LOOT_CHANCE = 0.25; // per enemy, not per fight — a 3-enemy raid gets more rolls, not a bigger one
+// Renamed items below are their exact same-stat tier replacement (see MARKET_ITEMS' quality
+// ladder) — Sword->Iron Sword (dmg4), Shield->Iron Shield (def3), Leather Cap->Bronze Helm
+// (def1), Leather Armour->Iron Chestplate (def2), Leather Boots->Bronze Greaves (def1),
+// Lucky Charm->Bronze Charm (dmg1) — so loot power is unchanged, only the names are.
 const LOOT_TABLES = {
-  bandit: [ { name:"Healing Potion", weight:5 }, { name:"Books", weight:2 }, { name:"Lucky Charm", weight:1 } ],
-  goblin: [ { name:"Healing Potion", weight:5 }, { name:"Leather Cap", weight:2 }, { name:"Leather Boots", weight:2 }, { name:"Sword", weight:1 } ],
-  ork:    [ { name:"Healing Potion", weight:4 }, { name:"Leather Armour", weight:2 }, { name:"Shield", weight:2 }, { name:"Sword", weight:2 }, { name:"Lucky Charm", weight:1 } ],
+  bandit: [ { name:"Healing Potion", weight:5 }, { name:"Books", weight:2 }, { name:"Bronze Charm", weight:1 } ],
+  goblin: [ { name:"Healing Potion", weight:5 }, { name:"Bronze Helm", weight:2 }, { name:"Bronze Greaves", weight:2 }, { name:"Iron Sword", weight:1 } ],
+  ork:    [ { name:"Healing Potion", weight:4 }, { name:"Iron Chestplate", weight:2 }, { name:"Iron Shield", weight:2 }, { name:"Iron Sword", weight:2 }, { name:"Bronze Charm", weight:1 } ],
 };
 // Returns a MARKET_ITEMS entry, or null if this enemy drops nothing.
 function rollLoot(race){
@@ -5519,7 +5537,14 @@ function showMarketPanel(burgId){
 function showBlacksmithPanel(burgId){
   const b = graph.burgs[burgId];
   const list = document.getElementById('loc-action-list');
-  const blacksmithIndices = MARKET_ITEMS.map((mi,i)=>i).filter(i => MARKET_ITEMS[i].shop === 'blacksmith');
+  // Mithril is Capital-only — the rarest, most expensive tier, reserved for the biggest forges.
+  // Steel (and everything else tagged shop:'blacksmith') stays available at any City/Capital.
+  const blacksmithIndices = MARKET_ITEMS.map((mi,i)=>i).filter(i => {
+    const item = MARKET_ITEMS[i];
+    if(item.shop !== 'blacksmith') return false;
+    if(item.tier === 'mithril' && b.tier !== 'capital') return false;
+    return true;
+  });
   const MAX_SLIDER_QTY = 30;
 
   function render(){
@@ -5560,6 +5585,7 @@ function showBlacksmithPanel(burgId){
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Gold</span><b>${playerGold}</b></div>
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${getCarryCapacity()}</b></div>
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
+        ${b.tier !== 'capital' ? '<div style="margin-top:4px; font-size:11.5px; color:#a9926a;">The rarest mithril work is only forged in a Capital</div>' : ''}
       </div>
       ${itemRows}
     `;

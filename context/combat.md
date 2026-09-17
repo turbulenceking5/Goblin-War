@@ -4,7 +4,7 @@ A minimal turn-based fight system with three enemy races — Bandit, Goblin, and
 
 ## Starting a fight
 
-`startCombat(enemySpecs, playerDmgRange, onEnd, race)` is the low-level entry point everything else wraps. `enemySpecs` is an array of `{name, hp, dmgRange, goldRange, xpRange, art}` — one entry per enemy in the fight. `combat` (the single module-level fight-state object — the game only ever supports one fight at a time, no queue or nesting) becomes:
+`startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop)` is the low-level entry point everything else wraps. `enemySpecs` is an array of `{name, hp, dmgRange, goldRange, xpRange, art}` — one entry per enemy in the fight. `backdrop` is an optional image path passed straight to `setCombatBackdrop` (see "Environment backdrop" below) — omitted or null for any combat context with no real environment art yet. `combat` (the single module-level fight-state object — the game only ever supports one fight at a time, no queue or nesting) becomes:
 ```js
 {
   enemies: [{name, hp, maxHp, dmgRange, goldRange, xpRange, art}, ...], // one per enemy, hp mutates as the fight goes
@@ -14,13 +14,19 @@ A minimal turn-based fight system with three enemy races — Bandit, Goblin, and
 ```
 Each enemy's `dmgRange` is copied (`.slice()`) off its `ENEMY_VARIANTS` entry rather than shared by reference, since War Cry (see "Turn loop" below) mutates it in place per-enemy.
 
-- `triggerEnemyFight(race, onEnd)` — picks 1-3 random entries from `ENEMY_VARIANTS[race]` (see below) and starts a fight with them. Bandit ambushes are always solo; Goblin/Ork raiding-party ambushes are 2-3 enemies (see "Multi-enemy encounters" below).
-- `triggerAmbushFight(burgId, onEnd, context)` — the one the two ambush call sites below actually use. Picks which race ambushes (`pickAmbushEnemy`, see "Which race shows up" below), shows a toast worded for `context` (`'road'` vs `'camp'`), and calls `triggerEnemyFight`.
+- `triggerEnemyFight(race, onEnd, backdrop)` — picks 1-3 random entries from `ENEMY_VARIANTS[race]` (see below) and starts a fight with them. Bandit ambushes are always solo; Goblin/Ork raiding-party ambushes are 2-3 enemies (see "Multi-enemy encounters" below).
+- `triggerAmbushFight(burgId, onEnd, context)` — the one the two ambush call sites below actually use. Picks which race ambushes (`pickAmbushEnemy`, see "Which race shows up" below), shows a toast worded for `context` (`'road'` vs `'camp'`), picks a backdrop (see "Environment backdrop" below), and calls `triggerEnemyFight`.
 - `triggerSiegeDefenseFight(burgId, onEnd)` (see [factions-and-territory.md](factions-and-territory.md)'s "Player involvement") — a non-ambush call site, "Defend the Walls" at a besieged settlement. It calls `startCombat` directly rather than going through `triggerEnemyFight`/`pickAmbushEnemy` (siege attackers are always 2-3 of the attacking kingdom's own race, never a Bandit), then overwrites `startCombat`'s own ambush-flavored `#combat-title`/`#combat-log` strings with siege-appropriate text right after the call — proof `startCombat` itself has no ambush-specific coupling beyond those two hardcoded strings.
 
 `PLAYER_DMG_RANGE` (`[8,15]`) is a single shared constant — the player's own weapon damage never changes based on who they're fighting; only the *enemy's* side (`dmgRange`, `hp`, `goldRange`) scales with difficulty. (Earlier code had this backwards — two hardcoded fight-starting calls passed their difficulty numbers into the *player's* damage slot instead of the enemy's, so fighting an Ork Raider let the player hit harder than fighting a Bandit while the enemy's own damage output stayed flat. Fixed when `ENEMY_VARIANTS` was introduced.)
 
 Each enemy's own `goldRange`/`xpRange` is what `endCombat` sums from on victory (see "Ending a fight" below) — so a harder fight (bigger enemies, or more of them) visibly looks harder and pays out more.
+
+## Environment backdrop
+
+`#combat-view` can show a real photo behind the enemy portraits instead of its plain stylesheet radial-gradient — see the Scene Backdrops tracker's "biome"/"context" categories for the full planned set (Forest/Plains/Hills/.../Night Camp/Under Siege). `setCombatBackdrop(url)` paints it: `url` (or null to clear) becomes part of `#combat-view`'s own inline `background` — a `linear-gradient` darkening layer stacked with the photo in one `background-image` value, rather than a separate DOM element, specifically so it paints behind the header/stage/actions without any z-index bookkeeping (a positioned overlay element would paint *above* those static-positioned siblings per normal stacking order, not behind). Called once per `startCombat`, so it's reset (to whatever the new fight passes, including null) every time a fight starts — there's no separate "clear on combat end" step.
+
+Full biome-aware selection is unbuilt — `travel-graph.json` carries no biome/terrain data yet (see [roadmap.md](roadmap.md)), so nothing can know a given ambush is happening in a forest versus a desert versus open plains. `FOREST_ART` (three images under `assets/biomes/`) is the only biome art that exists so far, and `getForestBackdrop()` (plain `Math.random()` pick — no persistent identity to stay consistent across, unlike a settlement's `GUARDHOUSE_ART`/`TEMPLE_ART`) stands in for `triggerAmbushFight`'s plain `'road'` context until that plumbing exists; the `'camp'` context still starts every fight with no backdrop (`null`), since Night Camp is its own separate, still-unbuilt Scene Backdrops entry rather than a fallback for every other missing biome. `triggerSiegeDefenseFight` doesn't pass a `backdrop` argument at all yet, so it's also backdrop-less (`undefined` is as falsy as `null` to `setCombatBackdrop`).
 
 ## Multi-enemy encounters
 

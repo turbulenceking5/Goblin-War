@@ -1092,6 +1092,9 @@ const CHANGELOG = [
   { id:66, date:"2026-09-17", changes:[
     "The Temple now shows a real interior scene instead of a generic building icon too — one of three, same treatment as the Guard House."
   ]},
+  { id:67, date:"2026-09-17", changes:[
+    "Ambushes on the road now show a real forest scene behind the fight instead of a flat background — one of three, picked fresh each encounter."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -2184,9 +2187,42 @@ const COMBAT_INTRO_LINES = [
   "Whatever comes next, you'll face it standing.",
   "One breath in, one breath out. Then the world turns to violence.",
 ];
+// Real environment art behind the enemy portraits — see the Scene Backdrops tracker's "biome"
+// category. Full biome-aware selection is still unbuilt (travel-graph.json carries no biome
+// data yet — see roadmap.md's combat backdrop note), so Forest is the only one wired up so
+// far, standing in for the plain on-the-road ambush (see triggerAmbushFight) until that
+// plumbing exists. Picked fresh each fight (Math.random(), not seeded) since a fight has no
+// persistent identity to stay consistent across, unlike a settlement's GUARDHOUSE_ART/TEMPLE_ART.
+const FOREST_ART = [
+  "assets/biomes/forest-canopy.jpg",
+  "assets/biomes/forest-deadwood.jpg",
+  "assets/biomes/forest-birch.jpg",
+];
+function getForestBackdrop(){
+  return FOREST_ART[Math.floor(Math.random() * FOREST_ART.length)];
+}
+// Paints (or clears) a real photo behind #combat-view's own content — combined with a
+// darkening gradient in the same `background` value so the enemy portraits, bars, and log
+// text on top stay legible regardless of how bright the source art is. Cleared back to the
+// stylesheet's plain radial-gradient by passing null, same "reset by the next screen that
+// draws" convention #loc-banner-art's own reset uses.
+function setCombatBackdrop(url){
+  const el = document.getElementById('combat-view');
+  if(url){
+    el.style.backgroundImage = `linear-gradient(rgba(15,8,8,.55), rgba(10,5,5,.82)), url("${url}")`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+  } else {
+    el.style.backgroundImage = '';
+    el.style.backgroundSize = '';
+    el.style.backgroundPosition = '';
+  }
+}
 // enemySpecs: array of {name, hp, dmgRange, goldRange, xpRange, art} — 1 entry for a Bandit
-// ambush, 2-3 for a Goblin/Ork raiding party (see triggerEnemyFight below).
-function startCombat(enemySpecs, playerDmgRange, onEnd, race){
+// ambush, 2-3 for a Goblin/Ork raiding party (see triggerEnemyFight below). backdrop is an
+// optional image path from setCombatBackdrop's callers (see triggerAmbushFight) — null/undefined
+// for any combat context with no real environment art yet (sieges, camp).
+function startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop){
   combat = {
     enemies: enemySpecs.map(s => ({
       name: s.name, hp: s.hp, maxHp: s.hp, dmgRange: s.enemyDmgRange.slice(),
@@ -2205,6 +2241,7 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race){
   document.getElementById('combat-log').innerHTML = `<div class="combat-intro-line">${intro}</div><div>${blocksLine}</div>`;
   document.getElementById('combat-specials-panel').classList.remove('show');
   document.getElementById('combat-special-btn').classList.remove('active');
+  setCombatBackdrop(backdrop);
   updateCombatUI();
   document.getElementById('combat-view').classList.add('show');
 }
@@ -2650,12 +2687,12 @@ const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed reg
 // ambushes stay solo (the documented "easiest fight in the game"); Goblin/Ork raiding-party
 // ambushes spawn 2-3 enemies, each an independently-rolled variant (repeats allowed), matching
 // triggerAmbushFight's plural "raiders" flavor text below.
-function triggerEnemyFight(race, onEnd){
+function triggerEnemyFight(race, onEnd, backdrop){
   const variants = ENEMY_VARIANTS[race] || ENEMY_VARIANTS.bandit;
   const count = race === 'bandit' ? 1 : (2 + Math.floor(Math.random()*2)); // 2 or 3
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
-  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), race);
+  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), race, backdrop);
 }
 const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
 // Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement
@@ -2674,7 +2711,11 @@ function triggerAmbushFight(burgId, onEnd, context){
   const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
   const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? 'Ork raiders' : 'Goblin raiders');
   showToast(`${label} ${scene}!`);
-  triggerEnemyFight(enemy, onEnd);
+  // Forest stands in for the generic on-the-road ambush until real biome-aware backdrops are
+  // built (see FOREST_ART above) — a camp ambush stays backdrop-less for now (Night Camp's own
+  // art is a separate, still-unbuilt Scene Backdrops entry).
+  const backdrop = context === 'camp' ? null : getForestBackdrop();
+  triggerEnemyFight(enemy, onEnd, backdrop);
 }
 
 // ===================== TRAVEL GRAPH =====================

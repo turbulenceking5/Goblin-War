@@ -384,6 +384,9 @@
   }
   .buy-row .btn{ flex:none; padding:10px 16px; }
   .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--parchment); }
+  /* Real per-item art (Marketplace/Blacksmith rows only — most MARKET_ITEMS entries still fall
+     back to the generic SVG above until they have generated art of their own, see Item Forge). */
+  .loc-action .li-icon.li-icon-img{ object-fit:cover; border-radius:5px; border:1px solid rgba(209,164,69,.35); }
   .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--parchment); }
   .loc-action .li-text span{ font-size:12.5px; color:#a9926a; }
 
@@ -1097,6 +1100,9 @@ const CHANGELOG = [
   ]},
   { id:68, date:"2026-09-17", changes:[
     "Equipment now comes in four quality tiers — Bronze, Iron, Steel, and Mithril — for every Sword, Shield, Helm, Chestplate, Greaves, and Charm. Bronze and Iron sell at the Marketplace; Steel at any City or Capital Blacksmith; Mithril only at a Capital Blacksmith."
+  ]},
+  { id:69, date:"2026-09-17", changes:[
+    "The Marketplace, Blacksmith, and your Bag now show real art for some weapons and shields instead of a generic icon — every Sword tier, and Bronze/Iron/Steel Shields."
   ]},
 ];
 
@@ -1863,13 +1869,13 @@ const MARKET_ITEMS = [
   // old Blacksmith masterwork line respectively; Iron and Steel carry over those two tiers'
   // real stats unchanged, just renamed to fit the ladder. Closes the "no rarity/tier variation"
   // gap roadmap.md's Equipment section used to flag. See context/player-state.md.
-  { name:"Bronze Sword", price:8, weight:4, desc:"A crude blade, quickly forged", slot:"weapon", dmg:2, tier:"bronze" },
-  { name:"Iron Sword", price:15, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4, tier:"iron" },
-  { name:"Steel Sword", price:45, weight:6, desc:"A finely balanced blade, honed by a master smith", slot:"weapon", dmg:8, shop:"blacksmith", tier:"steel" },
-  { name:"Mithril Sword", price:130, weight:3, desc:"Deep-mined ore, said to never dull", slot:"weapon", dmg:14, shop:"blacksmith", tier:"mithril" },
-  { name:"Bronze Shield", price:8, weight:7, desc:"A dented disc of hammered bronze", slot:"shield", def:1, tier:"bronze" },
-  { name:"Iron Shield", price:15, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3, tier:"iron" },
-  { name:"Steel Shield", price:45, weight:9, desc:"Forged steel, built to turn a heavier blow", slot:"shield", def:6, shop:"blacksmith", tier:"steel" },
+  { name:"Bronze Sword", price:8, weight:4, desc:"A crude blade, quickly forged", slot:"weapon", dmg:2, tier:"bronze", icon:"assets/equipment/bronze-sword.jpg" },
+  { name:"Iron Sword", price:15, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4, tier:"iron", icon:"assets/equipment/iron-sword.jpg" },
+  { name:"Steel Sword", price:45, weight:6, desc:"A finely balanced blade, honed by a master smith", slot:"weapon", dmg:8, shop:"blacksmith", tier:"steel", icon:"assets/equipment/steel-sword.jpg" },
+  { name:"Mithril Sword", price:130, weight:3, desc:"Deep-mined ore, said to never dull", slot:"weapon", dmg:14, shop:"blacksmith", tier:"mithril", icon:"assets/equipment/mithril-sword.jpg" },
+  { name:"Bronze Shield", price:8, weight:7, desc:"A dented disc of hammered bronze", slot:"shield", def:1, tier:"bronze", icon:"assets/equipment/bronze-shield.jpg" },
+  { name:"Iron Shield", price:15, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3, tier:"iron", icon:"assets/equipment/iron-shield.jpg" },
+  { name:"Steel Shield", price:45, weight:9, desc:"Forged steel, built to turn a heavier blow", slot:"shield", def:6, shop:"blacksmith", tier:"steel", icon:"assets/equipment/steel-shield.jpg" },
   { name:"Mithril Shield", price:130, weight:4, desc:"Impossibly light, said to turn any blade", slot:"shield", def:10, shop:"blacksmith", tier:"mithril" },
   { name:"Bronze Helm", price:6, weight:1, desc:"A hammered bronze skullcap", slot:"head", def:1, tier:"bronze" },
   { name:"Iron Helm", price:12, weight:1, desc:"Plain but sturdy headgear", slot:"head", def:2, tier:"iron" },
@@ -4454,7 +4460,7 @@ function showLocationView(burgId){
   if(b.tier === 'city' || b.tier === 'capital'){
     actions.push({ icon:`<path d="M12 3l2.5 4.5H20l-4 4 1.5 5.5L12 14l-5.5 3 1.5-5.5-4-4h5.5z"/>`, title:"Temple", desc:"Seek a blessing", action:'temple' });
     actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/>`, title:"Guard House", desc:"Hear how the watch is holding the walls", action:'guardhouse' });
-    actions.push({ icon:`<path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/>`, title:"Blacksmith", desc:"Buy masterwork weapons and armour", action:'blacksmith' });
+    actions.push({ icon:`<path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/>`, title:"Blacksmith", desc:"Buy Steel and Mithril weapons and armour", action:'blacksmith' });
     // Not every City/Capital gets this one — only the handful that are home to a
     // NOTABLE_FIGURES entry, and only while that figure's home hasn't been captured
     // (see getFigureForBurg). Most settlements simply won't show it, same as most
@@ -5447,7 +5453,7 @@ function showMarketPanel(burgId){
       const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
-        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+        ${mi.icon ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>`}
         <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">
@@ -5561,7 +5567,7 @@ function showBlacksmithPanel(burgId){
       const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
-        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>
+        ${mi.icon ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>`}
         <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">

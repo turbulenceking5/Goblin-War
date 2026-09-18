@@ -1124,6 +1124,17 @@ const CHANGELOG = [
   { id:71, date:"2026-09-18", changes:[
     "The blue/gold reskin now covers Skills too: real Perk and Special Attack icons on every skill-tree node, a real Level badge, and a real Unlock button. Also extended the ornate gold panel border to the Bag, Settings, Choose Your Hero, and Log In screens."
   ]},
+  { id:72, date:"2026-09-18", changes:[
+    "Equipped gear now wears down with combat use — Head, Chest, Legs, Weapon, Shield, and Trinket lose a little effectiveness after every fight, shown as a durability percentage on the Hero sheet and in your Bag.",
+    "Added Repair Gear to the Blacksmith — pay gold to restore any worn item back to full."
+  ]},
+  { id:73, date:"2026-09-18", changes:[
+    "Companion loyalty and kingdom reputation changes now show right in the toast when they happen (quest turn-ins, Palace actions, Aid the Refugees, Raid a Village, Defend the Walls, roadside events) instead of only being visible later on Party or a Guard House visit."
+  ]},
+  { id:74, date:"2026-09-18", changes:[
+    "Settlements at peace now regrow population week to week instead of only ever shrinking — Ork/Goblin territory regrows noticeably faster than Human/Dwarf territory.",
+    "In trade for that, rank-and-file Goblin and Ork raiders hit a little softer and go down a little faster. Chieftains, Warlords, and Shamans are untouched."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1403,6 +1414,16 @@ const REFUGEE_DEATH_SHARE = 0.4;    // of population lost to war, this fraction 
 const REFUGEE_FLEE_SHARE = 0.6;     // ...and this fraction flees to the nearest peaceful settlement
 const REFUGEE_ARRIVAL_WINDOW_DAYS = 7; // how long a settlement counts as "recently received refugees" for the Aid the Refugees action
 const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could field as soldiers
+// Weekly regrowth — the mirror image of WAR_ATTRITION_RATE above, and the first system to
+// actually use the long-tracked "Ork/Goblin multiply faster" race trait (see context/roadmap.md's
+// Character Creation & Race section). Scoped to whoever *currently* controls a settlement, not its
+// original identity — same "control, not identity" convention getArmyStrength already uses, since
+// growth is about who's actually living there now, not its ancestral kingdom. Skipped entirely for
+// a settlement whose current controller is at war this tick, so a kingdom's own attrition/siege
+// losses aren't quietly offset in the same week they happen — regrowth only resumes once that
+// kingdom is back at peace. See applyPopulationGrowth below.
+const POP_GROWTH_RATE_GOOD = 0.01;  // Human/Dwarf, weekly, at peace
+const POP_GROWTH_RATE_BAD  = 0.025; // Ork/Goblin, weekly, at peace — "multiply faster"
 
 function getPopulationOverrides(){
   if(_tickCache) return _tickCache.population;
@@ -1513,6 +1534,21 @@ function applyWarLoss(burgId, rate){
       stampRefugeeArrival(haven.id);
     }
   }
+}
+
+// Weekly regrowth for every settlement currently at peace — see POP_GROWTH_RATE_GOOD/_BAD above
+// for why the rate differs by race. Runs once per tick, over every burg (not scoped to a kingdom
+// pair like the war-declare/attrition passes), called from runFactionAITick.
+function applyPopulationGrowth(){
+  Object.keys(graph.burgs).forEach(id=>{
+    const kingdom = getControllerKingdom(id);
+    if(getWarState(kingdom) === 'war') return;
+    const pop = getPopulation(id);
+    if(pop <= 0) return;
+    const race = getController(id);
+    const rate = ALLIANCE[race] === 'Bad' ? POP_GROWTH_RATE_BAD : POP_GROWTH_RATE_GOOD;
+    setPopulation(id, pop * (1 + rate));
+  });
 }
 
 // Killed enemies count toward their own side's decline — a small, cumulative cost distinct
@@ -1771,8 +1807,11 @@ function runFactionAITick(){
         }
       });
     });
+    // Regrowth, once per settlement — the mirror image of the attrition pass just above, not
+    // scoped to kingdom pairs since it isn't about who's fighting whom, just who's currently safe.
+    applyPopulationGrowth();
     // Troops payoff of per-kingdom reputation (see context/factions-and-territory.md's "Per-kingdom
-    // reputation") — a third, independent pass: a kingdom that trusts the player enough can act on
+    // reputation") — a fourth, independent pass: a kingdom that trusts the player enough can act on
     // its own, reusing the exact same reinforcement math Petition for Troops already triggers
     // (findAllyNeedingReinforcement/setReinforcement/getArmyStrength above), just autonomous rather
     // than player-triggered. Not guaranteed every week (TRUSTED_REINFORCEMENT_CHANCE), same "rolls,
@@ -1930,9 +1969,11 @@ const MARKET_ITEMS = [
   { name:"Bedroll", price:45, weight:3, desc:"Quality bedding — safer camping, and a little extra rest" },
   { name:"Horse", price:80, weight:0, desc:"A sturdy mount — speeds up overland road travel" },
 ];
-// name -> {slot, dmg, def} for every equippable MARKET_ITEMS entry, built once.
+// name -> {slot, dmg, def, tier} for every equippable MARKET_ITEMS entry, built once. `tier`
+// is only present on the 6 core Equipment slots' items (see DURABILITY_SLOTS below) — it drives
+// repair pricing at the Blacksmith.
 const ITEM_STATS = {};
-MARKET_ITEMS.forEach(mi => { if(mi.slot) ITEM_STATS[mi.name] = { slot:mi.slot, dmg:mi.dmg||0, def:mi.def||0 }; });
+MARKET_ITEMS.forEach(mi => { if(mi.slot) ITEM_STATS[mi.name] = { slot:mi.slot, dmg:mi.dmg||0, def:mi.def||0, tier:mi.tier }; });
 // First 6 are the Equipment grid (character.html/inventory.html); the 8 after are Accessories
 // (character.html only) — same goblinwar_equipped map, same combat bonus math, just a second
 // grid on the display side. See roadmap.md.
@@ -1957,7 +1998,7 @@ function getEquipDamageBonus(){
   const eq = getEquipped();
   const base = EQUIP_SLOTS.reduce((sum, slot) => {
     const stats = eq[slot] && ITEM_STATS[eq[slot]];
-    return sum + (stats ? stats.dmg : 0);
+    return sum + (stats ? Math.round(stats.dmg * getDurabilityEffectiveness(slot, eq[slot])) : 0);
   }, 0);
   return base + (hasPerk('power_strike') ? 2 : 0);
 }
@@ -1965,9 +2006,70 @@ function getEquipDefenseBonus(){
   const eq = getEquipped();
   const base = EQUIP_SLOTS.reduce((sum, slot) => {
     const stats = eq[slot] && ITEM_STATS[eq[slot]];
-    return sum + (stats ? stats.def : 0);
+    return sum + (stats ? Math.round(stats.def * getDurabilityEffectiveness(slot, eq[slot])) : 0);
   }, 0);
   return base + (hasPerk('iron_skin') ? 1 : 0);
+}
+
+// ===================== GEAR DURABILITY =====================
+// Only the original 6 Equipment slots (not the 8 flat Accessories) wear down — those are the
+// ones sold in a Bronze/Iron/Steel/Mithril tier ladder and repairable at the Blacksmith; an
+// Accessory is a single flat item with no ladder and no Blacksmith presence, so there's nothing
+// for a repair fee to buy back. See context/player-state.md's "Gear durability" section.
+const DURABILITY_KEY = "goblinwar_durability";
+const DURABILITY_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
+const DURABILITY_LOSS_PER_FIGHT = 4; // flat, regardless of fight outcome — see degradeEquippedGear()
+const DURABILITY_MIN_EFFECTIVENESS = 0.5; // a fully worn item still works, just at half its dmg/def bonus
+// {slot: {name, value}} — keyed by item name (not just slot) so unequipping and re-equipping the
+// *same* item continues its existing wear, while swapping in a *different* item starts fresh at
+// full durability. Sparse; a missing or name-mismatched entry reads as 100 (full/never worn).
+function getDurabilityMap(){ try{ return JSON.parse(localStorage.getItem(DURABILITY_KEY)) || {}; }catch(e){ return {}; } }
+function getSlotDurability(slot, itemName){
+  if(!itemName || !DURABILITY_SLOTS.includes(slot)) return 100;
+  const entry = getDurabilityMap()[slot];
+  return (entry && entry.name === itemName) ? entry.value : 100;
+}
+function getDurabilityEffectiveness(slot, itemName){
+  const dur = getSlotDurability(slot, itemName);
+  return DURABILITY_MIN_EFFECTIVENESS + (1 - DURABILITY_MIN_EFFECTIVENESS) * (dur / 100);
+}
+// Called once per fight, any outcome — combat wear happens whether the fight is won, lost, or
+// fled from, same reasoning endCombat's flat Hunger/Thirst gain already uses.
+function degradeEquippedGear(){
+  const eq = getEquipped();
+  const map = getDurabilityMap();
+  let changed = false;
+  DURABILITY_SLOTS.forEach(slot => {
+    const itemName = eq[slot];
+    if(!itemName) return;
+    const next = Math.max(0, getSlotDurability(slot, itemName) - DURABILITY_LOSS_PER_FIGHT);
+    map[slot] = { name: itemName, value: next };
+    changed = true;
+  });
+  if(changed) localStorage.setItem(DURABILITY_KEY, JSON.stringify(map));
+}
+// Repair cost scales off the item's own MARKET_ITEMS price rather than a separate per-tier
+// table — a full repair (100 lost points) costs half of buying the item new, at any tier,
+// without hand-maintaining a second price list alongside MARKET_ITEMS.
+function getRepairCost(mi, durability){
+  return Math.max(1, Math.ceil((100 - durability) * mi.price / 200));
+}
+function repairSlot(slot){
+  const eq = getEquipped();
+  const itemName = eq[slot];
+  if(!itemName) return false;
+  const mi = MARKET_ITEMS.find(m => m.name === itemName);
+  if(!mi) return false;
+  const durability = getSlotDurability(slot, itemName);
+  if(durability >= 100) return false;
+  const cost = getRepairCost(mi, durability);
+  if(playerGold < cost){ showToast("Not enough gold to repair that."); return false; }
+  setGold(playerGold - cost);
+  const map = getDurabilityMap();
+  map[slot] = { name: itemName, value: 100 };
+  localStorage.setItem(DURABILITY_KEY, JSON.stringify(map));
+  showToast(`Repaired ${itemName} for ${cost} gold.`);
+  return true;
 }
 
 // Passive perks unlocked with a skill point (see character.html) — each gated on a raw stat
@@ -2166,25 +2268,34 @@ const ENEMY_VARIANTS = {
   bandit: [
     { name:"Bandit", hp:30, enemyDmgRange:[5,12], goldRange:[8,20], xpRange:[8,14], art:"assets/enemies/bandit.png" },
   ],
+  // Rank-and-file Goblin/Ork variants below (everything except the Chieftain/Warlord "boss" and
+  // the Shaman "unique caster") were trimmed ~15% on HP/damage/payout — the tradeoff for their
+  // kingdoms now regrowing population faster than Human/Dwarf ones (see POP_GROWTH_RATE_BAD in
+  // applyPopulationGrowth): individually weaker grunts, but there are more of them coming back.
+  // Chieftain, Warlord, and both Shamans are exempt and keep their original numbers.
   goblin: [
-    { name:"Goblin Raider",       hp:35, enemyDmgRange:[7,14],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-raider.png" },
-    { name:"Goblin Shieldbearer", hp:45, enemyDmgRange:[6,12],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-shieldbearer.png" },
-    { name:"Goblin Skirmisher",   hp:30, enemyDmgRange:[9,16],  goldRange:[12,24], xpRange:[12,18], art:"assets/enemies/goblin-skirmisher.png" },
-    { name:"Goblin Archer",       hp:25, enemyDmgRange:[7,13],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-archer.png" },
+    { name:"Goblin Raider",       hp:30, enemyDmgRange:[6,12],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-raider.png" },
+    { name:"Goblin Shieldbearer", hp:38, enemyDmgRange:[5,10],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-shieldbearer.png" },
+    { name:"Goblin Skirmisher",   hp:26, enemyDmgRange:[8,14],  goldRange:[10,20], xpRange:[10,15], art:"assets/enemies/goblin-skirmisher.png" },
+    { name:"Goblin Archer",       hp:21, enemyDmgRange:[6,11],  goldRange:[7,15],  xpRange:[7,12],  art:"assets/enemies/goblin-archer.png" },
     // The commanding leader of the pack — tougher than every other goblin variant (bone
     // headdress, ceremonial blade, gold jewelry befitting rank), the goblin-side counterpart
-    // to Ork Warlord's "toughest fight" role, with the best goblin payout to match.
+    // to Ork Warlord's "toughest fight" role, with the best goblin payout to match. Exempt from
+    // the rank-and-file nerf above.
     { name:"Goblin Chieftain",    hp:50, enemyDmgRange:[8,15],  goldRange:[14,26], xpRange:[14,20], art:"assets/enemies/goblin-chieftain.png" },
     // A frail caster rather than a melee brute — lowest HP of any goblin (even under Archer),
-    // but its bone-staff bolt hits harder than a Raider's blade to compensate.
+    // but its bone-staff bolt hits harder than a Raider's blade to compensate. Exempt from the
+    // rank-and-file nerf above, same as the Chieftain.
     { name:"Goblin Shaman",       hp:28, enemyDmgRange:[8,15],  goldRange:[10,20], xpRange:[10,16], art:"assets/enemies/goblin-shaman.png" },
   ],
   ork: [
-    { name:"Ork Raider",     hp:55, enemyDmgRange:[11,20], goldRange:[15,30], xpRange:[16,24], art:"assets/enemies/ork-raider.png" },
-    { name:"Ork Berserker",  hp:45, enemyDmgRange:[12,22], goldRange:[16,28], xpRange:[16,24], art:"assets/enemies/ork-berserker.png" },
+    { name:"Ork Raider",     hp:47, enemyDmgRange:[9,17],  goldRange:[13,25], xpRange:[13,20], art:"assets/enemies/ork-raider.png" },
+    { name:"Ork Berserker",  hp:38, enemyDmgRange:[10,19], goldRange:[13,24], xpRange:[13,20], art:"assets/enemies/ork-berserker.png" },
+    // The toughest fight in the game, best payout — exempt from the rank-and-file nerf above.
     { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], xpRange:[20,30], art:"assets/enemies/ork-warlord.png" },
     // Sits between Raider and Warlord — a caster's totem-staff bolt hits ork-tier hard, but an
-    // Ork Shaman isn't built for melee like a Warlord, so its own HP stays well under it.
+    // Ork Shaman isn't built for melee like a Warlord, so its own HP stays well under it. Exempt
+    // from the rank-and-file nerf above, same as the Warlord.
     { name:"Ork Shaman",     hp:50, enemyDmgRange:[12,20], goldRange:[17,30], xpRange:[17,26], art:"assets/enemies/ork-shaman.png" },
   ],
 };
@@ -2625,6 +2736,7 @@ function endCombat(result){
   // or fleeing are all real exertion, per the project owner.
   addHunger(COMBAT_HUNGER_GAIN);
   addThirst(COMBAT_THIRST_GAIN);
+  degradeEquippedGear(); // combat wears down worn gear regardless of outcome too — see "Gear durability" above
   let permadeathTriggered = false; // set below — skips the normal onEnd() call at the bottom, since a redirect to characters.html is already underway by then
   setTimeout(()=>{
     document.getElementById('combat-view').classList.remove('show');
@@ -2681,8 +2793,8 @@ function endCombat(result){
           saveQuests(remaining);
           recordCompletedQuest(questReward);
           refreshQuestBadge();
-          adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
-          msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.`;
+          const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
+          msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
         }
       }
 
@@ -2989,8 +3101,8 @@ function resolveWorldEvent(choiceKey){
   if(choice.healthCost) setHealth(Math.max(1, playerHealth - choice.healthCost));
   if(choice.staminaCost) setStamina(Math.max(0, playerStamina - choice.staminaCost));
   const leveledUp = choice.xp ? addXp(choice.xp) : false;
-  adjustPartyLoyalty(choice.loyalty);
-  showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  const loyaltyNote = adjustPartyLoyalty(choice.loyalty);
+  showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote);
   onEnd();
 }
 
@@ -4198,10 +4310,10 @@ function checkQuestTurnIns(burgId){
       setGold(playerGold + q.reward.gold);
       const leveledUp = addXp(q.reward.xp);
       const verb = q.type === 'deliver_cargo' ? 'Cargo delivered!' : 'Delivered!';
-      showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
-        + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
       recordCompletedQuest(q);
-      adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
+      const repNote = adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
+      showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
+        + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
       anyCompleted = true;
     } else {
       remaining.push(q);
@@ -4886,9 +4998,12 @@ function loyaltyLabel(val){
 // shape as allyFalls but a different door out: this is quitting on the player, not dying in combat,
 // so it's untouched by permadeathCompanions (that toggle only gates a *combat* death) and fires
 // regardless of its setting.
+// Returns a short " Loyalty +N."/" Loyalty -N." suffix callers append to their own action toast
+// (see context/roadmap.md's "Trust/loyalty/reputation changes need to be visually called out in
+// the moment") — empty string when there's no party to move or a departure already said its piece.
 function adjustPartyLoyalty(delta){
   const party = getParty();
-  if(!party.length) return;
+  if(!party.length) return '';
   const loyalty = getCompanionLoyalty();
   const departed = [];
   const kept = party.filter(id => {
@@ -4907,7 +5022,9 @@ function adjustPartyLoyalty(delta){
   if(departed.length){
     saveParty(kept);
     showToast(`${departed.join(', ')} lost all faith in you and left your service for good.`);
+    return '';
   }
+  return ` Loyalty ${delta > 0 ? '+' : ''}${delta}.`;
 }
 
 // Per-kingdom reputation — a second, independent standing number from companion loyalty, tracked
@@ -4931,14 +5048,17 @@ function reputationLabel(val){
   return "Hostile";
 }
 // No-op if kingdom is falsy — a couple of call sites (a captured/neutral settlement with no real
-// court left) can legitimately have nothing to credit.
+// court left) can legitimately have nothing to credit. Returns a short " Reputation +N with
+// Kingdom."/" Reputation -N with Kingdom." suffix callers append to their own action toast, same
+// "visually called out in the moment" ask as adjustPartyLoyalty above.
 function adjustReputation(kingdom, delta){
-  if(!kingdom) return;
+  if(!kingdom) return '';
   let map;
   try{ map = JSON.parse(localStorage.getItem(REPUTATION_KEY)) || {}; }catch(e){ map = {}; }
   const current = map[kingdom] || 0;
   map[kingdom] = Math.max(-100, Math.min(100, current + delta));
   saveReputationMap(map);
+  return ` Reputation ${delta > 0 ? '+' : ''}${delta} with ${kingdom}.`;
 }
 // First-pass delta constants — easy to retune later, same spirit as LOOT_CHANCE/RAID_AMBUSH_CHANCE.
 const REP_GAIN_MINOR = 3;    // a delivery quest turn-in, Aid the Refugees
@@ -5123,9 +5243,9 @@ function acceptPetition(burgId){
   setReinforcement(offer.ally, getArmyStrength(offer.kingdom) * REINFORCEMENT_FRACTION, offer.kingdom);
   setGold(playerGold + offer.gold);
   const leveledUp = addXp(offer.xp);
-  adjustReputation(offer.ally, REP_GAIN_MEDIUM);
+  const repNote = adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
-    + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+    + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
@@ -5178,9 +5298,9 @@ function acceptNegotiatePeace(burgId){
   setRelation(offer.kingdom, offer.enemy, 'peace');
   cancelSiegesBetween(offer.kingdom, offer.enemy);
   buildFrontlineMarkers();
-  adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
-  adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
-  showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.`);
+  const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
+  showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.` + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
@@ -5231,9 +5351,9 @@ function acceptInciteWar(burgId){
   setRelation(offer.kingdom, offer.target, 'war');
   buildFrontlineMarkers();
   setGold(playerGold + offer.gold);
-  adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
-  adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
-  showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.`);
+  const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
+  const repNote = adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
+  showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.` + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
@@ -5277,9 +5397,9 @@ function acceptRefugeeAid(burgId){
   setPopulation(burgId, getPopulation(burgId) + REFUGEE_AID_POP_BOOST);
   const xp = randRange(REFUGEE_AID_XP_RANGE);
   const leveledUp = addXp(xp);
-  adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
-  adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
-  showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
+  showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
   const aidBtn = document.getElementById('refugee-aid-btn');
   if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
@@ -5329,9 +5449,9 @@ function acceptRaidVillage(burgId){
   setGold(playerGold + gold);
   setPopulation(burgId, getPopulation(burgId) * (1 - RAID_POP_LOSS_RATE));
   recordRaided(burgId);
-  adjustPartyLoyalty(-RAID_LOYALTY_PENALTY);
-  adjustReputation(getControllerKingdom(burgId), REP_LOSS_MAJOR);
-  showToast(`You raid ${b.name} for ${gold}g.`);
+  const loyaltyNote = adjustPartyLoyalty(-RAID_LOYALTY_PENALTY);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_LOSS_MAJOR);
+  showToast(`You raid ${b.name} for ${gold}g.` + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
 }
 
@@ -5392,9 +5512,9 @@ function resolveSiegeDefense(burgId, result){
     const xp = randRange(SIEGE_DEFENSE_XP_RANGE);
     setGold(playerGold + gold);
     const leveledUp = addXp(xp);
-    adjustReputation(siege.defenderKingdom, REP_GAIN_MAJOR);
+    const repNote = adjustReputation(siege.defenderKingdom, REP_GAIN_MAJOR);
     showToast(`You help drive back ${siege.attackerKingdom}'s attack! The siege eases — +${gold}g, +${xp} XP.`
-      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
   } else {
     showToast(`The attack presses on despite your efforts.`);
   }
@@ -5573,6 +5693,47 @@ function showBlacksmithPanel(burgId){
   });
   const MAX_SLIDER_QTY = 30;
 
+  // Lists every equipped, worn (durability < 100) core Equipment slot with a per-item Repair
+  // button — see DURABILITY_SLOTS/getRepairCost above. Renders nothing (returns '') once every
+  // equipped item is at full durability, same "hide the section when there's nothing to do"
+  // pattern the Marketplace/Blacksmith Sell row already uses.
+  function buildRepairGearHTML(){
+    const eq = getEquipped();
+    const rows = DURABILITY_SLOTS.map(slot => {
+      const itemName = eq[slot];
+      if(!itemName) return null;
+      const durability = getSlotDurability(slot, itemName);
+      if(durability >= 100) return null;
+      const mi = MARKET_ITEMS.find(m => m.name === itemName);
+      if(!mi) return null;
+      const cost = getRepairCost(mi, durability);
+      const barColor = durability < 30 ? '#e0796a' : (durability < 70 ? '#d9a15a' : '#7fbf6a');
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(209,164,69,.2);">
+          <div style="flex:1; min-width:0; margin-right:10px;">
+            <div style="font-size:12.5px; color:var(--parchment);"><b>${itemName}</b> &middot; <span style="color:${barColor};">${durability}% durability</span></div>
+            <div style="font-size:11px; color:#a9926a; margin-top:2px;">Worn gear hits softer/blocks less — repairing restores it to full.</div>
+          </div>
+          <button class="btn btn-primary" style="flex:none; padding:7px 12px; font-size:11px;" data-repair="${slot}" ${playerGold < cost ? 'disabled' : ''}>Repair (${cost}g)</button>
+        </div>
+      `;
+    }).filter(Boolean);
+    if(!rows.length) return '';
+    return `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:14px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:2px;">Repair Gear</div>
+        ${rows.join('')}
+      </div>
+    `;
+  }
+  function wireRepairButtons(){
+    list.querySelectorAll('[data-repair]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(repairSlot(btn.dataset.repair)) render();
+      });
+    });
+  }
+
   function render(){
     const atWar = isAtWarAt(burgId);
     const itemRows = blacksmithIndices.map(i => {
@@ -5613,9 +5774,11 @@ function showBlacksmithPanel(burgId){
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
         ${b.tier !== 'capital' ? '<div style="margin-top:4px; font-size:11.5px; color:#a9926a;">The rarest mithril work is only forged in a Capital</div>' : ''}
       </div>
+      ${buildRepairGearHTML()}
       ${itemRows}
     `;
     document.getElementById('blacksmith-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    wireRepairButtons();
     list.querySelectorAll('.qty-slider').forEach(slider=>{
       slider.addEventListener('input', ()=>{
         const i = parseInt(slider.dataset.slider, 10);
@@ -5768,6 +5931,7 @@ function collectCharacterSnapshot(){
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    durability: localStorage.getItem(DURABILITY_KEY) || "{}",
     level: parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10),
     xp: parseInt(localStorage.getItem(XP_KEY) || "0", 10),
     skillPoints: parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10),

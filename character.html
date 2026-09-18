@@ -96,6 +96,7 @@
   .equip-slot.filled{ border-style:solid; border-color:var(--gold); background:rgba(209,164,69,.2); color:var(--parchment); cursor:pointer; }
   .equip-slot .slot-label{ font-size:6.5px; opacity:.7; margin-bottom:2px; }
   .equip-slot .slot-item{ font-size:8.5px; font-weight:700; line-height:1.15; }
+  .equip-slot .slot-durability{ font-size:7px; font-weight:700; margin-top:1px; }
   .combat-bonus{ text-align:center; font-size:12px; color:var(--parchment); margin-top:12px; }
   .combat-bonus b{ color:#7fbf6a; }
 
@@ -190,6 +191,7 @@ const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
+const DURABILITY_KEY = "goblinwar_durability";
 const LOC_KEY = "goblinwar_currentBurg";
 const CAL_KEY = "goblinwar_gameDay";
 const HOUR_KEY = "goblinwar_gameHour";
@@ -283,15 +285,35 @@ function setEquippedSlot(slot, itemName){
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
 
+// Mirrors index.html's Gear Durability section — read-only here, since this page can only
+// unequip (never equip), so it never needs to start a new durability entry (see
+// inventory.html's ensureDurabilityForEquip). Duplicated per the no-modules convention.
+const DURABILITY_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
+const DURABILITY_MIN_EFFECTIVENESS = 0.5;
+function getDurabilityMap(){ try{ return JSON.parse(localStorage.getItem(DURABILITY_KEY)) || {}; }catch(e){ return {}; } }
+function getSlotDurability(slot, itemName){
+  if(!itemName || !DURABILITY_SLOTS.includes(slot)) return 100;
+  const entry = getDurabilityMap()[slot];
+  return (entry && entry.name === itemName) ? entry.value : 100;
+}
+function getDurabilityEffectiveness(slot, itemName){
+  const dur = getSlotDurability(slot, itemName);
+  return DURABILITY_MIN_EFFECTIVENESS + (1 - DURABILITY_MIN_EFFECTIVENESS) * (dur / 100);
+}
+
 function renderSlotGrid(gridId, slots){
   const equipped = getEquipped();
   const grid = document.getElementById(gridId);
   grid.innerHTML = slots.map(slot => {
     const itemName = equipped[slot];
+    const durability = itemName ? getSlotDurability(slot, itemName) : null;
+    const durabilityLine = (itemName && DURABILITY_SLOTS.includes(slot))
+      ? `<div class="slot-durability" style="color:${durability < 30 ? '#e0796a' : (durability < 70 ? '#d9a15a' : '#7fbf6a')};">${durability}%</div>` : '';
     return `
       <div class="equip-slot ${itemName ? 'filled' : ''}" data-slot="${slot}">
         <div class="slot-label">${SLOT_LABEL[slot]}</div>
         ${itemName ? `<div class="slot-item">${itemName}</div>` : ''}
+        ${durabilityLine}
       </div>
     `;
   }).join('');
@@ -312,8 +334,8 @@ function renderEquipment(){
   // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
   // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/
   // getEquipDefenseBonus), which is exactly what this line is meant to preview.
-  const dmgBonus = ALL_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
-  const defBonus = ALL_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
+  const dmgBonus = ALL_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.dmg * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
+  const defBonus = ALL_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.def * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
   document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
     ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`
     : `No combat bonus equipped yet — equip gear from the Inventory screen.`;

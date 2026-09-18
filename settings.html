@@ -159,6 +159,7 @@ const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
+const DURABILITY_KEY = "goblinwar_durability";
 const TERRITORY_KEY = "goblinwar_territoryControl";
 const RELATIONS_KEY = "goblinwar_relations";
 const REINFORCE_KEY = "goblinwar_reinforcements";
@@ -273,6 +274,7 @@ function collectCharacterSnapshot(){
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
+    durability: localStorage.getItem(DURABILITY_KEY) || "{}",
     level: parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10),
     xp: parseInt(localStorage.getItem(XP_KEY) || "0", 10),
     skillPoints: parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10),

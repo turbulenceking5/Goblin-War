@@ -146,6 +146,7 @@
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
+const DURABILITY_KEY = "goblinwar_durability";
 const CARRY_CAPACITY = 40;
 const SKILLS_KEY = "goblinwar_skills";
 const HUNGER_KEY = "goblinwar_hunger";
@@ -236,6 +237,34 @@ function setEquippedSlot(slot, itemName){
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
 
+// Mirrors index.html's Gear Durability section (duplicated per the no-modules convention) —
+// only read here, plus the one write this page is responsible for: starting a freshly-equipped
+// item at full durability. Degradation itself only happens in combat (index.html), and repair
+// only happens at the Blacksmith (index.html) — see context/player-state.md.
+const DURABILITY_SLOTS = ["head","chest","legs","weapon","shield","trinket"];
+const DURABILITY_MIN_EFFECTIVENESS = 0.5;
+function getDurabilityMap(){ try{ return JSON.parse(localStorage.getItem(DURABILITY_KEY)) || {}; }catch(e){ return {}; } }
+function getSlotDurability(slot, itemName){
+  if(!itemName || !DURABILITY_SLOTS.includes(slot)) return 100;
+  const entry = getDurabilityMap()[slot];
+  return (entry && entry.name === itemName) ? entry.value : 100;
+}
+function getDurabilityEffectiveness(slot, itemName){
+  const dur = getSlotDurability(slot, itemName);
+  return DURABILITY_MIN_EFFECTIVENESS + (1 - DURABILITY_MIN_EFFECTIVENESS) * (dur / 100);
+}
+// Equipping a *different* item than whatever this slot's durability entry was last tracking
+// starts it fresh at full durability; re-equipping the same item name (after an unequip)
+// continues its existing wear instead of quietly resetting it.
+function ensureDurabilityForEquip(slot, itemName){
+  if(!itemName || !DURABILITY_SLOTS.includes(slot)) return;
+  const map = getDurabilityMap();
+  if(!map[slot] || map[slot].name !== itemName){
+    map[slot] = { name: itemName, value: 100 };
+    localStorage.setItem(DURABILITY_KEY, JSON.stringify(map));
+  }
+}
+
 // Read-only here now — eating/drinking is automatic (index.html's autoEatForHunger/
 // autoDrinkForThirst), so this page only ever displays these two meters, never changes them.
 let playerHunger = parseInt(localStorage.getItem(HUNGER_KEY) || "100", 10);
@@ -282,7 +311,10 @@ function render(){
     list.innerHTML = items.map(it => {
       const stats = ITEM_STATS[it.name];
       const isEquipped = stats && equipped[stats.slot] === it.name;
-      const statLine = stats ? `${stats.dmg ? `+${stats.dmg} dmg` : `-${stats.def} dmg taken`} while equipped` : '';
+      const durability = isEquipped ? getSlotDurability(stats.slot, it.name) : null;
+      const durabilityLine = (isEquipped && DURABILITY_SLOTS.includes(stats.slot))
+        ? ` <span style="color:${durability < 30 ? '#e0796a' : (durability < 70 ? '#d9a15a' : '#7fbf6a')};">&middot; ${durability}% durability</span>` : '';
+      const statLine = stats ? `${stats.dmg ? `+${stats.dmg} dmg` : `-${stats.def} dmg taken`} while equipped${durabilityLine}` : '';
       const actionHTML = stats
         ? `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`
         : '';
@@ -323,6 +355,7 @@ function render(){
         const name = btn.dataset.equipName, slot = btn.dataset.equipSlot;
         const currentlyEquipped = getEquipped()[slot] === name;
         setEquippedSlot(slot, currentlyEquipped ? null : name);
+        if(!currentlyEquipped) ensureDurabilityForEquip(slot, name);
         showToast(currentlyEquipped ? `Unequipped ${name}.` : `Equipped ${name}.`);
         render();
       });
@@ -332,8 +365,8 @@ function render(){
   // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
   // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/
   // getEquipDefenseBonus), which is exactly what this line is meant to preview.
-  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.dmg : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
-  const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? st.def : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
+  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.dmg * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
+  const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.def * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
   document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
     ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`
     : `No combat bonus equipped yet.`;

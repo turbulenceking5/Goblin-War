@@ -172,6 +172,7 @@ function freshCharacterData(name, burgId, difficulty){
     age: "24", gold: 50,
     inventory: JSON.stringify(DEFAULT_INVENTORY),
     equipped: "{}",
+    durability: "{}",
     level: 1, xp: 0, skillPoints: 0,
     stats: JSON.stringify({str:0,agi:0,int:0}), skills: "{}", kills: "{}",
     quests: "[]", completedQuests: "[]", questsCompletedTotal: 0,
@@ -212,6 +213,7 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_gold", String(merged.gold));
   localStorage.setItem("goblinwar_inventory", merged.inventory);
   localStorage.setItem("goblinwar_equipped", merged.equipped);
+  localStorage.setItem("goblinwar_durability", merged.durability);
   localStorage.setItem("goblinwar_level", String(merged.level));
   localStorage.setItem("goblinwar_xp", String(merged.xp));
   localStorage.setItem("goblinwar_skillPoints", String(merged.skillPoints));

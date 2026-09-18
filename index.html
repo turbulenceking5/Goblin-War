@@ -1128,6 +1128,9 @@ const CHANGELOG = [
     "Equipped gear now wears down with combat use — Head, Chest, Legs, Weapon, Shield, and Trinket lose a little effectiveness after every fight, shown as a durability percentage on the Hero sheet and in your Bag.",
     "Added Repair Gear to the Blacksmith — pay gold to restore any worn item back to full."
   ]},
+  { id:73, date:"2026-09-18", changes:[
+    "Companion loyalty and kingdom reputation changes now show right in the toast when they happen (quest turn-ins, Palace actions, Aid the Refugees, Raid a Village, Defend the Walls, roadside events) instead of only being visible later on Party or a Guard House visit."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -2749,8 +2752,8 @@ function endCombat(result){
           saveQuests(remaining);
           recordCompletedQuest(questReward);
           refreshQuestBadge();
-          adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
-          msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.`;
+          const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
+          msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
         }
       }
 
@@ -3057,8 +3060,8 @@ function resolveWorldEvent(choiceKey){
   if(choice.healthCost) setHealth(Math.max(1, playerHealth - choice.healthCost));
   if(choice.staminaCost) setStamina(Math.max(0, playerStamina - choice.staminaCost));
   const leveledUp = choice.xp ? addXp(choice.xp) : false;
-  adjustPartyLoyalty(choice.loyalty);
-  showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  const loyaltyNote = adjustPartyLoyalty(choice.loyalty);
+  showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote);
   onEnd();
 }
 
@@ -4266,10 +4269,10 @@ function checkQuestTurnIns(burgId){
       setGold(playerGold + q.reward.gold);
       const leveledUp = addXp(q.reward.xp);
       const verb = q.type === 'deliver_cargo' ? 'Cargo delivered!' : 'Delivered!';
-      showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
-        + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
       recordCompletedQuest(q);
-      adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
+      const repNote = adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
+      showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
+        + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
       anyCompleted = true;
     } else {
       remaining.push(q);
@@ -4954,9 +4957,12 @@ function loyaltyLabel(val){
 // shape as allyFalls but a different door out: this is quitting on the player, not dying in combat,
 // so it's untouched by permadeathCompanions (that toggle only gates a *combat* death) and fires
 // regardless of its setting.
+// Returns a short " Loyalty +N."/" Loyalty -N." suffix callers append to their own action toast
+// (see context/roadmap.md's "Trust/loyalty/reputation changes need to be visually called out in
+// the moment") — empty string when there's no party to move or a departure already said its piece.
 function adjustPartyLoyalty(delta){
   const party = getParty();
-  if(!party.length) return;
+  if(!party.length) return '';
   const loyalty = getCompanionLoyalty();
   const departed = [];
   const kept = party.filter(id => {
@@ -4975,7 +4981,9 @@ function adjustPartyLoyalty(delta){
   if(departed.length){
     saveParty(kept);
     showToast(`${departed.join(', ')} lost all faith in you and left your service for good.`);
+    return '';
   }
+  return ` Loyalty ${delta > 0 ? '+' : ''}${delta}.`;
 }
 
 // Per-kingdom reputation — a second, independent standing number from companion loyalty, tracked
@@ -4999,14 +5007,17 @@ function reputationLabel(val){
   return "Hostile";
 }
 // No-op if kingdom is falsy — a couple of call sites (a captured/neutral settlement with no real
-// court left) can legitimately have nothing to credit.
+// court left) can legitimately have nothing to credit. Returns a short " Reputation +N with
+// Kingdom."/" Reputation -N with Kingdom." suffix callers append to their own action toast, same
+// "visually called out in the moment" ask as adjustPartyLoyalty above.
 function adjustReputation(kingdom, delta){
-  if(!kingdom) return;
+  if(!kingdom) return '';
   let map;
   try{ map = JSON.parse(localStorage.getItem(REPUTATION_KEY)) || {}; }catch(e){ map = {}; }
   const current = map[kingdom] || 0;
   map[kingdom] = Math.max(-100, Math.min(100, current + delta));
   saveReputationMap(map);
+  return ` Reputation ${delta > 0 ? '+' : ''}${delta} with ${kingdom}.`;
 }
 // First-pass delta constants — easy to retune later, same spirit as LOOT_CHANCE/RAID_AMBUSH_CHANCE.
 const REP_GAIN_MINOR = 3;    // a delivery quest turn-in, Aid the Refugees
@@ -5191,9 +5202,9 @@ function acceptPetition(burgId){
   setReinforcement(offer.ally, getArmyStrength(offer.kingdom) * REINFORCEMENT_FRACTION, offer.kingdom);
   setGold(playerGold + offer.gold);
   const leveledUp = addXp(offer.xp);
-  adjustReputation(offer.ally, REP_GAIN_MEDIUM);
+  const repNote = adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
-    + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+    + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
@@ -5246,9 +5257,9 @@ function acceptNegotiatePeace(burgId){
   setRelation(offer.kingdom, offer.enemy, 'peace');
   cancelSiegesBetween(offer.kingdom, offer.enemy);
   buildFrontlineMarkers();
-  adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
-  adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
-  showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.`);
+  const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
+  showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.` + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
@@ -5299,9 +5310,9 @@ function acceptInciteWar(burgId){
   setRelation(offer.kingdom, offer.target, 'war');
   buildFrontlineMarkers();
   setGold(playerGold + offer.gold);
-  adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
-  adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
-  showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.`);
+  const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
+  const repNote = adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
+  showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.` + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
   wirePalaceButtons(burgId);
 }
@@ -5345,9 +5356,9 @@ function acceptRefugeeAid(burgId){
   setPopulation(burgId, getPopulation(burgId) + REFUGEE_AID_POP_BOOST);
   const xp = randRange(REFUGEE_AID_XP_RANGE);
   const leveledUp = addXp(xp);
-  adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
-  adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
-  showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+  const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
+  showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
   const aidBtn = document.getElementById('refugee-aid-btn');
   if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
@@ -5397,9 +5408,9 @@ function acceptRaidVillage(burgId){
   setGold(playerGold + gold);
   setPopulation(burgId, getPopulation(burgId) * (1 - RAID_POP_LOSS_RATE));
   recordRaided(burgId);
-  adjustPartyLoyalty(-RAID_LOYALTY_PENALTY);
-  adjustReputation(getControllerKingdom(burgId), REP_LOSS_MAJOR);
-  showToast(`You raid ${b.name} for ${gold}g.`);
+  const loyaltyNote = adjustPartyLoyalty(-RAID_LOYALTY_PENALTY);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_LOSS_MAJOR);
+  showToast(`You raid ${b.name} for ${gold}g.` + loyaltyNote + repNote);
   showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
 }
 
@@ -5460,9 +5471,9 @@ function resolveSiegeDefense(burgId, result){
     const xp = randRange(SIEGE_DEFENSE_XP_RANGE);
     setGold(playerGold + gold);
     const leveledUp = addXp(xp);
-    adjustReputation(siege.defenderKingdom, REP_GAIN_MAJOR);
+    const repNote = adjustReputation(siege.defenderKingdom, REP_GAIN_MAJOR);
     showToast(`You help drive back ${siege.attackerKingdom}'s attack! The siege eases — +${gold}g, +${xp} XP.`
-      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
   } else {
     showToast(`The attack presses on despite your efforts.`);
   }

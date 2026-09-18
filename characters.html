@@ -8,23 +8,23 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Goblin War">
-<meta name="theme-color" content="#1c2a2c">
+<meta name="theme-color" content="#0d1220">
 <title>Goblin War — Choose Character</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#e2857f; }
+  :root{ --ink:#141a2e; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#0d1220; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --bad:#e2857f; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  html,body{ margin:0; padding:0; min-height:100%; background:#0d1220; font-family:'EB Garamond', serif; color:var(--parchment); }
   header{
-    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    background:linear-gradient(180deg, var(--ink) 0%, #0d1220 100%), url('assets/ui/bg-dither.jpg'); background-blend-mode:overlay; background-size:auto, 350px;
     border-bottom:3px solid var(--gold);
     padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
   }
-  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  h1{ font-family:'Press Start 2P', 'Cinzel Decorative', serif; font-size:12px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.5; }
   #logout-btn{
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
     background:transparent; color:var(--bad); border:1.5px solid var(--bad);
@@ -36,8 +36,10 @@
   .status{ text-align:center; color:#a9926a; font-size:14px; padding:20px 0; }
 
   .char-card{
-    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
-    padding:14px; margin-bottom:12px;
+    background:rgba(255,255,255,.06); border-radius:0;
+    padding:18px 14px; margin-bottom:12px;
+    border-style:solid; border-width:12px; border-image-source:url('assets/ui/border-frame.png');
+    border-image-slice:100 fill; border-image-width:12px; border-image-repeat:stretch;
   }
   .char-name{ font-family:'Cinzel Decorative', serif; font-size:17px; color:var(--gold-lt); margin-bottom:4px; }
   .char-summary{ font-size:13.5px; color:var(--parchment); margin-bottom:12px; }

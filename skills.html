@@ -8,40 +8,45 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Goblin War">
-<meta name="theme-color" content="#1c2a2c">
+<meta name="theme-color" content="#0d1220">
 <title>Goblin War — Skills</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  :root{ --ink:#141a2e; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#0d1220; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  html,body{ margin:0; padding:0; min-height:100%; background:#0d1220; font-family:'EB Garamond', serif; color:var(--parchment); }
   header{
-    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    background:linear-gradient(180deg, var(--ink) 0%, #0d1220 100%), url('assets/ui/bg-dither.jpg'); background-blend-mode:overlay; background-size:auto, 350px;
     border-bottom:3px solid var(--gold);
     padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
   }
-  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  h1{ font-family:'Press Start 2P', 'Cinzel Decorative', serif; font-size:12px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.5; }
   #back-btn{
-    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px; display:inline-flex; align-items:center; gap:6px;
     background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
     border-radius:6px; padding:7px 12px; cursor:pointer;
   }
+  #back-btn img{ width:14px; height:14px; flex:none; image-rendering:pixelated; }
   #back-btn:active{ transform:scale(.96); }
   main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:18px; text-align:center; }
 
   .card{
-    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:12px;
-    padding:18px; margin-bottom:16px;
+    background:rgba(255,255,255,.06); border-radius:0;
+    padding:22px 18px; margin-bottom:16px;
+    border-style:solid; border-width:14px; border-image-source:url('assets/ui/border-frame.png');
+    border-image-slice:100 fill; border-image-width:14px; border-image-repeat:stretch;
   }
   .hero-row{ display:flex; align-items:center; gap:14px; }
   .level-badge{
-    flex:none; width:54px; text-align:center; border:2px solid var(--gold); border-radius:10px;
-    padding:6px 4px; background:rgba(255,255,255,.08);
+    flex:none; width:56px; height:56px; text-align:center; border-radius:0; background:transparent;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-style:solid; border-width:8px; border-image-source:url('assets/ui/level-badge.png');
+    border-image-slice:35 fill; border-image-width:8px; border-image-repeat:stretch;
   }
   .level-num{ font-family:'Cinzel Decorative', serif; font-size:22px; color:var(--parchment); line-height:1; }
   .level-label{ font-family:'Cinzel', serif; font-size:8px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-top:2px; }
@@ -69,10 +74,12 @@
   .stats-note b{ color:var(--gold-lt); font-style:normal; }
 
   .perk-unlock-btn{
-    flex:none; font-family:'Cinzel', serif; font-size:11px; padding:8px 12px; border-radius:8px; cursor:pointer;
-    border:1.5px solid var(--gold); background:rgba(209,164,69,.2); color:var(--gold-lt); font-weight:700;
+    flex:none; font-family:'Cinzel', serif; font-size:11px; padding:8px 12px; border-radius:0; cursor:pointer;
+    border-style:solid; border-width:8px; border-image-source:url('assets/ui/unlock-btn.png');
+    border-image-slice:35 fill; border-image-width:8px; border-image-repeat:stretch;
+    background:transparent; color:#241705; font-weight:700; text-shadow:0 1px 1px rgba(255,255,255,.3);
   }
-  .perk-unlock-btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .perk-unlock-btn:disabled{ opacity:.4; cursor:not-allowed; }
   .perk-unlocked-badge{ flex:none; font-family:'Cinzel', serif; font-size:11px; color:#7fbf6a; font-weight:700; }
 
   /* Skill tree — Perks and Special Attacks rendered as one branching tree per stat, Cyberpunk-
@@ -92,7 +99,9 @@
     background:rgba(255,255,255,.04); display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:2px; padding:6px 4px; cursor:pointer; text-align:center; transition:border-color .15s, background .15s;
   }
-  .tree-node .node-icon{ font-size:13px; color:#a9926a; }
+  .tree-node .node-icon{ width:28px; height:28px; }
+  .tree-node .node-icon img{ width:100%; height:100%; object-fit:contain; image-rendering:pixelated; filter:grayscale(1) brightness(.75); }
+  .tree-node.ready .node-icon img, .tree-node.unlocked .node-icon img{ filter:none; }
   .tree-node .node-name{ font-family:'Cinzel', serif; font-size:8.5px; line-height:1.25; color:#a9926a; }
   .tree-node.ready{ border-style:solid; border-color:var(--gold); background:rgba(209,164,69,.12); }
   .tree-node.ready .node-name, .tree-node.ready .node-icon{ color:var(--parchment); }
@@ -114,7 +123,7 @@
 
   #toast{
     position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
-    background:rgba(20,14,6,.94); color:var(--parchment);
+    background:rgba(13,18,32,.94); color:var(--parchment);
     font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
     padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
     opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
@@ -126,7 +135,7 @@
 <body>
   <header>
     <h1>SKILLS</h1>
-    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()">&larr; Back to Map</button>
+    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()"><img src="assets/ui/sword-icon.png" alt=""> Back to Map</button>
   </header>
   <main>
     <div class="subtitle">Skills &amp; Progression</div>
@@ -205,6 +214,24 @@ const MOVES = [
   { id:"war_cry",         name:"War Cry",         stat:"int", req:2, desc:"Cuts every enemy's damage by 30% for the rest of the fight. Costs 20 stamina, once per fight." },
   { id:"cleave",          name:"Cleave",          stat:"str", req:6, desc:"Hits every enemy in the fight for 60% damage. Costs 40 stamina, once per fight." },
 ];
+// Real generated art (see UI Forge) for each skill-tree node, one per PERKS/MOVES id above.
+const SKILL_ICONS = {
+  power_strike: "assets/ui/perk-power-strike.png",
+  iron_skin: "assets/ui/perk-iron-skin.png",
+  pack_mule: "assets/ui/perk-pack-mule.png",
+  evasion: "assets/ui/perk-evasion.png",
+  second_wind: "assets/ui/perk-second-wind.png",
+  sure_feet: "assets/ui/perk-sure-feet.png",
+  silver_tongue: "assets/ui/perk-silver-tongue.png",
+  scavenger: "assets/ui/perk-scavenger.png",
+  field_rations: "assets/ui/perk-field-rations.png",
+  crushing_blow: "assets/ui/move-crushing-blow.png",
+  reckless_swing: "assets/ui/move-reckless-swing.png",
+  precise_shot: "assets/ui/move-precise-shot.png",
+  adrenaline_rush: "assets/ui/move-adrenaline-rush.png",
+  war_cry: "assets/ui/move-war-cry.png",
+  cleave: "assets/ui/move-cleave.png",
+};
 
 let toastTimer;
 function showToast(msg){
@@ -290,7 +317,7 @@ function renderBranch(stat){
       const isUnlocked = !!unlocked[s.id];
       const meetsReq = stats[stat] >= s.req;
       const cls = isUnlocked ? 'unlocked' : (meetsReq ? 'ready' : '');
-      const icon = isUnlocked ? '&#10003;' : (s.type === 'move' ? '&#9876;' : '&#10022;');
+      const icon = `<img src="${SKILL_ICONS[s.id]}" alt="">`;
       return `<div class="tree-node ${cls}" data-skill="${s.id}"><div class="node-icon">${icon}</div><div class="node-name">${s.name}</div></div>`;
     }).join('');
     const link = i < tiers.length - 1 ? `<div class="tree-link"></div>` : '';

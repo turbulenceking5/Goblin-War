@@ -8,41 +8,47 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Goblin War">
-<meta name="theme-color" content="#1c2a2c">
+<meta name="theme-color" content="#0d1220">
 <title>Goblin War — Character</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --hp:#7b2e2e; --stamina:#5b8fc7; }
+  :root{ --ink:#141a2e; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#0d1220; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; --hp:#7b2e2e; --stamina:#5b8fc7; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  html,body{ margin:0; padding:0; min-height:100%; background:#0d1220; font-family:'EB Garamond', serif; color:var(--parchment); }
   header{
-    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    background:linear-gradient(180deg, var(--ink) 0%, #0d1220 100%), url('assets/ui/bg-dither.jpg'); background-blend-mode:overlay; background-size:auto, 350px;
     border-bottom:3px solid var(--gold);
     padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
   }
-  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  h1{ font-family:'Press Start 2P', 'Cinzel Decorative', serif; font-size:12px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.5; }
   #back-btn{
-    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px; display:inline-flex; align-items:center; gap:6px;
     background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
     border-radius:6px; padding:7px 12px; cursor:pointer;
   }
+  #back-btn img{ width:14px; height:14px; flex:none; image-rendering:pixelated; }
   #back-btn:active{ transform:scale(.96); }
   main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:18px; text-align:center; }
 
   .card{
-    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:12px;
-    padding:18px; margin-bottom:16px;
+    background:rgba(255,255,255,.06); border-radius:0;
+    padding:22px 18px; margin-bottom:16px;
+    border-style:solid; border-width:14px; border-image-source:url('assets/ui/border-frame.png');
+    border-image-slice:100 fill; border-image-width:14px; border-image-repeat:stretch;
   }
   .hero-row{ display:flex; align-items:center; gap:14px; }
   .hero-name{ font-family:'Cinzel Decorative', serif; font-size:20px; color:var(--parchment); }
   .hero-tag{
-    display:inline-block; margin-top:4px; padding:2px 9px; border-radius:20px;
-    font-size:10px; letter-spacing:1px; color:#fff; background:#33502f; font-family:'Cinzel',serif;
+    display:inline-block; margin-top:4px; padding:3px 11px; border-radius:0;
+    font-size:10px; letter-spacing:1px; color:#fff; font-family:'Cinzel',serif;
+    border-style:solid; border-width:5px; border-image-source:url('assets/ui/race-pill.png');
+    border-image-slice:30 fill; border-image-width:5px; border-image-repeat:stretch;
+    text-shadow:0 1px 2px rgba(0,0,0,.6);
   }
   /* A small unlockable title once enough of one race has fallen in combat — purely cosmetic,
      no stat effect, see TITLES below. Hidden entirely (not just empty) until one's earned. */
@@ -64,6 +70,18 @@
   .bar-track{ background:rgba(0,0,0,.3); border-radius:8px; height:16px; overflow:hidden; border:1px solid rgba(209,164,69,.35); }
   .bar-fill{ height:100%; background:linear-gradient(90deg,#8c3a3a,var(--hp)); border-radius:8px 0 0 8px; transition:width .3s; }
   .bar-fill.stamina{ background:linear-gradient(90deg,#3d5f7a,var(--stamina)); }
+  /* Real generated bar frame + fill texture (see UI Forge) in place of the plain CSS gradient
+     bars above -- same border-image technique as index.html's combat bars, so the gold
+     end-caps don't distort at different widths. */
+  .bar-track:has(.bar-fill){
+    height:28px; border:none; border-radius:0; background:transparent;
+    border-image-slice:20 fill; border-image-width:6px; border-image-repeat:stretch; padding:3px 4px; box-sizing:border-box;
+  }
+  .bar-track:has(.bar-fill.stamina){ border-image-source:url('assets/ui/stamina-track.png'); }
+  .bar-track:has(.bar-fill:not(.stamina)){ border-image-source:url('assets/ui/health-track.png'); }
+  .bar-fill{ background-repeat:repeat-x; background-position:left center; image-rendering:pixelated; }
+  .bar-fill:not(.stamina){ background-image:url('assets/ui/health-fill.png'); background-size:auto 100%; border-radius:0; }
+  .bar-fill.stamina{ background-image:url('assets/ui/stamina-fill.png'); background-size:auto 100%; }
   .bar-value{ font-size:13px; color:var(--parchment); margin-top:4px; text-align:right; }
 
   .slot-grid{ display:grid; gap:9px; }
@@ -83,7 +101,7 @@
 
   #toast{
     position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
-    background:rgba(20,14,6,.94); color:var(--parchment);
+    background:rgba(13,18,32,.94); color:var(--parchment);
     font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
     padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
     opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
@@ -102,7 +120,7 @@
 <body>
   <header>
     <h1>CHARACTER</h1>
-    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()">&larr; Back to Map</button>
+    <button id="back-btn" onclick="location.href='index.html?_='+Date.now()"><img src="assets/ui/sword-icon.png" alt=""> Back to Map</button>
   </header>
   <main>
     <div class="subtitle">Hero Sheet</div>
@@ -215,12 +233,30 @@ const SLOT_LABEL = {
 };
 // Mirrors index.html's MARKET_ITEMS slot/dmg/def data — duplicated per the no-modules convention.
 const ITEM_STATS = {
-  "Sword": { slot:"weapon", dmg:4, def:0 },
-  "Shield": { slot:"shield", dmg:0, def:3 },
-  "Leather Cap": { slot:"head", dmg:0, def:1 },
-  "Leather Armour": { slot:"chest", dmg:0, def:2 },
-  "Leather Boots": { slot:"legs", dmg:0, def:1 },
-  "Lucky Charm": { slot:"trinket", dmg:1, def:0 },
+  "Bronze Sword": { slot:"weapon", dmg:2, def:0 },
+  "Iron Sword": { slot:"weapon", dmg:4, def:0 },
+  "Steel Sword": { slot:"weapon", dmg:8, def:0 },
+  "Mithril Sword": { slot:"weapon", dmg:14, def:0 },
+  "Bronze Shield": { slot:"shield", dmg:0, def:1 },
+  "Iron Shield": { slot:"shield", dmg:0, def:3 },
+  "Steel Shield": { slot:"shield", dmg:0, def:6 },
+  "Mithril Shield": { slot:"shield", dmg:0, def:10 },
+  "Bronze Helm": { slot:"head", dmg:0, def:1 },
+  "Iron Helm": { slot:"head", dmg:0, def:2 },
+  "Steel Helm": { slot:"head", dmg:0, def:4 },
+  "Mithril Helm": { slot:"head", dmg:0, def:7 },
+  "Bronze Chestplate": { slot:"chest", dmg:0, def:1 },
+  "Iron Chestplate": { slot:"chest", dmg:0, def:2 },
+  "Steel Chestplate": { slot:"chest", dmg:0, def:5 },
+  "Mithril Chestplate": { slot:"chest", dmg:0, def:8 },
+  "Bronze Greaves": { slot:"legs", dmg:0, def:1 },
+  "Iron Greaves": { slot:"legs", dmg:0, def:2 },
+  "Steel Greaves": { slot:"legs", dmg:0, def:4 },
+  "Mithril Greaves": { slot:"legs", dmg:0, def:7 },
+  "Bronze Charm": { slot:"trinket", dmg:1, def:0 },
+  "Iron Charm": { slot:"trinket", dmg:2, def:0 },
+  "Steel Charm": { slot:"trinket", dmg:4, def:0 },
+  "Mithril Charm": { slot:"trinket", dmg:7, def:0 },
   "Ring of Vigor": { slot:"ring_left", dmg:1, def:0 },
   "Band of Warding": { slot:"ring_right", dmg:0, def:1 },
   "Amulet of the Wilds": { slot:"amulet", dmg:0, def:2 },
@@ -228,12 +264,6 @@ const ITEM_STATS = {
   "Warbelt": { slot:"belt", dmg:2, def:0 },
   "Iron Bracers": { slot:"bracers", dmg:0, def:1 },
   "Silver Earring": { slot:"earring", dmg:1, def:0 },
-  "Masterwork Sword": { slot:"weapon", dmg:8, def:0 },
-  "Reinforced Shield": { slot:"shield", dmg:0, def:6 },
-  "Steel Helm": { slot:"head", dmg:0, def:3 },
-  "Plate Armour": { slot:"chest", dmg:0, def:5 },
-  "Steel Greaves": { slot:"legs", dmg:0, def:3 },
-  "Warrior's Talisman": { slot:"trinket", dmg:3, def:0 },
   "Sigil Charm": { slot:"charm", dmg:1, def:0 },
 };
 

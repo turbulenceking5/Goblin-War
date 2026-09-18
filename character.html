@@ -79,9 +79,14 @@
   }
   .bar-track:has(.bar-fill.stamina){ border-image-source:url('assets/ui/stamina-track.png'); }
   .bar-track:has(.bar-fill:not(.stamina)){ border-image-source:url('assets/ui/health-track.png'); }
-  .bar-fill{ background-repeat:repeat-x; background-position:left center; image-rendering:pixelated; }
-  .bar-fill:not(.stamina){ background-image:url('assets/ui/health-fill.png'); background-size:auto 100%; border-radius:0; }
-  .bar-fill.stamina{ background-image:url('assets/ui/stamina-fill.png'); background-size:auto 100%; }
+  .bar-fill{ background-repeat:no-repeat; background-position:left center; image-rendering:pixelated; }
+  /* background-repeat/-size/-image repeated on these two (not just the shared .bar-fill rule
+     above) because the older flat-gradient fallback rules above (kept for browsers without
+     :has() support) use the `background` shorthand at higher specificity (.bar-fill.stamina),
+     which resets background-repeat back to its initial 'repeat' and would silently re-enable
+     the tiling seam bug below for the stamina bar specifically if not overridden here too. */
+  .bar-fill:not(.stamina){ background-image:url('assets/ui/health-fill.png'); background-size:100% 100%; background-repeat:no-repeat; border-radius:0; }
+  .bar-fill.stamina{ background-image:url('assets/ui/stamina-fill.png'); background-size:100% 100%; background-repeat:no-repeat; }
   .bar-value{ font-size:13px; color:var(--parchment); margin-top:4px; text-align:right; }
 
   .slot-grid{ display:grid; gap:9px; }

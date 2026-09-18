@@ -442,9 +442,13 @@
   }
   .combat-bar-track:has(.combat-bar-fill.player){ border-image-source:url('assets/ui/health-track.png'); }
   .combat-bar-track:has(.combat-bar-fill.stamina){ border-image-source:url('assets/ui/stamina-track.png'); }
-  .combat-bar-fill.player, .combat-bar-fill.stamina{ background-repeat:repeat-x; background-position:left center; image-rendering:pixelated; }
-  .combat-bar-fill.player{ background-image:url('assets/ui/health-fill.png'); background-size:auto 100%; }
-  .combat-bar-fill.stamina{ background-image:url('assets/ui/stamina-fill.png'); background-size:auto 100%; }
+  /* background-size:100%/100% + no-repeat (one stretched copy, not a tiled strip) — tiling this
+     texture with background-repeat left a visible seam at every tile boundary (confirmed via
+     screenshot: browser tile-compositing artifact at the repeat boundary, not present in the
+     source PNG itself), so it's rendered as a single copy instead. */
+  .combat-bar-fill.player, .combat-bar-fill.stamina{ background-repeat:no-repeat; background-position:left center; image-rendering:pixelated; }
+  .combat-bar-fill.player{ background-image:url('assets/ui/health-fill.png'); background-size:100% 100%; }
+  .combat-bar-fill.stamina{ background-image:url('assets/ui/stamina-fill.png'); background-size:100% 100%; }
   #combat-log{
     width:100%; max-width:320px; height:100px; overflow-y:auto;
     background:rgba(0,0,0,.3); border-radius:8px; padding:10px 12px;

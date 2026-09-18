@@ -8,28 +8,29 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Goblin War">
-<meta name="theme-color" content="#1c2a2c">
+<meta name="theme-color" content="#0d1220">
 <title>Goblin War — Change Log</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  :root{ --ink:#141a2e; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#0d1220; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{ margin:0; padding:0; min-height:100%; background:#1c150c; font-family:'EB Garamond', serif; color:var(--parchment); }
+  html,body{ margin:0; padding:0; min-height:100%; background:#0d1220; font-family:'EB Garamond', serif; color:var(--parchment); }
   header{
-    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    background:linear-gradient(180deg, var(--ink) 0%, #0d1220 100%), url('assets/ui/bg-dither.jpg'); background-blend-mode:overlay; background-size:auto, 350px;
     border-bottom:3px solid var(--gold);
     padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
   }
-  h1{ font-family:'Cinzel Decorative', serif; font-size:18px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  h1{ font-family:'Press Start 2P', 'Cinzel Decorative', serif; font-size:12px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.5; }
   #back-btn{
-    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px; display:inline-flex; align-items:center; gap:6px;
     background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
     border-radius:6px; padding:7px 12px; cursor:pointer;
   }
+  #back-btn img{ width:14px; height:14px; flex:none; image-rendering:pixelated; }
   #back-btn:active{ transform:scale(.96); }
   main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:16px; text-align:center; }
@@ -45,7 +46,7 @@
 <body>
   <header>
     <h1>CHANGE LOG</h1>
-    <button id="back-btn" onclick="location.href='settings.html?_='+Date.now()">&larr; Back to Settings</button>
+    <button id="back-btn" onclick="location.href='settings.html?_='+Date.now()"><img src="assets/ui/sword-icon.png" alt=""> Back to Settings</button>
   </header>
   <main>
     <div class="subtitle">Everything shipped so far</div>
@@ -314,6 +315,9 @@ const CHANGELOG = [
   ]},
   { id:69, date:"2026-09-17", changes:[
     "The Marketplace, Blacksmith, and your Bag now show real art for some weapons and shields instead of a generic icon — every Sword tier, and Bronze/Iron/Steel Shields."
+  ]},
+  { id:70, date:"2026-09-18", changes:[
+    "Started the new pixel-art blue/gold look: every screen now uses a deep-navy palette, a pixel display font for headers, real gold ornate panel borders, and hand-drawn Health/Stamina bars in combat and on the Hero sheet."
   ]},
 ];
 

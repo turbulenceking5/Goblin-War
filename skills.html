@@ -43,8 +43,10 @@
   }
   .hero-row{ display:flex; align-items:center; gap:14px; }
   .level-badge{
-    flex:none; width:54px; text-align:center; border:2px solid var(--gold); border-radius:10px;
-    padding:6px 4px; background:rgba(255,255,255,.08);
+    flex:none; width:56px; height:56px; text-align:center; border-radius:0; background:transparent;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-style:solid; border-width:8px; border-image-source:url('assets/ui/level-badge.png');
+    border-image-slice:35 fill; border-image-width:8px; border-image-repeat:stretch;
   }
   .level-num{ font-family:'Cinzel Decorative', serif; font-size:22px; color:var(--parchment); line-height:1; }
   .level-label{ font-family:'Cinzel', serif; font-size:8px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-top:2px; }
@@ -72,10 +74,12 @@
   .stats-note b{ color:var(--gold-lt); font-style:normal; }
 
   .perk-unlock-btn{
-    flex:none; font-family:'Cinzel', serif; font-size:11px; padding:8px 12px; border-radius:8px; cursor:pointer;
-    border:1.5px solid var(--gold); background:rgba(209,164,69,.2); color:var(--gold-lt); font-weight:700;
+    flex:none; font-family:'Cinzel', serif; font-size:11px; padding:8px 12px; border-radius:0; cursor:pointer;
+    border-style:solid; border-width:8px; border-image-source:url('assets/ui/unlock-btn.png');
+    border-image-slice:35 fill; border-image-width:8px; border-image-repeat:stretch;
+    background:transparent; color:#241705; font-weight:700; text-shadow:0 1px 1px rgba(255,255,255,.3);
   }
-  .perk-unlock-btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .perk-unlock-btn:disabled{ opacity:.4; cursor:not-allowed; }
   .perk-unlocked-badge{ flex:none; font-family:'Cinzel', serif; font-size:11px; color:#7fbf6a; font-weight:700; }
 
   /* Skill tree — Perks and Special Attacks rendered as one branching tree per stat, Cyberpunk-
@@ -95,7 +99,9 @@
     background:rgba(255,255,255,.04); display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:2px; padding:6px 4px; cursor:pointer; text-align:center; transition:border-color .15s, background .15s;
   }
-  .tree-node .node-icon{ font-size:13px; color:#a9926a; }
+  .tree-node .node-icon{ width:28px; height:28px; }
+  .tree-node .node-icon img{ width:100%; height:100%; object-fit:contain; image-rendering:pixelated; filter:grayscale(1) brightness(.75); }
+  .tree-node.ready .node-icon img, .tree-node.unlocked .node-icon img{ filter:none; }
   .tree-node .node-name{ font-family:'Cinzel', serif; font-size:8.5px; line-height:1.25; color:#a9926a; }
   .tree-node.ready{ border-style:solid; border-color:var(--gold); background:rgba(209,164,69,.12); }
   .tree-node.ready .node-name, .tree-node.ready .node-icon{ color:var(--parchment); }
@@ -208,6 +214,24 @@ const MOVES = [
   { id:"war_cry",         name:"War Cry",         stat:"int", req:2, desc:"Cuts every enemy's damage by 30% for the rest of the fight. Costs 20 stamina, once per fight." },
   { id:"cleave",          name:"Cleave",          stat:"str", req:6, desc:"Hits every enemy in the fight for 60% damage. Costs 40 stamina, once per fight." },
 ];
+// Real generated art (see UI Forge) for each skill-tree node, one per PERKS/MOVES id above.
+const SKILL_ICONS = {
+  power_strike: "assets/ui/perk-power-strike.png",
+  iron_skin: "assets/ui/perk-iron-skin.png",
+  pack_mule: "assets/ui/perk-pack-mule.png",
+  evasion: "assets/ui/perk-evasion.png",
+  second_wind: "assets/ui/perk-second-wind.png",
+  sure_feet: "assets/ui/perk-sure-feet.png",
+  silver_tongue: "assets/ui/perk-silver-tongue.png",
+  scavenger: "assets/ui/perk-scavenger.png",
+  field_rations: "assets/ui/perk-field-rations.png",
+  crushing_blow: "assets/ui/move-crushing-blow.png",
+  reckless_swing: "assets/ui/move-reckless-swing.png",
+  precise_shot: "assets/ui/move-precise-shot.png",
+  adrenaline_rush: "assets/ui/move-adrenaline-rush.png",
+  war_cry: "assets/ui/move-war-cry.png",
+  cleave: "assets/ui/move-cleave.png",
+};
 
 let toastTimer;
 function showToast(msg){
@@ -293,7 +317,7 @@ function renderBranch(stat){
       const isUnlocked = !!unlocked[s.id];
       const meetsReq = stats[stat] >= s.req;
       const cls = isUnlocked ? 'unlocked' : (meetsReq ? 'ready' : '');
-      const icon = isUnlocked ? '&#10003;' : (s.type === 'move' ? '&#9876;' : '&#10022;');
+      const icon = `<img src="${SKILL_ICONS[s.id]}" alt="">`;
       return `<div class="tree-node ${cls}" data-skill="${s.id}"><div class="node-icon">${icon}</div><div class="node-name">${s.name}</div></div>`;
     }).join('');
     const link = i < tiers.length - 1 ? `<div class="tree-link"></div>` : '';

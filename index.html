@@ -1131,6 +1131,10 @@ const CHANGELOG = [
   { id:73, date:"2026-09-18", changes:[
     "Companion loyalty and kingdom reputation changes now show right in the toast when they happen (quest turn-ins, Palace actions, Aid the Refugees, Raid a Village, Defend the Walls, roadside events) instead of only being visible later on Party or a Guard House visit."
   ]},
+  { id:74, date:"2026-09-18", changes:[
+    "Settlements at peace now regrow population week to week instead of only ever shrinking — Ork/Goblin territory regrows noticeably faster than Human/Dwarf territory.",
+    "In trade for that, rank-and-file Goblin and Ork raiders hit a little softer and go down a little faster. Chieftains, Warlords, and Shamans are untouched."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1410,6 +1414,16 @@ const REFUGEE_DEATH_SHARE = 0.4;    // of population lost to war, this fraction 
 const REFUGEE_FLEE_SHARE = 0.6;     // ...and this fraction flees to the nearest peaceful settlement
 const REFUGEE_ARRIVAL_WINDOW_DAYS = 7; // how long a settlement counts as "recently received refugees" for the Aid the Refugees action
 const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could field as soldiers
+// Weekly regrowth — the mirror image of WAR_ATTRITION_RATE above, and the first system to
+// actually use the long-tracked "Ork/Goblin multiply faster" race trait (see context/roadmap.md's
+// Character Creation & Race section). Scoped to whoever *currently* controls a settlement, not its
+// original identity — same "control, not identity" convention getArmyStrength already uses, since
+// growth is about who's actually living there now, not its ancestral kingdom. Skipped entirely for
+// a settlement whose current controller is at war this tick, so a kingdom's own attrition/siege
+// losses aren't quietly offset in the same week they happen — regrowth only resumes once that
+// kingdom is back at peace. See applyPopulationGrowth below.
+const POP_GROWTH_RATE_GOOD = 0.01;  // Human/Dwarf, weekly, at peace
+const POP_GROWTH_RATE_BAD  = 0.025; // Ork/Goblin, weekly, at peace — "multiply faster"
 
 function getPopulationOverrides(){
   if(_tickCache) return _tickCache.population;
@@ -1520,6 +1534,21 @@ function applyWarLoss(burgId, rate){
       stampRefugeeArrival(haven.id);
     }
   }
+}
+
+// Weekly regrowth for every settlement currently at peace — see POP_GROWTH_RATE_GOOD/_BAD above
+// for why the rate differs by race. Runs once per tick, over every burg (not scoped to a kingdom
+// pair like the war-declare/attrition passes), called from runFactionAITick.
+function applyPopulationGrowth(){
+  Object.keys(graph.burgs).forEach(id=>{
+    const kingdom = getControllerKingdom(id);
+    if(getWarState(kingdom) === 'war') return;
+    const pop = getPopulation(id);
+    if(pop <= 0) return;
+    const race = getController(id);
+    const rate = ALLIANCE[race] === 'Bad' ? POP_GROWTH_RATE_BAD : POP_GROWTH_RATE_GOOD;
+    setPopulation(id, pop * (1 + rate));
+  });
 }
 
 // Killed enemies count toward their own side's decline — a small, cumulative cost distinct
@@ -1778,8 +1807,11 @@ function runFactionAITick(){
         }
       });
     });
+    // Regrowth, once per settlement — the mirror image of the attrition pass just above, not
+    // scoped to kingdom pairs since it isn't about who's fighting whom, just who's currently safe.
+    applyPopulationGrowth();
     // Troops payoff of per-kingdom reputation (see context/factions-and-territory.md's "Per-kingdom
-    // reputation") — a third, independent pass: a kingdom that trusts the player enough can act on
+    // reputation") — a fourth, independent pass: a kingdom that trusts the player enough can act on
     // its own, reusing the exact same reinforcement math Petition for Troops already triggers
     // (findAllyNeedingReinforcement/setReinforcement/getArmyStrength above), just autonomous rather
     // than player-triggered. Not guaranteed every week (TRUSTED_REINFORCEMENT_CHANCE), same "rolls,
@@ -2236,25 +2268,34 @@ const ENEMY_VARIANTS = {
   bandit: [
     { name:"Bandit", hp:30, enemyDmgRange:[5,12], goldRange:[8,20], xpRange:[8,14], art:"assets/enemies/bandit.png" },
   ],
+  // Rank-and-file Goblin/Ork variants below (everything except the Chieftain/Warlord "boss" and
+  // the Shaman "unique caster") were trimmed ~15% on HP/damage/payout — the tradeoff for their
+  // kingdoms now regrowing population faster than Human/Dwarf ones (see POP_GROWTH_RATE_BAD in
+  // applyPopulationGrowth): individually weaker grunts, but there are more of them coming back.
+  // Chieftain, Warlord, and both Shamans are exempt and keep their original numbers.
   goblin: [
-    { name:"Goblin Raider",       hp:35, enemyDmgRange:[7,14],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-raider.png" },
-    { name:"Goblin Shieldbearer", hp:45, enemyDmgRange:[6,12],  goldRange:[10,22], xpRange:[10,16], art:"assets/enemies/goblin-shieldbearer.png" },
-    { name:"Goblin Skirmisher",   hp:30, enemyDmgRange:[9,16],  goldRange:[12,24], xpRange:[12,18], art:"assets/enemies/goblin-skirmisher.png" },
-    { name:"Goblin Archer",       hp:25, enemyDmgRange:[7,13],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-archer.png" },
+    { name:"Goblin Raider",       hp:30, enemyDmgRange:[6,12],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-raider.png" },
+    { name:"Goblin Shieldbearer", hp:38, enemyDmgRange:[5,10],  goldRange:[8,18],  xpRange:[8,14],  art:"assets/enemies/goblin-shieldbearer.png" },
+    { name:"Goblin Skirmisher",   hp:26, enemyDmgRange:[8,14],  goldRange:[10,20], xpRange:[10,15], art:"assets/enemies/goblin-skirmisher.png" },
+    { name:"Goblin Archer",       hp:21, enemyDmgRange:[6,11],  goldRange:[7,15],  xpRange:[7,12],  art:"assets/enemies/goblin-archer.png" },
     // The commanding leader of the pack — tougher than every other goblin variant (bone
     // headdress, ceremonial blade, gold jewelry befitting rank), the goblin-side counterpart
-    // to Ork Warlord's "toughest fight" role, with the best goblin payout to match.
+    // to Ork Warlord's "toughest fight" role, with the best goblin payout to match. Exempt from
+    // the rank-and-file nerf above.
     { name:"Goblin Chieftain",    hp:50, enemyDmgRange:[8,15],  goldRange:[14,26], xpRange:[14,20], art:"assets/enemies/goblin-chieftain.png" },
     // A frail caster rather than a melee brute — lowest HP of any goblin (even under Archer),
-    // but its bone-staff bolt hits harder than a Raider's blade to compensate.
+    // but its bone-staff bolt hits harder than a Raider's blade to compensate. Exempt from the
+    // rank-and-file nerf above, same as the Chieftain.
     { name:"Goblin Shaman",       hp:28, enemyDmgRange:[8,15],  goldRange:[10,20], xpRange:[10,16], art:"assets/enemies/goblin-shaman.png" },
   ],
   ork: [
-    { name:"Ork Raider",     hp:55, enemyDmgRange:[11,20], goldRange:[15,30], xpRange:[16,24], art:"assets/enemies/ork-raider.png" },
-    { name:"Ork Berserker",  hp:45, enemyDmgRange:[12,22], goldRange:[16,28], xpRange:[16,24], art:"assets/enemies/ork-berserker.png" },
+    { name:"Ork Raider",     hp:47, enemyDmgRange:[9,17],  goldRange:[13,25], xpRange:[13,20], art:"assets/enemies/ork-raider.png" },
+    { name:"Ork Berserker",  hp:38, enemyDmgRange:[10,19], goldRange:[13,24], xpRange:[13,20], art:"assets/enemies/ork-berserker.png" },
+    // The toughest fight in the game, best payout — exempt from the rank-and-file nerf above.
     { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], xpRange:[20,30], art:"assets/enemies/ork-warlord.png" },
     // Sits between Raider and Warlord — a caster's totem-staff bolt hits ork-tier hard, but an
-    // Ork Shaman isn't built for melee like a Warlord, so its own HP stays well under it.
+    // Ork Shaman isn't built for melee like a Warlord, so its own HP stays well under it. Exempt
+    // from the rank-and-file nerf above, same as the Warlord.
     { name:"Ork Shaman",     hp:50, enemyDmgRange:[12,20], goldRange:[17,30], xpRange:[17,26], art:"assets/enemies/ork-shaman.png" },
   ],
 };

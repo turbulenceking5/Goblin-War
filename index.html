@@ -1145,6 +1145,9 @@ const CHANGELOG = [
   { id:76, date:"2026-09-18", changes:[
     "Removed the red rings that could appear around settlements on the map."
   ]},
+  { id:77, date:"2026-09-18", changes:[
+    "The Tavern, Marketplace, and Blacksmith now show real interior art instead of the generic building icon — same treatment Guard House and Temple already had."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3991,6 +3994,37 @@ function getTempleArt(burgId){
   return TEMPLE_ART[Math.min(idx, TEMPLE_ART.length - 1)];
 }
 
+// Same real-photo treatment as GUARDHOUSE_ART/TEMPLE_ART above, now for the Tavern, Marketplace,
+// and Blacksmith — every settlement action but Work/Talk to Townsfolk/Quest Board/Raid the
+// Village now has real art instead of the generic TIER_ART icon.
+const TAVERN_ART = [
+  "assets/locations/tavern-hearth.jpg",
+  "assets/locations/tavern-fireside.jpg",
+  "assets/locations/tavern-barroom.jpg",
+];
+function getTavernArt(burgId){
+  const idx = Math.floor(seededRandom(hashSeed(`tavern_art_${burgId}`)) * TAVERN_ART.length);
+  return TAVERN_ART[Math.min(idx, TAVERN_ART.length - 1)];
+}
+const MARKET_ART = [
+  "assets/locations/marketplace-street.jpg",
+  "assets/locations/marketplace-gate.jpg",
+  "assets/locations/marketplace-stalls.jpg",
+];
+function getMarketArt(burgId){
+  const idx = Math.floor(seededRandom(hashSeed(`market_art_${burgId}`)) * MARKET_ART.length);
+  return MARKET_ART[Math.min(idx, MARKET_ART.length - 1)];
+}
+const BLACKSMITH_ART = [
+  "assets/locations/blacksmith-forge.jpg",
+  "assets/locations/blacksmith-workshop.jpg",
+  "assets/locations/blacksmith-hood.jpg",
+];
+function getBlacksmithArt(burgId){
+  const idx = Math.floor(seededRandom(hashSeed(`blacksmith_art_${burgId}`)) * BLACKSMITH_ART.length);
+  return BLACKSMITH_ART[Math.min(idx, BLACKSMITH_ART.length - 1)];
+}
+
 const RUMOURS = [
   "A caravan guard swears he saw goblin banners moving along the eastern road.",
   "They say Kragmaw's Hold hasn't stopped burning fires on its walls for a week now.",
@@ -4630,9 +4664,24 @@ function showLocationView(burgId){
   `).join('');
   list.querySelectorAll('.loc-action').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      if(btn.dataset.action === 'tavern') showTavernPanel(burgId);
-      else if(btn.dataset.action === 'market') showMarketPanel(burgId);
-      else if(btn.dataset.action === 'blacksmith') showBlacksmithPanel(burgId);
+      if(btn.dataset.action === 'tavern'){
+        showTavernPanel(burgId);
+        const artEl = document.getElementById('loc-banner-art');
+        artEl.classList.add('photo');
+        artEl.innerHTML = `<img src="${getTavernArt(burgId)}" alt="Tavern">`;
+      }
+      else if(btn.dataset.action === 'market'){
+        showMarketPanel(burgId);
+        const artEl = document.getElementById('loc-banner-art');
+        artEl.classList.add('photo');
+        artEl.innerHTML = `<img src="${getMarketArt(burgId)}" alt="Marketplace">`;
+      }
+      else if(btn.dataset.action === 'blacksmith'){
+        showBlacksmithPanel(burgId);
+        const artEl = document.getElementById('loc-banner-art');
+        artEl.classList.add('photo');
+        artEl.innerHTML = `<img src="${getBlacksmithArt(burgId)}" alt="Blacksmith">`;
+      }
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple'){

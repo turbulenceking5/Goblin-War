@@ -13,10 +13,10 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#2a1d10; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#22323a;
+    --ink:#141a2e; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#0d1220;
     --parchment:#e9dcb8; --parchment-shadow:#b9a06e;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -25,12 +25,13 @@
 
   header{
     position:relative; z-index:20;
-    background:linear-gradient(180deg, var(--ink) 0%, #1b1208 100%);
+    background:linear-gradient(180deg, var(--ink) 0%, #0d1220 100%), url('assets/ui/bg-dither.jpg');
+    background-blend-mode:overlay; background-size:auto, 350px;
     border-bottom:3px solid var(--gold);
     padding:calc(9px + env(safe-area-inset-top)) 14px 9px; display:flex; align-items:center; justify-content:space-between;
     box-shadow:0 4px 14px rgba(0,0,0,.5);
   }
-  h1{ font-family:'Cinzel Decorative', serif; font-size:17px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); }
+  h1{ font-family:'Press Start 2P', 'Cinzel Decorative', serif; font-size:11px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.5; }
   #date-badge{
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
     color:var(--parchment); background:rgba(255,255,255,.06);
@@ -47,7 +48,7 @@
 
   #toolbar{
     position:relative; z-index:19;
-    background:#1b1208;
+    background:#0d1220;
     border-bottom:2px solid rgba(169,122,31,.5);
     padding:8px 10px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; row-gap:8px;
   }
@@ -63,7 +64,7 @@
   .nav-btn svg{ width:22px; height:22px; }
   .nav-badge{
     position:absolute; top:2px; right:3px; min-width:14px; height:14px; padding:0 3px;
-    background:#c0392b; color:#fff; border-radius:7px; box-shadow:0 0 0 1.5px #1c150c;
+    background:#c0392b; color:#fff; border-radius:7px; box-shadow:0 0 0 1.5px #0d1220;
     font-family:'Cinzel', serif; font-size:9px; font-weight:700; line-height:14px; text-align:center;
   }
   #zoom-controls{ display:flex; gap:8px; order:2; }
@@ -112,12 +113,12 @@
   .hitzone{ fill:transparent; cursor:pointer; }
   .map-label{
     font-family:'Cinzel', serif; text-anchor:middle;
-    fill:var(--gold-lt); paint-order:stroke; stroke:#1c150c; stroke-width:.6px; stroke-linejoin:round;
+    fill:var(--gold-lt); paint-order:stroke; stroke:#0d1220; stroke-width:.6px; stroke-linejoin:round;
   }
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
   .road-line.road-road-fill{ stroke:#c9a66b; stroke-width:1.1; opacity:.75; }
-  .settlement-dot{ fill:var(--parchment); stroke:#1c150c; stroke-width:.5; }
+  .settlement-dot{ fill:var(--parchment); stroke:#0d1220; stroke-width:.5; }
   #highlight-ring{
     fill:none; stroke:var(--gold-lt); stroke-width:3;
     opacity:0; transition:opacity .15s;
@@ -160,7 +161,7 @@
   #camp-here-btn{
     position:fixed; right:12px; bottom:calc(76px + env(safe-area-inset-bottom)); z-index:26;
     width:52px; height:52px; border-radius:50%;
-    background:rgba(20,14,6,.88);
+    background:rgba(13,18,32,.88);
     border:2px solid var(--gold-lt); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:9px;
     box-shadow:0 3px 10px rgba(0,0,0,.5);
     display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
@@ -170,14 +171,14 @@
 
   #wait-controls{
     position:fixed; left:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
-    background:rgba(24,17,8,.95); border:1.5px solid var(--gold); border-radius:12px;
+    background:rgba(16,20,36,.95); border:1.5px solid var(--gold); border-radius:12px;
     padding:8px 10px; display:flex; align-items:center; gap:7px;
     box-shadow:0 3px 10px rgba(0,0,0,.5);
   }
   #wait-controls.hide{ display:none; }
   .wait-btn{
     width:34px; height:34px; flex:none; border-radius:50%; border:1.5px solid var(--gold-lt);
-    background:rgba(20,14,6,.6); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:12px;
+    background:rgba(13,18,32,.6); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:12px;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
   }
   .wait-btn.active{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; }
@@ -190,7 +191,7 @@
 
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
-    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
     border-top:3px solid var(--gold); border-radius:14px 14px 0 0;
     box-shadow:0 -8px 24px rgba(0,0,0,.45);
     padding:16px 18px calc(18px + env(safe-area-inset-bottom));
@@ -210,7 +211,7 @@
 
   #travel-controls{
     position:fixed; left:12px; right:12px; top:calc(160px + env(safe-area-inset-top,0px)); z-index:35;
-    background:rgba(24,17,8,.95); border:1.5px solid var(--gold); border-radius:12px;
+    background:rgba(16,20,36,.95); border:1.5px solid var(--gold); border-radius:12px;
     padding:12px 14px; display:none; box-shadow:0 6px 18px rgba(0,0,0,.5);
   }
   #travel-controls.show{ display:block; }
@@ -230,7 +231,7 @@
 
   #toast{
     position:fixed; top:calc(66px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
-    background:rgba(20,14,6,.94); color:var(--parchment);
+    background:rgba(13,18,32,.94); color:var(--parchment);
     font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px;
     padding:9px 16px; border-radius:6px; border:1px solid var(--gold);
     opacity:0; pointer-events:none; z-index:80; transition:opacity .25s, transform .25s;
@@ -259,13 +260,13 @@
 
   #whats-new-modal{
     position:fixed; inset:0; z-index:90; display:none;
-    background:rgba(10,7,3,.75);
+    background:rgba(8,10,18,.75);
     align-items:center; justify-content:center; padding:20px;
   }
   #whats-new-modal.show{ display:flex; }
   #whats-new-card{
     max-width:380px; width:100%; max-height:80vh; overflow-y:auto;
-    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
     border:2px solid var(--gold); border-radius:14px;
     padding:20px 20px calc(20px + env(safe-area-inset-bottom));
     box-shadow:0 12px 30px rgba(0,0,0,.6);
@@ -286,13 +287,13 @@
      overlay ordered relative to the others, not just the ones that happen to coexist today. */
   #world-event-modal{
     position:fixed; inset:0; z-index:75; display:none;
-    background:rgba(10,7,3,.75);
+    background:rgba(8,10,18,.75);
     align-items:center; justify-content:center; padding:20px;
   }
   #world-event-modal.show{ display:flex; }
   #world-event-card{
     max-width:380px; width:100%; max-height:80vh; overflow-y:auto;
-    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
     border:2px solid var(--gold); border-radius:14px;
     padding:20px 20px calc(20px + env(safe-area-inset-bottom));
     box-shadow:0 12px 30px rgba(0,0,0,.6);
@@ -305,7 +306,7 @@
   #location-view.show{ display:block; }
   #loc-actions{
     box-sizing:border-box; width:100%; max-width:560px; height:100%; margin:0 auto; overflow-y:auto;
-    background:linear-gradient(180deg,#2b2115 0%, #1c150c 100%);
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
     padding:calc(320px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));
     display:flex; flex-direction:column;
   }
@@ -347,11 +348,12 @@
   #loc-banner-portrait.lineup{ align-items:flex-end; gap:6px; }
   #loc-banner-portrait.lineup img{ height:94%; width:auto; filter:drop-shadow(0 8px 14px rgba(0,0,0,.65)); }
   #loc-back{
-    align-self:flex-start;
+    align-self:flex-start; display:flex; align-items:center; gap:6px;
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
     background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4);
     border-radius:6px; padding:7px 12px; margin-bottom:14px; cursor:pointer;
   }
+  #loc-back img{ width:14px; height:14px; flex:none; image-rendering:pixelated; }
   #loc-back:active{ transform:scale(.96); }
   #loc-heading{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--parchment); margin:0 0 2px; }
   #loc-sub{ font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:0 0 16px; }
@@ -431,6 +433,18 @@
   .combat-bar-fill.player{ background:linear-gradient(90deg,#3d7a3d,#5ba05b); }
   .combat-bar-fill.stamina{ background:linear-gradient(90deg,#3d5f7a,#5b8fc7); }
   .combat-bar-fill.ally{ background:linear-gradient(90deg,#8a6a2e,#d1a445); }
+  /* Player HP/Stamina bars only (not enemy/ally — no pixel-art track/fill for those tiers yet,
+     see UI Forge) get the real generated bar frame + fill texture, via border-image so the
+     ornate gold end-caps don't stretch/distort at arbitrary bar widths. */
+  .combat-bar-track:has(.combat-bar-fill.player), .combat-bar-track:has(.combat-bar-fill.stamina){
+    height:26px; border:none; border-radius:0; background:transparent;
+    border-image-slice:20 fill; border-image-width:6px; border-image-repeat:stretch; padding:2px 4px; box-sizing:border-box;
+  }
+  .combat-bar-track:has(.combat-bar-fill.player){ border-image-source:url('assets/ui/health-track.png'); }
+  .combat-bar-track:has(.combat-bar-fill.stamina){ border-image-source:url('assets/ui/stamina-track.png'); }
+  .combat-bar-fill.player, .combat-bar-fill.stamina{ background-repeat:repeat-x; background-position:left center; image-rendering:pixelated; }
+  .combat-bar-fill.player{ background-image:url('assets/ui/health-fill.png'); background-size:auto 100%; }
+  .combat-bar-fill.stamina{ background-image:url('assets/ui/stamina-fill.png'); background-size:auto 100%; }
   #combat-log{
     width:100%; max-width:320px; height:100px; overflow-y:auto;
     background:rgba(0,0,0,.3); border-radius:8px; padding:10px 12px;
@@ -596,7 +610,7 @@
       <div id="loc-banner-portrait"></div>
     </div>
     <div id="loc-actions">
-      <button id="loc-back">&larr; Back to Map</button>
+      <button id="loc-back"><img src="assets/ui/sword-icon.png" alt=""> Back to Map</button>
       <h2 id="loc-heading">—</h2>
       <div id="loc-sub"></div>
       <div id="loc-action-list"></div>

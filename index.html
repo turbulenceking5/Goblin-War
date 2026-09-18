@@ -3704,26 +3704,15 @@ function buildCityIcons(){
   }
 }
 
-// A small red ring on every settlement isFrontlineBurg() flags as actively bordering enemy
-// territory it's at war with — the visual counterpart to buildBurgAdjacency/isFrontlineBurg
-// above. Rebuilt from scratch (like buildCityIcons) rather than diffed, since it only needs to
-// run once at load and again after each weekly tick — never on every frame/pan/zoom.
+// Per the project owner, the red frontline rings on the map were more confusing than useful
+// (read as "something's broken" rather than "this settlement borders a war") and are turned off
+// here. isFrontlineBurg/getFrontlineEnemyKingdom above are left untouched — Talk to
+// Townsfolk/Work's reactive flavor lines still use them to name a bordering kingdom by text, this
+// only stops drawing the ring itself. Kept as a real (now no-op) function rather than deleting its
+// call sites, so it's a one-line revert if the red rings come back later.
 function buildFrontlineMarkers(){
   const g = document.getElementById('frontline-markers');
   g.innerHTML = '';
-  const ns = "http://www.w3.org/2000/svg";
-  Object.values(graph.burgs).forEach(b=>{
-    if(!isFrontlineBurg(b.id)) return;
-    const ring = document.createElementNS(ns, "circle");
-    ring.setAttribute("cx", b.x);
-    ring.setAttribute("cy", b.y);
-    ring.setAttribute("r", 9);
-    ring.setAttribute("fill", "none");
-    ring.setAttribute("stroke", "#c0392b");
-    ring.setAttribute("stroke-width", "1.6");
-    ring.setAttribute("opacity", "0.85");
-    g.appendChild(ring);
-  });
 }
 
 function showHighlight(x, y){

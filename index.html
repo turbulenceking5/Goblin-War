@@ -1164,6 +1164,9 @@ const CHANGELOG = [
   { id:81, date:"2026-09-19", changes:[
     "Wars and the peace between them now typically last years of in-game time instead of weeks — kingdoms settle into a real relationship rather than flipping back and forth every few weeks. Peace usually holds 2-4 years; once a war breaks out it usually runs 5-10 years before either side is willing to end it."
   ]},
+  { id:82, date:"2026-09-19", changes:[
+    "You can now talk to your companions at camp — a new \"Talk at the Campfire\" option (whenever you've recruited at least one) shows how each of them is really feeling about the journey so far, straight from their loyalty toward you."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4286,6 +4289,11 @@ function showCampView(destId, destName, partialHours){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       <span class="li-text"><b>Continue to ${destName}</b><span>Resume the journey from here</span></span>
     </button>`}
+    ${getParty().length ? `
+    <button class="loc-action" id="camp-talk-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h16v11H9l-4 4V4z"/><path d="M8 9h8M8 12h5"/></svg>
+      <span class="li-text"><b>Talk at the Campfire</b><span>Hear how your companions are feeling</span></span>
+    </button>` : ''}
     <button class="loc-action" id="camp-choose-btn">
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
       <span class="li-text"><b>${standalone ? 'Back to Map' : 'Choose a Different Destination'}</b><span>${standalone ? 'Return to the map' : 'Return to the map from here'}</span></span>
@@ -4320,8 +4328,52 @@ function showCampView(destId, destName, partialHours){
   document.getElementById('camp-choose-btn').addEventListener('click', ()=>{
     document.getElementById('location-view').classList.remove('show');
   });
+  const talkBtn = document.getElementById('camp-talk-btn');
+  if(talkBtn) talkBtn.addEventListener('click', ()=> showCampfirePanel(destId, destName, partialHours));
 
   document.getElementById('location-view').classList.add('show');
+}
+// A small conversation beat at camp — the loyalty meter's first real "reading" surface beyond
+// the bar on party.html (see context/roadmap.md's "Talk to companions at the campfire"). Every
+// currently-recruited companion gets one line, picked from CAMPFIRE_LINES' pool for whatever mood
+// bucket their current goblinwar_companionLoyalty value falls into — same bucketing loyaltyLabel
+// already uses for party.html's own display, just read here instead of adjusted. Portraits reuse
+// the ".lineup" multi-portrait banner treatment showMercenaryLineupPortraits already established.
+function showCampfirePanel(destId, destName, partialHours){
+  const party = getParty();
+  const loyalty = getCompanionLoyalty();
+  const list = document.getElementById('loc-action-list');
+  const cards = party.map(id => {
+    const c = COMPANIONS.find(c2 => c2.id === id);
+    if(!c) return '';
+    const mood = loyaltyLabel(loyalty[id] === undefined ? 50 : loyalty[id]);
+    const pool = CAMPFIRE_LINES[mood] || CAMPFIRE_LINES.Content;
+    const line = pool[Math.floor(Math.random() * pool.length)];
+    return `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
+          <span style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment);">${c.name}</span>
+          <span style="font-size:10.5px; color:#a9926a; font-style:italic;">${mood}</span>
+        </div>
+        <div style="font-size:13.5px; color:var(--parchment); line-height:1.5;">&ldquo;${line}&rdquo;</div>
+      </div>
+    `;
+  }).join('');
+  list.innerHTML = `
+    <button class="loc-action" id="campfire-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to camp</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Around the Campfire</div>
+    ${cards || `<div style="font-size:13px; color:#a9926a; font-style:italic;">There's no one here to talk to tonight.</div>`}
+  `;
+  const portraitEl = document.getElementById('loc-banner-portrait');
+  const portraits = party.map(id => COMPANIONS.find(c => c.id === id)).filter(c => c && c.portrait);
+  if(portraits.length){
+    portraitEl.innerHTML = portraits.map(c => `<img src="${c.portrait}" alt="${c.name}">`).join('');
+    portraitEl.classList.add('show', 'lineup');
+  }
+  document.getElementById('campfire-back-btn').addEventListener('click', ()=> showCampView(destId, destName, partialHours));
 }
 
 // ===================== QUESTS =====================
@@ -5257,6 +5309,43 @@ function loyaltyLabel(val){
   if(val >= 10) return "Resentful";
   return "Hostile";
 }
+// The loyalty meter's first real "reading" surface beyond a bar on party.html — see
+// showCampfirePanel below. No per-companion personality yet (same limitation adjustPartyLoyalty
+// itself notes), so these are generic lines bucketed by the same mood word loyaltyLabel already
+// produces, one picked at random per companion each time the panel opens — same "no seeding,
+// re-roll on reopen" convention showFlavorPanel's own lines use.
+const CAMPFIRE_LINES = {
+  Devoted: [
+    "Wherever you lead, I'll follow — there's no question left in me about that.",
+    "I wondered once if I'd made the right choice, throwing in with you. I don't wonder anymore.",
+    "Sleep easy tonight. I'll keep first watch, and gladly.",
+    "You've more than earned my sword. My trust, too."
+  ],
+  Content: [
+    "Good fire tonight. Good company too, all things considered.",
+    "Could be worse company to be stuck out here with.",
+    "Another day on the road behind us. Can't complain.",
+    "This life suits me well enough, for now."
+  ],
+  Wary: [
+    "Just... don't ask me to do anything I'll regret, alright?",
+    "I'm still here. Don't read too much into that.",
+    "Some of your choices lately have given me pause.",
+    "I keep my own counsel these days. Seems wiser."
+  ],
+  Resentful: [
+    "I don't much like the company I've been keeping lately.",
+    "There's a version of this arrangement where I walk off tonight. Keep that in mind.",
+    "You'd do well to remember I didn't sign on for everything you've done.",
+    "I stay because I've nowhere better. Don't mistake that for loyalty."
+  ],
+  Hostile: [
+    "Say your piece and be quick about it. I'm not in a listening mood.",
+    "I don't trust you. Haven't for a while now.",
+    "Careful. My patience for this arrangement is about spent.",
+    "Don't mistake my silence for forgiveness."
+  ]
+};
 // Applies delta to every currently-recruited companion at once (no per-companion personality yet —
 // see the comment above). A companion whose loyalty hits 0 leaves for good, same permanent-loss
 // shape as allyFalls but a different door out: this is quitting on the player, not dying in combat,

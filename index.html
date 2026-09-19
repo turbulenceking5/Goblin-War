@@ -553,6 +553,7 @@
         <g id="labels" style="pointer-events:none"></g>
         <g id="city-icons" style="pointer-events:none"></g>
         <g id="frontline-markers" style="pointer-events:none"></g>
+        <g id="army-markers" style="pointer-events:none"></g>
         <g id="quest-markers" style="pointer-events:none"></g>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
@@ -840,7 +841,7 @@ function advanceTime(hours, quiet){
   if(daysCrossed > 0){
     gameDay += daysCrossed;
     localStorage.setItem(CAL_KEY, String(gameDay));
-    if(!quiet){ chargeMercenaryUpkeep(); maybeRunFactionAI(); }
+    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); }
   }
   refreshCalendarUI();
 }
@@ -854,6 +855,7 @@ function restThroughNight(){
   gameHour = WAKE_HOUR;
   localStorage.setItem(CAL_KEY, String(gameDay));
   localStorage.setItem(HOUR_KEY, String(gameHour));
+  advanceArmies();
   chargeMercenaryUpkeep();
   maybeRunFactionAI();
   refreshCalendarUI();
@@ -1170,6 +1172,9 @@ const CHANGELOG = [
   { id:83, date:"2026-09-19", changes:[
     "Conversations are multiple choice now. Talk at the Campfire is a real back-and-forth with each companion, a Notable Figure has their own Talk option alongside their quest offer, and Talk to Townsfolk/Temple/Guard House/Palace/Refugee Camp all branch instead of showing one static line — some choices nudge a companion's loyalty or a kingdom's reputation depending on how you talk to them."
   ]},
+  { id:84, date:"2026-09-19", changes:[
+    "Kingdoms at war now muster and march real armies across the map on their way to besiege a settlement, instead of a siege just starting out of nowhere — you can watch a small marker actually travel the roads and sea lanes before it arrives."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1249,6 +1254,18 @@ const RELATIONS_KEY = "goblinwar_relations";
 const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
 const SIEGE_KEY = "goblinwar_sieges";
+// A visible, marching army — see "Armies march before a siege starts" in
+// context/factions-and-territory.md. At most one active army per attacking-kingdom-per-enemy
+// pair, same "at most one active X" simplicity precedent goblinwar_sieges/Notable Figure/
+// Alliance Reinforcement already set. {id, kingdom, defenderKingdom, race, originBurgId,
+// targetBurgId, routePts:[{x,y}...], routeMiles, progressMiles, x, y,
+// status:'marching'|'sieging', spawnedDay, lastAdvancedDay}.
+const ARMY_KEY = "goblinwar_armies";
+// First-pass balance number, easy to retune later (same convention as RAID_AMBUSH_CHANCE etc,
+// see context/combat.md) — picked so a typical border siege (pickRaidTarget prefers an actually
+// adjacent settlement) marches in a handful of days, while a rare far/sea-separated target takes
+// noticeably longer.
+const ARMY_MILES_PER_DAY = 200;
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
@@ -1810,6 +1827,11 @@ function getSieges(){
   try{ return JSON.parse(localStorage.getItem(SIEGE_KEY)) || {}; }catch(e){ return {}; }
 }
 function setSieges(map){ localStorage.setItem(SIEGE_KEY, JSON.stringify(map)); }
+function getArmies(){
+  if(_tickCache) return _tickCache.armies;
+  try{ return JSON.parse(localStorage.getItem(ARMY_KEY)) || []; }catch(e){ return []; }
+}
+function saveArmies(list){ localStorage.setItem(ARMY_KEY, JSON.stringify(list)); }
 // A settlement's own local defense, distinct from getArmyStrength(kingdom) (that kingdom's
 // whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege.
 function getGarrisonStrength(burgId){ return getPopulation(burgId) * MILITARY_FRACTION; }
@@ -1853,6 +1875,21 @@ function cancelSiegesBetween(k1, k2){
     }
   });
   if(changed) setSieges(sieges);
+  // Any army still marching or sieging between exactly this pair (either direction — a kingdom
+  // pair can have armies moving both ways at once, see runFactionAITick's pass 2) turns back too.
+  // Without this, a stale 'sieging' army record would survive the peace and permanently block
+  // spawnArmy from ever mustering a fresh one for this pair, even after a later war breaks out
+  // between them again — the pass-2 lookup treats any existing army record as "already handled."
+  const armies = getArmies();
+  let armiesChanged = false;
+  for(let i = armies.length - 1; i >= 0; i--){
+    const a = armies[i];
+    if((a.kingdom===k1 && a.defenderKingdom===k2) || (a.kingdom===k2 && a.defenderKingdom===k1)){
+      armies.splice(i, 1);
+      armiesChanged = true;
+    }
+  }
+  if(armiesChanged) saveArmies(armies);
 }
 
 // How many of loserKingdom's *original* settlements winnerKingdom currently controls — the real,
@@ -1960,6 +1997,125 @@ function advanceSiege(attackerKingdom, defenderKingdom){
   return { captured, target };
 }
 
+// Where a marching army musters from — the attacking kingdom's own capital, falling back to
+// whichever settlement it still controls that's nearest the target if the capital's itself been
+// captured. Same "guess when the real thing's unavailable" precedent pickRaidTarget already sets
+// for territory that doesn't actually border. Returns a burg object (not just an id), same shape
+// pickRaidTarget's own return value already has.
+function findArmyOrigin(kingdom, target){
+  const capital = Object.values(graph.burgs).find(b => b.state === kingdom && b.tier === 'capital');
+  if(capital && getControllerKingdom(capital.id) === kingdom) return capital;
+  const owned = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === kingdom);
+  if(!owned.length) return null;
+  owned.sort((a,b) => Math.hypot(a.x-target.x,a.y-target.y) - Math.hypot(b.x-target.x,b.y-target.y));
+  return owned[0];
+}
+// Walks a route polyline (the same {x,y} point list buildRoutePolyline already builds for player
+// travel animation) to whatever point sits `frac` of the way along its total on-screen length —
+// an approximation of "frac of the way along the real route," since a logical-space polyline's
+// length isn't exactly proportional to the route's real (DISTANCE_SCALE-compressed) miles, close
+// enough for a once-a-day army position snap rather than a frame-animated marker.
+function pointAlongPolyline(points, frac){
+  if(!points || points.length < 2) return (points && points[0]) || {x:0,y:0};
+  const segLens = [];
+  let total = 0;
+  for(let i=1;i<points.length;i++){
+    const d = Math.hypot(points[i].x-points[i-1].x, points[i].y-points[i-1].y);
+    segLens.push(d);
+    total += d;
+  }
+  if(total === 0) return points[0];
+  let remaining = total * Math.max(0, Math.min(1, frac));
+  for(let i=0;i<segLens.length;i++){
+    if(remaining <= segLens[i]){
+      const t = segLens[i] === 0 ? 0 : remaining/segLens[i];
+      return { x: points[i].x + (points[i+1].x-points[i].x)*t, y: points[i].y + (points[i+1].y-points[i].y)*t };
+    }
+    remaining -= segLens[i];
+  }
+  return points[points.length-1];
+}
+// Musters a new army for kingdom to march against defenderKingdom — picks the same target
+// pickRaidTarget would (a real border settlement when one exists), an origin via
+// findArmyOrigin above, and a real road/sea route via computeDistanceBetween (the same
+// pathfinding player travel itself uses — see context/travel-and-map.md). Returns null (a
+// no-op) whenever no legitimate target/origin/route exists, same "sometimes nothing happens"
+// shape pickRaidTarget's own null return already has.
+function spawnArmy(kingdom, defenderKingdom){
+  const target = pickRaidTarget(kingdom, defenderKingdom);
+  if(!target) return null;
+  const origin = findArmyOrigin(kingdom, target);
+  if(!origin || origin.id === target.id) return null;
+  const route = computeDistanceBetween(origin.id, target.id);
+  if(!route || !route.edges) return null;
+  const { points } = buildRoutePolyline({x:origin.x, y:origin.y}, target.id, route.edges);
+  const armies = getArmies();
+  const army = {
+    id: `army_${gameDay}_${Math.floor(Math.random()*1e6)}`,
+    kingdom, defenderKingdom, race: KINGDOM_RACE[kingdom],
+    originBurgId: origin.id, targetBurgId: target.id,
+    routePts: points, routeMiles: route.miles, progressMiles: 0,
+    x: origin.x, y: origin.y,
+    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay
+  };
+  armies.push(army);
+  saveArmies(armies);
+  return army;
+}
+// Removes one army by id — spliced in place (not filter+reassign) so a mutation made while
+// _tickCache is active is visible to every later getArmies() call in the same tick, same
+// in-place-mutation convention every other tick-cached map already follows (see "Performance: a
+// tick-scoped read cache" in context/factions-and-territory.md).
+function removeArmy(id){
+  const armies = getArmies();
+  const idx = armies.findIndex(a => a.id === id);
+  if(idx === -1) return;
+  armies.splice(idx, 1);
+  saveArmies(armies);
+}
+// Moves every marching army one (elapsed) day's worth further along its route — called from
+// advanceTime's non-quiet day-crossing branch, so armies visibly progress daily rather than only
+// once a week like the siege/war tick itself. Handles more than one elapsed day in a single call
+// the same way chargeMercenaryUpkeep already does (a long journey/rest can cross several days at
+// once) via each army's own lastAdvancedDay, rather than assuming this only ever runs once per
+// single day. An army that reaches its target either becomes a real siege (goblinwar_sieges entry
+// written here, not by advanceSiege anymore — see "Armies march before a siege starts" in
+// context/factions-and-territory.md) or, if the target already changed hands while it marched,
+// simply disbands. Runs outside of runFactionAITick's own tick-cache window (this isn't the O(n²)
+// per-settlement scan that cache exists for — armies are few), so every getXxx() call here is a
+// normal fresh read, same as any other out-of-tick call site.
+function advanceArmies(){
+  const armies = getArmies();
+  if(!armies.length) return;
+  const sieges = getSieges();
+  let changed = false;
+  const kept = armies.filter(army => {
+    if(army.status !== 'marching') return true;
+    const daysElapsed = gameDay - army.lastAdvancedDay;
+    if(daysElapsed <= 0) return true;
+    changed = true;
+    army.progressMiles = Math.min(army.routeMiles, army.progressMiles + daysElapsed * ARMY_MILES_PER_DAY);
+    army.lastAdvancedDay = gameDay;
+    const frac = army.routeMiles > 0 ? army.progressMiles / army.routeMiles : 1;
+    const pos = pointAlongPolyline(army.routePts, frac);
+    army.x = pos.x; army.y = pos.y;
+    if(frac >= 1){
+      if(getControllerKingdom(army.targetBurgId) === army.defenderKingdom){
+        army.status = 'sieging';
+        sieges[army.targetBurgId] = { attackerKingdom: army.kingdom, defenderKingdom: army.defenderKingdom, startedDay: gameDay, progress: 0 };
+      } else {
+        return false; // arrived to find someone else already took it — nothing left to besiege
+      }
+    }
+    return true;
+  });
+  if(changed){
+    setSieges(sieges);
+    saveArmies(kept);
+    buildArmyMarkers();
+  }
+}
+
 // Runs the whole weekly tick and returns a short list of {text} events worth telling the player
 // about (captures, plus a war-exhaustion peace that produced a clear winner — see
 // settleWarExhaustionPeace — since a whole war ending with reparations changing hands is at least
@@ -1980,6 +2136,7 @@ function runFactionAITick(){
     population: getPopulationOverrides(),
     relations: getRelationsMap(),
     sieges: getSieges(),
+    armies: getArmies(),
     reinforcements: getReinforcements(),
     warStarts: getWarStartsMap(),
     warCooldowns: getWarCooldownsMap(),
@@ -2020,12 +2177,21 @@ function runFactionAITick(){
       // from being at war, regardless of whether it's the one under siege this tick.
       Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
       enemies.forEach(enemy=>{
-        if(Math.random() < RAID_CHANCE){
-          const result = advanceSiege(kingdom, enemy);
-          if(result && result.captured){
-            events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
-            recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
+        // A siege only actually progresses once a marching army has arrived (see
+        // "Armies march before a siege starts" in context/factions-and-territory.md) — an army
+        // still en route just keeps marching, handled daily by advanceArmies() rather than here.
+        const existingArmy = getArmies().find(a => a.kingdom === kingdom && a.defenderKingdom === enemy);
+        if(existingArmy){
+          if(existingArmy.status === 'sieging' && Math.random() < RAID_CHANCE){
+            const result = advanceSiege(kingdom, enemy);
+            if(result && result.captured){
+              removeArmy(existingArmy.id);
+              events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
+              recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
+            }
           }
+        } else if(Math.random() < RAID_CHANCE){
+          spawnArmy(kingdom, enemy);
         }
       });
     });
@@ -2061,6 +2227,7 @@ function maybeRunFactionAI(){
   localStorage.setItem(LASTWARTICK_KEY, String(gameDay));
   const events = runFactionAITick();
   buildFrontlineMarkers();
+  buildArmyMarkers();
   if(events.length){
     const summary = events.length === 1 ? events[0] : `${events.length} settlements changed hands this week, including ${events[0]}`;
     showToast(summary);
@@ -3928,6 +4095,33 @@ function buildCityIcons(){
 function buildFrontlineMarkers(){
   const g = document.getElementById('frontline-markers');
   g.innerHTML = '';
+}
+
+// A small marker per marching/sieging goblinwar_armies entry — see "Armies march before a siege
+// starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
+// buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
+// changes: on load, after advanceArmies() moves/resolves anything, and after the weekly tick.
+// Placeholder wedge shape until real art exists — the Scene Backdrops tracker artifact already
+// has generation prompts drafted for a proper "army-good"/"army-bad" map icon (see
+// context/roadmap.md's "Armies meet and fight in the field"), same "ship the mechanic, swap in
+// real art later" precedent TIER_ART's plain SVGs set before real location photos existed.
+// pointer-events:none — armies aren't tappable (only a Phase 2 field-battle marker would be).
+const ARMY_MARKER_COLOR = { Good:'#3a6ea5', Bad:'#8a2b2b' };
+function buildArmyMarkers(){
+  const g = document.getElementById('army-markers');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  getArmies().forEach(army=>{
+    const color = ARMY_MARKER_COLOR[ALLIANCE[army.race]] || '#a9926a';
+    const marker = document.createElementNS(ns, "path");
+    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
+    marker.setAttribute("d", `M${army.x},${army.y-5} L${army.x+4},${army.y} L${army.x},${army.y+5} L${army.x-4},${army.y} Z`);
+    marker.setAttribute("fill", color);
+    marker.setAttribute("stroke", "#1c150c");
+    marker.setAttribute("stroke-width", "0.8");
+    g.appendChild(marker);
+  });
 }
 
 function showHighlight(x, y){
@@ -6668,6 +6862,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   buildLabels();
   buildCityIcons();
   buildFrontlineMarkers();
+  buildArmyMarkers();
   buildQuestMarkers();
   drawPlayerMarker();
   refreshCalendarUI();
@@ -6774,6 +6969,7 @@ function collectCharacterSnapshot(){
     warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
+    armies: localStorage.getItem(ARMY_KEY) || "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

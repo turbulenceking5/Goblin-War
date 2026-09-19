@@ -554,6 +554,7 @@
         <g id="city-icons" style="pointer-events:none"></g>
         <g id="frontline-markers" style="pointer-events:none"></g>
         <g id="army-markers" style="pointer-events:none"></g>
+        <g id="battle-markers"></g>
         <g id="quest-markers" style="pointer-events:none"></g>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
@@ -760,7 +761,9 @@ viewport.addEventListener('wheel', (e)=>{
 
 function handleTap(clientX, clientY){
   const el = document.elementFromPoint(clientX, clientY);
-  if(el && el.classList && el.classList.contains('hitzone')){
+  if(el && el.dataset && el.dataset.battle){
+    showFieldBattlePanel(el.dataset.battle);
+  } else if(el && el.classList && el.classList.contains('hitzone')){
     onMapTap(el.dataset.burg);
   } else {
     closeCard();
@@ -1182,6 +1185,9 @@ const CHANGELOG = [
   { id:86, date:"2026-09-19", changes:[
     "Armies no longer all come out the same size — how much of a settlement's population gets mustered into a marching army now varies each time, anywhere from a small probing force to a full call-to-arms, still taken straight from that settlement's own people."
   ]},
+  { id:87, date:"2026-09-19", changes:[
+    "Two opposing armies meeting on the map now sparks a real field battle you can join — tap the new crossed-swords marker to reach an Army Camp with soldiers to talk to, a place to resupply, and a Front Line to fight at. Head out, win or lose, and you're back at camp to rest up before the next clash — the fighting plays out in real stages until one side is routed."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1279,6 +1285,27 @@ const ARMY_MILES_PER_DAY = 200;
 const MAX_ARMIES_PER_ENEMY_PAIR = 3;
 // ARMY_MUSTER_FRACTION_MIN/MAX (the randomized muster-size range) are declared further down,
 // right after MILITARY_FRACTION itself — see there.
+// Two armies from opposite alliances that come within this many logical-space units of each
+// other (while both still 'marching') clash in the open field — see detectFieldBattles.
+const BATTLE_ENCOUNTER_RADIUS = 15;
+// A field battle's own record — {id, x, y, goodKingdom, goodArmyId, goodRace, badKingdom,
+// badArmyId, badRace, startedDay, advantage}. advantage is a single -100..100 scalar (a
+// tug-of-war, not two separate meters, since only the Good side ever gets a player-facing "help"
+// hook — same one-directional precedent every other Player Involvement action already sets):
+// negative favors Bad, positive favors Good, and the losing side's army is routed at ±100. See
+// "Field battles: an Army Camp, and a real fight the player can join" in
+// context/factions-and-territory.md.
+const FIELD_BATTLE_KEY = "goblinwar_fieldBattles";
+const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
+// First-pass balance numbers (same "easy to retune" convention as everywhere else). MAX_PER_TICK
+// is the biggest single weekly-tick swing at the most lopsided clamped strength ratio (same
+// RAID_SUCCESS_MIN/MAX clamp advanceSiege already uses); ADVANTAGE_RELIEF is what one won
+// front-line clash adds — bigger than Defend the Walls' 30-point siege relief, since this is a
+// bigger fight, but still not a guaranteed win by itself.
+const FIELD_BATTLE_ADVANTAGE_MAX_PER_TICK = 30;
+const FIELD_BATTLE_ADVANTAGE_RELIEF = 35;
+const FIELD_BATTLE_GOLD_RANGE = [25,50];
+const FIELD_BATTLE_XP_RANGE = [30,50];
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
@@ -1853,6 +1880,19 @@ function getArmies(){
   try{ return JSON.parse(localStorage.getItem(ARMY_KEY)) || []; }catch(e){ return []; }
 }
 function saveArmies(list){ localStorage.setItem(ARMY_KEY, JSON.stringify(list)); }
+function getFieldBattles(){
+  if(_tickCache) return _tickCache.fieldBattles;
+  try{ return JSON.parse(localStorage.getItem(FIELD_BATTLE_KEY)) || []; }catch(e){ return []; }
+}
+function saveFieldBattles(list){ localStorage.setItem(FIELD_BATTLE_KEY, JSON.stringify(list)); }
+// Spliced in place, same reasoning as removeArmy — safe whether or not _tickCache is active.
+function removeFieldBattle(id){
+  const battles = getFieldBattles();
+  const idx = battles.findIndex(b => b.id === id);
+  if(idx === -1) return;
+  battles.splice(idx, 1);
+  saveFieldBattles(battles);
+}
 // A settlement's own local defense, distinct from getArmyStrength(kingdom) (that kingdom's
 // whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege, and
 // now a real mechanical input to advanceSiege's own math too (see "An army's own strength, not
@@ -2157,6 +2197,47 @@ function mergeArmies(){
   if(changed) saveArmies(armies);
   return changed;
 }
+// Checks every pair of still-'marching' armies from opposite alliances for a chance encounter —
+// called once per advanceArmies() pass, right after movement/merging, so two armies that crossed
+// paths this exact day are caught immediately rather than a tick late. Only 'marching' armies
+// clash; one already 'sieging' a settlement isn't interrupted by a passing enemy force (a real
+// simplification — see "Field battles" in context/factions-and-territory.md). `matched` tracks
+// which armies already paired up this same call so a third nearby army can't double-book one that
+// was just claimed.
+function detectFieldBattles(){
+  const armies = getArmies();
+  const marching = armies.filter(a => a.status === 'marching');
+  const matched = new Set();
+  let changed = false;
+  for(let i = 0; i < marching.length; i++){
+    if(matched.has(marching[i].id)) continue;
+    for(let j = i+1; j < marching.length; j++){
+      if(matched.has(marching[j].id)) continue;
+      const a = marching[i], b = marching[j];
+      if(ALLIANCE[a.race] === ALLIANCE[b.race]) continue; // same side never fights
+      if(Math.hypot(a.x-b.x, a.y-b.y) > BATTLE_ENCOUNTER_RADIUS) continue;
+      const good = ALLIANCE[a.race] === 'Good' ? a : b;
+      const bad = good === a ? b : a;
+      good.status = 'battling'; bad.status = 'battling';
+      const x = (good.x + bad.x) / 2, y = (good.y + bad.y) / 2;
+      good.x = x; good.y = y; bad.x = x; bad.y = y;
+      matched.add(good.id); matched.add(bad.id);
+      const battles = getFieldBattles();
+      battles.push({
+        id: `battle_${gameDay}_${Math.floor(Math.random()*1e6)}`,
+        x, y,
+        goodKingdom: good.kingdom, goodArmyId: good.id, goodRace: good.race,
+        badKingdom: bad.kingdom, badArmyId: bad.id, badRace: bad.race,
+        startedDay: gameDay, advantage: 0
+      });
+      saveFieldBattles(battles);
+      changed = true;
+      break;
+    }
+  }
+  if(changed) saveArmies(armies);
+  return changed;
+}
 // Removes one army by id — spliced in place (not filter+reassign) so a mutation made while
 // _tickCache is active is visible to every later getArmies() call in the same tick, same
 // in-place-mutation convention every other tick-cached map already follows (see "Performance: a
@@ -2215,6 +2296,8 @@ function advanceArmies(){
   }
   const merged = mergeArmies();
   if(changed || merged) buildArmyMarkers();
+  const battlesFormed = detectFieldBattles();
+  if(battlesFormed) buildBattleMarkers();
 }
 
 // Runs the whole weekly tick and returns a short list of {text} events worth telling the player
@@ -2238,6 +2321,7 @@ function runFactionAITick(){
     relations: getRelationsMap(),
     sieges: getSieges(),
     armies: getArmies(),
+    fieldBattles: getFieldBattles(),
     reinforcements: getReinforcements(),
     warStarts: getWarStartsMap(),
     warCooldowns: getWarCooldownsMap(),
@@ -2302,6 +2386,40 @@ function runFactionAITick(){
         }
       });
     });
+    // Field battles — armies that met in the open field (see detectFieldBattles, called daily
+    // from advanceArmies) resolve here too, same weekly cadence as sieges, weighing each side's
+    // own current army strength (not a kingdom-wide pool — same "this specific force's own size
+    // decides it" precedent advanceSiege already set). A future "Raid the Enemy Camp" engagement
+    // (see roadmap.md) would act on that same .strength field directly, which is why armies carry
+    // their own strength rather than the battle recomputing it some other way.
+    getFieldBattles().slice().forEach(battle=>{
+      const armies = getArmies();
+      const goodArmy = armies.find(a => a.id === battle.goodArmyId);
+      const badArmy = armies.find(a => a.id === battle.badArmyId);
+      if(!goodArmy || !badArmy){
+        // One side is already gone some other way — shouldn't normally happen (battling armies
+        // don't march into a siege capture), but stay defensive rather than leave an orphan.
+        removeFieldBattle(battle.id);
+        return;
+      }
+      const rawChance = goodArmy.strength / ((goodArmy.strength + badArmy.strength) || 1);
+      const clamped = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
+      const swing = (clamped - 0.5) * 2 * FIELD_BATTLE_ADVANTAGE_MAX_PER_TICK; // -MAX..+MAX, 0 at an even match
+      battle.advantage = Math.max(-100, Math.min(100, battle.advantage + swing));
+      if(Math.abs(battle.advantage) >= 100){
+        const goodWon = battle.advantage > 0;
+        const loser = goodWon ? badArmy : goodArmy;
+        const winner = goodWon ? goodArmy : badArmy;
+        removeArmy(loser.id);
+        winner.status = 'marching'; // resumes its own march from wherever it paused
+        saveArmies(getArmies());
+        removeFieldBattle(battle.id);
+        events.push(`${loser.kingdom}'s army was routed in open battle by ${winner.kingdom}'s forces.`);
+        recordWorldEvent(`Word has it ${loser.kingdom}'s army broke and fled after a pitched battle with ${winner.kingdom}.`);
+      } else {
+        saveFieldBattles(getFieldBattles());
+      }
+    });
     // Regrowth, once per settlement — the mirror image of the attrition pass just above, not
     // scoped to kingdom pairs since it isn't about who's fighting whom, just who's currently safe.
     applyPopulationGrowth();
@@ -2335,6 +2453,7 @@ function maybeRunFactionAI(){
   const events = runFactionAITick();
   buildFrontlineMarkers();
   buildArmyMarkers();
+  buildBattleMarkers();
   if(events.length){
     const summary = events.length === 1 ? events[0] : `${events.length} settlements changed hands this week, including ${events[0]}`;
     showToast(summary);
@@ -4240,6 +4359,36 @@ function buildArmyMarkers(){
     marker.setAttribute("stroke", "#1c150c");
     marker.setAttribute("stroke-width", "0.8");
     g.appendChild(marker);
+  });
+}
+
+// Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable
+// non-settlement marker on the map. Two elements per battle, same "invisible hitzone circle +
+// separate visible mark" split every settlement already uses (see HIT_R/buildHitzones): a
+// `.hitzone.battle-hitzone[data-battle]` circle (interactive — handleTap checks dataset.battle
+// before falling through to the ordinary settlement-hitzone branch) plus a pointer-events:none
+// crossed-line mark on top of it so the visual doesn't intercept its own tap. Placeholder look
+// until real art exists, same precedent buildArmyMarkers' own placeholder wedge sets.
+function buildBattleMarkers(){
+  const g = document.getElementById('battle-markers');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  getFieldBattles().forEach(battle=>{
+    const hit = document.createElementNS(ns, "circle");
+    hit.setAttribute("class", "hitzone battle-hitzone");
+    hit.setAttribute("cx", battle.x);
+    hit.setAttribute("cy", battle.y);
+    hit.setAttribute("r", 10);
+    hit.dataset.battle = battle.id;
+    g.appendChild(hit);
+    const mark = document.createElementNS(ns, "path");
+    mark.setAttribute("d", `M${battle.x-5},${battle.y-5} L${battle.x+5},${battle.y+5} M${battle.x-5},${battle.y+5} L${battle.x+5},${battle.y-5}`);
+    mark.setAttribute("stroke", "#d1a445");
+    mark.setAttribute("stroke-width", "2.2");
+    mark.setAttribute("stroke-linecap", "round");
+    mark.style.pointerEvents = "none";
+    g.appendChild(mark);
   });
 }
 
@@ -6647,6 +6796,227 @@ function resolveSiegeDefense(burgId, result){
   showLocationView(burgId);
 }
 
+// ===================== FIELD BATTLES: THE ARMY CAMP =====================
+// Reached by tapping a battle marker (see buildBattleMarkers/handleTap) — reuses the same
+// #location-view/#loc-banner/#loc-action-list shell showLocationView/showCampView already use,
+// per locations-and-camp.md's own "replace #loc-action-list's contents with a new sub-screen
+// rather than a new top-level overlay" convention. No real travel cost to reach one in this pass
+// (see context/factions-and-territory.md's "Field battles" — a deliberate simplification, not an
+// oversight): tapping the marker opens the camp directly, same "instant, no travel" precedent the
+// standalone MAKE CAMP button already sets.
+function showFieldBattlePanel(battleId){
+  stopWaiting();
+  const battle = getFieldBattles().find(b => b.id === battleId);
+  const list = document.getElementById('loc-action-list');
+  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup');
+  document.getElementById('loc-banner-portrait').innerHTML = '';
+  document.getElementById('loc-banner-art').classList.remove('photo');
+  document.getElementById('loc-banner-art').innerHTML = CAMP_ART;
+
+  if(!battle){
+    // Defensive re-check, same pattern showNotableFigurePanel already uses — a battle can resolve
+    // in the background (the weekly tick) between renders.
+    document.getElementById('loc-heading').textContent = "Army Camp";
+    document.getElementById('loc-sub').textContent = "The fighting here has moved on";
+    list.innerHTML = `
+      <button class="loc-action" id="battle-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to the map</span></span>
+      </button>
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13px; color:#a9926a; font-style:italic;">
+        By the time you arrive, the camp is already gone — the fighting here was settled one way or the other.
+      </div>
+    `;
+    document.getElementById('battle-back-btn').addEventListener('click', ()=> document.getElementById('location-view').classList.remove('show'));
+    document.getElementById('location-view').classList.add('show');
+    return;
+  }
+
+  document.getElementById('loc-heading').textContent = "Army Camp";
+  document.getElementById('loc-sub').textContent = `${battle.goodKingdom}'s forces, in the field against ${battle.badKingdom}`;
+
+  const engagedToday = hasFieldBattleEngagedToday(battleId);
+  const staminaLow = playerStamina < STAMINA_COST_PER_ATTACK;
+  const frontlineDisabledNote = engagedToday
+    ? "You've already fought here today — Resupply first"
+    : staminaLow
+      ? "Too exhausted to fight — Resupply first"
+      : `Join the fighting alongside ${battle.goodKingdom}'s soldiers`;
+
+  list.innerHTML = `
+    <button class="loc-action" id="battle-retreat-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Retreat</b><span>Return to the map — the fight continues without you</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Army Camp</div>
+    <button class="loc-action" id="battle-rest-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h3l2-5 4 10 3-7 2 4h4"/></svg>
+      <span class="li-text"><b>Resupply</b><span>Rest with the army, restore health &amp; stamina &middot; Passes 1 day</span></span>
+    </button>
+    ${FIELD_BATTLE_CAMP_CHARACTERS.map(c => `
+      <button class="loc-action field-battle-talk-btn" data-char="${c.id}">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="li-text"><b>Talk to ${c.title}</b><span>${c.blurb}</span></span>
+      </button>
+    `).join('')}
+    <button class="loc-action" id="battle-frontline-btn" ${engagedToday || staminaLow ? 'disabled' : ''}>
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>
+      <span class="li-text"><b>Head to the Front Line</b><span>${frontlineDisabledNote}</span></span>
+    </button>
+  `;
+  document.getElementById('battle-retreat-btn').addEventListener('click', ()=> document.getElementById('location-view').classList.remove('show'));
+  document.getElementById('battle-rest-btn').addEventListener('click', ()=>{
+    restThroughNight();
+    restFully();
+    showToast("You rest with the army and recover your strength.");
+    showFieldBattlePanel(battleId);
+  });
+  document.querySelectorAll('.field-battle-talk-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=> showFieldBattleCharacterConversation(battleId, btn.dataset.char));
+  });
+  const frontlineBtn = document.getElementById('battle-frontline-btn');
+  if(frontlineBtn && !frontlineBtn.disabled){
+    frontlineBtn.addEventListener('click', ()=> triggerFieldBattleEngagement(battleId, 'frontline'));
+  }
+  document.getElementById('location-view').classList.add('show');
+}
+
+// Generic camp roles, not unique named individuals — same "deliberately faceless, no new art
+// needed yet" precedent MERCENARY_TYPES already set, so this ships without waiting on portrait
+// art. Flavor-only dialogue (no `effects` on any choice) — there's no natural effect target here
+// (not the player's own party, not really a specific kingdom's reputation), so this stays simple
+// on purpose. Same multiple-choice engine as everywhere else — see CAMPFIRE_TREES' own comment
+// for the shared renderDialogueBody/wireDialogueChoices contract.
+const FIELD_BATTLE_CAMP_CHARACTERS = [
+  { id:"quartermaster", title:"the Quartermaster", blurb:"Counting crates by lamplight" },
+  { id:"soldier", title:"a Weary Soldier", blurb:"Resting between clashes" },
+];
+const FIELD_BATTLE_CAMP_TREES = {
+  quartermaster: {
+    start: "root",
+    nodes: {
+      root: { text:"The quartermaster is counting crates by lamplight, ledger balanced on one knee. “Need something, or just looking for someone to talk to?”",
+        choices: [
+          { label:"Ask how the supplies are holding up", next:"ask_supplies" },
+          { label:"Ask what happens if the battle drags on", next:"ask_drag" },
+          { label:"Just nod and move on" }
+        ] },
+      ask_supplies: { text:"“Holding. For now.” They tap the ledger. “Every clash costs us grain and bandages whether we win it or not. Nobody talks about that part in the songs.”", choices: [] },
+      ask_drag: { text:"“Then we keep sending men out, and keep patching up who comes back, until one side's got nothing left to send.” They don't look up from the ledger. “That's most wars, in the end. Not the clash — the counting.”", choices: [] }
+    }
+  },
+  soldier: {
+    start: "root",
+    nodes: {
+      root: { text:"A soldier sits slumped against a supply crate, armor still dented from the last clash, eyes half-closed. “Come to fight, or come to talk? Either's fine by me right now.”",
+        choices: [
+          { label:"Ask how the fighting's really going", next:"ask_fighting" },
+          { label:"Ask if they're doing alright", next:"ask_alright" },
+          { label:"Let them rest" }
+        ] },
+      ask_fighting: { text:"“Back and forth. We push, they push, everyone drags themselves back here to patch up and do it again.” A tired half-smile. “Wears you down faster than any one fight would.”", choices: [] },
+      ask_alright: { text:"They're quiet a moment. “Alive. Ask me again after the next one.” It's not quite a joke.", choices: [] }
+    }
+  }
+};
+function showFieldBattleCharacterConversation(battleId, charId){
+  const char = FIELD_BATTLE_CAMP_CHARACTERS.find(c => c.id === charId);
+  const tree = FIELD_BATTLE_CAMP_TREES[charId];
+  if(!char || !tree){ showFieldBattlePanel(battleId); return; }
+  let nodeId = tree.start;
+  const list = document.getElementById('loc-action-list');
+  function render(){
+    const node = tree.nodes[nodeId];
+    list.innerHTML = `
+      <button class="loc-action" id="battle-convo-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to the camp</span></span>
+      </button>
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">${char.title}</div>
+      ${renderDialogueBody(node)}
+    `;
+    document.getElementById('battle-convo-back-btn').addEventListener('click', ()=> showFieldBattlePanel(battleId));
+    wireDialogueChoices(node, choice => {
+      if(choice.next){ nodeId = choice.next; render(); }
+      else showFieldBattlePanel(battleId);
+    });
+  }
+  render();
+}
+
+// A small catalog, deliberately — so "Raid the Enemy Camp" and whatever else the project owner
+// wants to add later (see roadmap.md's "Armies meet and fight in the field") are each just one
+// more entry, not a rewrite of showFieldBattlePanel. Only 'frontline' ships in this pass.
+// buildEnemies(battle) returns the enemySpecs startCombat expects; onWin(battle) decides what a
+// victory actually does — frontline pushes the shared advantage meter, a future raid-type entry
+// would instead reduce the enemy army's own .strength directly (see the plan's own note on why).
+const FIELD_BATTLE_ENGAGEMENTS = {
+  frontline: {
+    title: "Head to the Front Line",
+    buildEnemies(battle){
+      const variants = ENEMY_VARIANTS[battle.badRace] || ENEMY_VARIANTS.ork;
+      const count = 2 + Math.floor(Math.random()*2); // 2 or 3, same sizing Defend the Walls uses
+      const specs = [];
+      for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+      return specs;
+    },
+    onWin(battle){
+      const battles = getFieldBattles();
+      const b = battles.find(x => x.id === battle.id);
+      if(!b) return;
+      b.advantage = Math.max(-100, Math.min(100, b.advantage + FIELD_BATTLE_ADVANTAGE_RELIEF));
+      saveFieldBattles(battles);
+    }
+  }
+};
+function getFieldBattleCooldowns(){ try{ return JSON.parse(localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY)) || {}; }catch(e){ return {}; } }
+function hasFieldBattleEngagedToday(battleId){ return getFieldBattleCooldowns()[battleId] === gameDay; }
+function recordFieldBattleEngaged(battleId){
+  const cd = getFieldBattleCooldowns();
+  cd[battleId] = gameDay;
+  localStorage.setItem(FIELD_BATTLE_COOLDOWN_KEY, JSON.stringify(cd));
+}
+// Starts a clash via the same generic startCombat every other fight uses — same "overwrite the
+// ambush-flavored title/log right after the call" pattern triggerSiegeDefenseFight already set.
+// Gated once per battle per gameDay (see showFieldBattlePanel's own disabled-button check) — this
+// is the real mechanism behind "fight, withdraw, resupply, fight again": you structurally cannot
+// re-engage the same battle again today no matter how much Stamina is left, only after a real
+// Resupply (a new day) or by finding a different battle.
+function triggerFieldBattleEngagement(battleId, engagementId){
+  const battle = getFieldBattles().find(b => b.id === battleId);
+  const engagement = FIELD_BATTLE_ENGAGEMENTS[engagementId];
+  if(!battle || !engagement){ showFieldBattlePanel(battleId); return; }
+  const specs = engagement.buildEnemies(battle);
+  startCombat(specs, PLAYER_DMG_RANGE, (result)=> resolveFieldBattleEngagement(battleId, engagementId, result), battle.badRace);
+  document.getElementById('combat-title').textContent = engagement.title + '!';
+  const log = document.getElementById('combat-log');
+  log.innerHTML = log.querySelector('.combat-intro-line').outerHTML
+    + `<div>${battle.goodKingdom}'s line clashes with ${battle.badKingdom}'s forces!</div>`;
+}
+// Victory applies the engagement's own effect (frontline: a capped push toward Good — see the
+// catalog above) plus gold/XP, bigger than Defend the Walls' since this is a bigger fight but
+// still not a guaranteed win by itself (same "player can grow strong but never solo-topple a
+// city" constraint). Defeat/flee bank nothing but cost nothing extra either — either way, always
+// returns to the Camp screen, not the map, the "both sides withdrew to regroup" beat.
+function resolveFieldBattleEngagement(battleId, engagementId, result){
+  recordFieldBattleEngaged(battleId);
+  const battle = getFieldBattles().find(b => b.id === battleId);
+  const engagement = FIELD_BATTLE_ENGAGEMENTS[engagementId];
+  if(battle && engagement && result === 'victory'){
+    engagement.onWin(battle);
+    const gold = randRange(FIELD_BATTLE_GOLD_RANGE);
+    const xp = randRange(FIELD_BATTLE_XP_RANGE);
+    setGold(playerGold + gold);
+    const leveledUp = addXp(xp);
+    const repNote = adjustReputation(battle.goodKingdom, REP_GAIN_MAJOR);
+    showToast(`You help push back ${battle.badKingdom}'s line! +${gold}g, +${xp} XP.`
+      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
+  } else {
+    showToast(`You withdraw from the clash, worse for wear.`);
+  }
+  showFieldBattlePanel(battleId);
+}
+
 // One panel for all three of the old Inn/Pub's services — see the TAVERN section above for why
 // they merged. Fully re-renders (render(), the same pattern showMarketPanel/showQuestBoardPanel
 // use) after either action rather than patching individual elements in place, since both Rest
@@ -6982,6 +7352,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   buildCityIcons();
   buildFrontlineMarkers();
   buildArmyMarkers();
+  buildBattleMarkers();
   buildQuestMarkers();
   drawPlayerMarker();
   refreshCalendarUI();
@@ -7089,6 +7460,8 @@ function collectCharacterSnapshot(){
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     armies: localStorage.getItem(ARMY_KEY) || "[]",
+    fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
+    fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

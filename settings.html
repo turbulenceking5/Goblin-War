@@ -173,6 +173,8 @@ const WARSTART_KEY = "goblinwar_warStarts"; // {"KingdomA::KingdomB": gameDay} �
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty expires} — see index.html's war exhaustion
 const TRIBUTE_KEY = "goblinwar_tribute"; // {kingdomName: {role, counterpart, expiresDay}} — see index.html's war exhaustion
 const ARMY_KEY = "goblinwar_armies"; // JSON array of marching/sieging armies — see index.html's "Armies march before a siege starts"
+const FIELD_BATTLE_KEY = "goblinwar_fieldBattles"; // JSON array of active field battles — see index.html's "Field battles"
+const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -307,6 +309,8 @@ function collectCharacterSnapshot(){
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     armies: localStorage.getItem(ARMY_KEY) || "[]",
+    fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
+    fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

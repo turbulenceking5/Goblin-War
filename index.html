@@ -1167,6 +1167,9 @@ const CHANGELOG = [
   { id:82, date:"2026-09-19", changes:[
     "You can now talk to your companions at camp — a new \"Talk at the Campfire\" option (whenever you've recruited at least one) shows how each of them is really feeling about the journey so far, straight from their loyalty toward you."
   ]},
+  { id:83, date:"2026-09-19", changes:[
+    "Conversations are multiple choice now. Talk at the Campfire is a real back-and-forth with each companion, a Notable Figure has their own Talk option alongside their quest offer, and Talk to Townsfolk/Temple/Guard House/Palace/Refugee Camp all branch instead of showing one static line — some choices nudge a companion's loyalty or a kingdom's reputation depending on how you talk to them."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4333,12 +4336,12 @@ function showCampView(destId, destName, partialHours){
 
   document.getElementById('location-view').classList.add('show');
 }
-// A small conversation beat at camp — the loyalty meter's first real "reading" surface beyond
-// the bar on party.html (see context/roadmap.md's "Talk to companions at the campfire"). Every
-// currently-recruited companion gets one line, picked from CAMPFIRE_LINES' pool for whatever mood
-// bucket their current goblinwar_companionLoyalty value falls into — same bucketing loyaltyLabel
-// already uses for party.html's own display, just read here instead of adjusted. Portraits reuse
-// the ".lineup" multi-portrait banner treatment showMercenaryLineupPortraits already established.
+// A real conversation beat at camp now — see CAMPFIRE_TREES/showCampfireConversation below and
+// context/roadmap.md's "Talk to companions at the campfire". Each recruited companion gets a
+// "Talk to X" row (their current loyalty mood shown next to it, from loyaltyLabel, same bucketing
+// party.html's own display uses); tapping one opens their own multiple-choice tree. Portraits
+// reuse the ".lineup" multi-portrait banner treatment showMercenaryLineupPortraits established,
+// switching to ".solo" for whichever one companion you're actually mid-conversation with.
 function showCampfirePanel(destId, destName, partialHours){
   const party = getParty();
   const loyalty = getCompanionLoyalty();
@@ -4347,16 +4350,11 @@ function showCampfirePanel(destId, destName, partialHours){
     const c = COMPANIONS.find(c2 => c2.id === id);
     if(!c) return '';
     const mood = loyaltyLabel(loyalty[id] === undefined ? 50 : loyalty[id]);
-    const pool = CAMPFIRE_LINES[mood] || CAMPFIRE_LINES.Content;
-    const line = pool[Math.floor(Math.random() * pool.length)];
     return `
-      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
-          <span style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment);">${c.name}</span>
-          <span style="font-size:10.5px; color:#a9926a; font-style:italic;">${mood}</span>
-        </div>
-        <div style="font-size:13.5px; color:var(--parchment); line-height:1.5;">&ldquo;${line}&rdquo;</div>
-      </div>
+      <button class="loc-action campfire-talk-btn" data-companion-id="${c.id}" style="margin-bottom:10px;">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="li-text"><b>Talk to ${c.name}</b><span>${c.title} &middot; ${mood}</span></span>
+      </button>
     `;
   }).join('');
   list.innerHTML = `
@@ -4371,10 +4369,136 @@ function showCampfirePanel(destId, destName, partialHours){
   const portraits = party.map(id => COMPANIONS.find(c => c.id === id)).filter(c => c && c.portrait);
   if(portraits.length){
     portraitEl.innerHTML = portraits.map(c => `<img src="${c.portrait}" alt="${c.name}">`).join('');
+    portraitEl.classList.remove('solo');
     portraitEl.classList.add('show', 'lineup');
   }
   document.getElementById('campfire-back-btn').addEventListener('click', ()=> showCampView(destId, destName, partialHours));
+  document.querySelectorAll('.campfire-talk-btn').forEach(btn => {
+    btn.addEventListener('click', ()=> showCampfireConversation(btn.dataset.companionId, destId, destName, partialHours));
+  });
 }
+// One multiple-choice conversation per recruited companion — see CAMPFIRE_TREES below and the
+// DIALOGUE TREES engine comment above. Loyalty effects land on this one companion only
+// (adjustCompanionLoyalty), not the whole party the way a world event does.
+function showCampfireConversation(companionId, destId, destName, partialHours){
+  const c = COMPANIONS.find(c2 => c2.id === companionId);
+  const tree = CAMPFIRE_TREES[companionId];
+  if(!c || !tree){ showCampfirePanel(destId, destName, partialHours); return; }
+  let nodeId = tree.start;
+  const list = document.getElementById('loc-action-list');
+  const ctx = { companionId, cooldownKey: `companion:${companionId}` };
+  function render(){
+    const node = tree.nodes[nodeId];
+    list.innerHTML = `
+      <button class="loc-action" id="campfire-convo-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to the campfire</span></span>
+      </button>
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">${c.name}</div>
+      ${renderDialogueBody(node)}
+    `;
+    document.getElementById('campfire-convo-back-btn').addEventListener('click', ()=> showCampfirePanel(destId, destName, partialHours));
+    wireDialogueChoices(node, choice => {
+      const note = applyDialogueEffects(choice.effects, ctx);
+      if(note) showToast(note);
+      if(choice.next){ nodeId = choice.next; render(); }
+      else showCampfirePanel(destId, destName, partialHours);
+    });
+  }
+  render();
+  const portraitEl = document.getElementById('loc-banner-portrait');
+  if(c.portrait){
+    portraitEl.innerHTML = `<img src="${c.portrait}" alt="${c.name}">`;
+    portraitEl.classList.remove('lineup');
+    portraitEl.classList.add('show', 'solo');
+  }
+}
+// One tree per COMPANIONS entry — root sets the scene, a topic choice leads to a short exchange,
+// and (Ser Brannoc's only, for now) one path goes a turn deeper still. Loyalty deltas are modest
+// per pick (±1 to ±3) since a full conversation can chain two of them — see the once-per-day
+// cooldown on applyDialogueEffects above for why that's safe to allow at all.
+const CAMPFIRE_TREES = {
+  "brannoc-ward": {
+    start: "root",
+    nodes: {
+      root: { text:"The fire's dying low, and Ser Brannoc's turning an old, plain sword-pommel over in his hands — not the blade at his hip. He doesn't look up right away.",
+        choices: [
+          { label:"Ask whose sword that was", next:"ask_past" },
+          { label:"Ask why he's still awake", next:"ask_sleep" },
+          { label:"Leave him to his thoughts" }
+        ] },
+      ask_past: { text:"“Belonged to a knight I served under, before the coin started mattering more than the cause did. I keep it so I don't forget there was a before.” He turns it over once more before tucking it away.",
+        choices: [
+          { label:"“The cause still matters. You could serve it again.”", next:"past_encourage", effects:{loyalty:2} },
+          { label:"“Sentiment's a liability out here. Sell it.”", next:"past_dismiss", effects:{loyalty:-2} }
+        ] },
+      ask_sleep: { text:"“Can't. Some nights this fire keeps the memories close instead of chasing them off.” He nods at the space beside him. “Company helps, if you're offering it.”",
+        choices: [
+          { label:"Sit with him a while, say nothing", next:"sleep_sit", effects:{loyalty:2} },
+          { label:"Tell him to toughen up — dawn comes early", next:"sleep_brush", effects:{loyalty:-2} }
+        ] },
+      past_encourage: { text:"Something shifts in his face — not quite hope, but close to it. “Maybe. Maybe when this war's done with me, I'll find out if that's still true.” He sounds like he means it, for once.",
+        choices: [
+          { label:"“I'll hold you to that.”", next:"past_encourage_promise", effects:{loyalty:3} },
+          { label:"Just nod and let it sit" }
+        ] },
+      past_encourage_promise: { text:"“Do that,” he says, almost smiling. “Someone should.” He sets the old pommel down by the fire instead of pocketing it — first time you've seen him do that.", choices: [] },
+      past_dismiss: { text:"His jaw tightens. “Maybe you're right.” He doesn't sell it. He just puts it away like the conversation never happened.", choices: [] },
+      sleep_sit: { text:"Neither of you says much. After a while he mutters, “Didn't expect that. Thank you.” It's the most sincere he's sounded all night.", choices: [] },
+      sleep_brush: { text:"He barks a short, humorless laugh. “Right. Course.” He turns back to the fire and doesn't say anything else.", choices: [] }
+    }
+  },
+  "wren-sable": {
+    start: "root",
+    nodes: {
+      root: { text:"Wren's got a book open in her lap, but she's not reading it — she's watching the fire, chewing on something.",
+        choices: [
+          { label:"Ask what's on her mind", next:"ask_mind" },
+          { label:"Ask about the book", next:"ask_book" },
+          { label:"Let her be" }
+        ] },
+      ask_mind: { text:"“Just thinking about the last spell I tried. It didn't go how the book said it would. None of them ever quite do.” She sounds more curious than worried, which worries you a little.",
+        choices: [
+          { label:"“Maybe slow down before something goes really wrong.”", next:"mind_caution", effects:{loyalty:2} },
+          { label:"“Sounds like progress to me. Keep pushing.”", next:"mind_push", effects:{loyalty:-2} }
+        ] },
+      ask_book: { text:"“Stole this one, if you're wondering. The temple library doesn't exactly hand out books on 'the old ways' to hedge-mages who ask nicely.” She grins like she's daring you to disapprove.",
+        choices: [
+          { label:"“As long as it's not going to get us both killed.”", next:"book_wary", effects:{loyalty:1} },
+          { label:"“Steal a few more. Knowledge is worth the risk.”", next:"book_encourage", effects:{loyalty:-1} }
+        ] },
+      mind_caution: { text:"She's quiet for a second, then nods. “...Fair. I'll be more careful. Doesn't mean I'll stop, just — careful.” It's as close to agreeing with you as she gets.", choices: [] },
+      mind_push: { text:"Her eyes light up. “Now that's the kind of encouragement I don't get enough of.” She's already flipping to the next page. You have a feeling you'll regret this eventually.", choices: [] },
+      book_wary: { text:"“Noted,” she says, unbothered. “For what it's worth, I don't plan on dying to a library book. That'd be embarrassing.”", choices: [] },
+      book_encourage: { text:"“Now you're speaking my language.” She actually closes the book to grin properly at you. “Careful — say things like that and I'll start thinking you understand me.”", choices: [] }
+    }
+  },
+  "thrain-emberforge": {
+    start: "root",
+    nodes: {
+      root: { text:"Thrain's running a whetstone along his axe-blade, slow and unhurried, the same rhythm he probably kept at his old forge.",
+        choices: [
+          { label:"Ask why he really left the forge", next:"ask_why" },
+          { label:"Ask if he misses it", next:"ask_miss" },
+          { label:"Let the rhythm speak for itself" }
+        ] },
+      ask_why: { text:"He doesn't look up. “Told you already — good steel's out here, not sitting in my own shop waiting for customers.” A pause. “That's most of it, anyway.”",
+        choices: [
+          { label:"“What's the rest of it?”", next:"why_press", effects:{loyalty:2} },
+          { label:"“Fine, keep your secrets.”", next:"why_drop", effects:{loyalty:-1} }
+        ] },
+      ask_miss: { text:"“Every day. Steady hours, a real bed, not getting shot at.” He almost smiles. “But a forge doesn't teach you much you don't already know. The road does.”",
+        choices: [
+          { label:"“There's no shame in wanting steady, though.”", next:"miss_kind", effects:{loyalty:2} },
+          { label:"“Sounds like an excuse to me.”", next:"miss_needle", effects:{loyalty:-2} }
+        ] },
+      why_press: { text:"He sets the whetstone down. “My apprentice took over the shop. Good lad. Better smith than me already, if I'm honest.” He shrugs like it doesn't sting, but it clearly does a little. “Didn't want to be the old man in his way.”", choices: [] },
+      why_drop: { text:"“Suit yourself,” he grunts, and goes back to the whetstone. The rhythm picks up again, a little sharper than before.", choices: [] },
+      miss_kind: { text:"He actually looks up at that. “...Appreciate you saying so.” He goes back to the axe, but something in his shoulders has eased.", choices: [] },
+      miss_needle: { text:"The whetstone stops. “An excuse.” He doesn't raise his voice, which is somehow worse. “Right. Good talk.” He goes back to sharpening, harder than before.", choices: [] }
+    }
+  }
+};
 
 // ===================== QUESTS =====================
 // See context/quests.md. Two sources, per design: the Quest Board (any settlement, minor
@@ -4550,11 +4674,11 @@ function generateBoardOffers(burgId){
 // `portrait` shows up overlaid on the settlement banner while showNotableFigurePanel is open
 // — see #loc-banner-portrait. All five now have one.
 const NOTABLE_FIGURES = [
-  { name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:"5", portrait:"assets/figures/captain-aldric-vane.png" },
-  { name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:"3", portrait:"assets/figures/yselle-thorn.png" },
-  { name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:"1", portrait:"assets/figures/elder-bram-oswick.png" },
-  { name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:"24", portrait:"assets/figures/scoutmaster-priska-ren.png" },
-  { name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:"11", portrait:"assets/figures/sir-corwin-hale.png" },
+  { id:"aldric-vane", name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:"5", portrait:"assets/figures/captain-aldric-vane.png" },
+  { id:"yselle-thorn", name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:"3", portrait:"assets/figures/yselle-thorn.png" },
+  { id:"bram-oswick", name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:"1", portrait:"assets/figures/elder-bram-oswick.png" },
+  { id:"priska-ren", name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:"24", portrait:"assets/figures/scoutmaster-priska-ren.png" },
+  { id:"corwin-hale", name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:"11", portrait:"assets/figures/sir-corwin-hale.png" },
 ];
 // Returns the figure whose home this is, or null if there's no figure here at all, or their
 // home has been captured by another race since — the "they disappear if their city falls"
@@ -4740,6 +4864,12 @@ function showNotableFigurePanel(burgId){
       <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
     </button>
     <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Notable Figure</div>
+    ${figure ? `
+      <button class="loc-action" id="figure-talk-btn" style="margin-bottom:10px;">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="li-text"><b>Talk to ${figure.name}</b><span>${figure.title}</span></span>
+      </button>
+    ` : ''}
     ${bodyHTML}
   `;
   // While this panel's open, the figure appears layered over the settlement's own banner art
@@ -4755,6 +4885,8 @@ function showNotableFigurePanel(burgId){
     portraitEl.innerHTML = '';
   }
   document.getElementById('notable-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+  const talkBtn = document.getElementById('figure-talk-btn');
+  if(talkBtn) talkBtn.addEventListener('click', ()=> showNotableFigureConversation(burgId, figure.id));
   const acceptBtn = document.getElementById('notable-accept-btn');
   if(acceptBtn){
     acceptBtn.addEventListener('click', ()=>{
@@ -4772,6 +4904,171 @@ function showNotableFigurePanel(burgId){
     });
   }
 }
+
+// A multiple-choice conversation with the Notable Figure themselves, separate from (and always
+// available alongside) the quest-offer flow above — see NOTABLE_FIGURE_TREES below and the
+// DIALOGUE TREES engine comment near adjustCompanionLoyalty. Effects land on this settlement's
+// own controlling kingdom's reputation, not a companion's loyalty — talking to a city's own
+// notable figure isn't a party matter.
+function showNotableFigureConversation(burgId, figureId){
+  const figure = NOTABLE_FIGURES.find(f => f.id === figureId);
+  const tree = NOTABLE_FIGURE_TREES[figureId];
+  if(!figure || !tree){ showNotableFigurePanel(burgId); return; }
+  let nodeId = tree.start;
+  const list = document.getElementById('loc-action-list');
+  const ctx = { kingdom: getControllerKingdom(burgId), cooldownKey: `figure:${figureId}` };
+  function render(){
+    const node = tree.nodes[nodeId];
+    list.innerHTML = `
+      <button class="loc-action" id="figure-convo-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to ${figure.name}</span></span>
+      </button>
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">${figure.name}</div>
+      ${renderDialogueBody(node)}
+    `;
+    document.getElementById('figure-convo-back-btn').addEventListener('click', ()=> showNotableFigurePanel(burgId));
+    wireDialogueChoices(node, choice => {
+      const note = applyDialogueEffects(choice.effects, ctx);
+      if(note) showToast(note);
+      if(choice.next){ nodeId = choice.next; render(); }
+      else showNotableFigurePanel(burgId);
+    });
+  }
+  render();
+}
+// One tree per NOTABLE_FIGURES entry — same shallow "root + one topic exchange" shape as the
+// generic FLAVOR_TREES below rather than Campfire's deeper trees, since these five are talked to
+// far less often (one active quest globally, see showNotableFigurePanel) but still get a real
+// reaction to how you treat them, via a modest reputation nudge with their home settlement's
+// controlling kingdom.
+const NOTABLE_FIGURE_TREES = {
+  "aldric-vane": {
+    start: "root",
+    nodes: {
+      root: { text:"Captain Vane doesn't smile easy, but he gives you a nod that passes for one. “Didn't expect to see you back here.”",
+        choices: [
+          { label:"Ask how the watch is holding up", next:"ask_watch" },
+          { label:"Ask if he trusts you yet", next:"ask_trust" },
+          { label:"Just nod back and move on" }
+        ] },
+      ask_watch: { text:"“Thin. Always thin. We hold the walls because we have to, not because we've got the numbers for it.” He says it flat, like a complaint he's made a hundred times and stopped expecting anyone to fix.",
+        choices: [
+          { label:"“I'll do what I can to help hold this place.”", next:"watch_support", effects:{rep:2} },
+          { label:"“Sounds like someone else's problem.”", next:"watch_shrug", effects:{rep:-2} }
+        ] },
+      ask_trust: { text:"He studies you a long moment. “Trust is earned in this coat, not given. You've done alright by us so far. Ask me again in a year.”",
+        choices: [
+          { label:"“Fair enough. I'll keep earning it.”", next:"trust_accept", effects:{rep:1} },
+          { label:"“A year's a long time to keep proving myself.”", next:"trust_impatient", effects:{rep:-1} }
+        ] },
+      watch_support: { text:"Something in his posture eases, just slightly. “Good to hear. Don't let it just be words.” It's the closest thing to warmth you'll get out of him tonight.", choices: [] },
+      watch_shrug: { text:"“Right,” he says, already turning away. “Everyone's got somewhere better to be, until the walls come down around them.”", choices: [] },
+      trust_accept: { text:"He gives a short nod, the closest thing to approval he seems to hand out. “Good answer. Now get moving — I've got a watch to run.”", choices: [] },
+      trust_impatient: { text:"“It is,” he agrees, unbothered by your tone. “Doesn't make it less true.” He turns back to his ledgers without another word.", choices: [] }
+    }
+  },
+  "yselle-thorn": {
+    start: "root",
+    nodes: {
+      root: { text:"Yselle looks up from a ledger with the particular sharpness of someone who's already decided whether she likes you. “Well? Buying, selling, or wasting my time?”",
+        choices: [
+          { label:"Ask how trade's really going", next:"ask_trade" },
+          { label:"Ask what she thinks of you", next:"ask_opinion" },
+          { label:"“Just passing through.”" }
+        ] },
+      ask_trade: { text:"“Depends which war you mean. Every time some fool kingdom picks a fight, my prices swing and my nerves go with them. Profitable, if you survive it.”",
+        choices: [
+          { label:"“I hope it settles down for your sake.”", next:"trade_kind", effects:{rep:1} },
+          { label:"“Chaos is good for business, isn't it?”", next:"trade_cynic", effects:{rep:-1} }
+        ] },
+      ask_opinion: { text:"She looks you over, unimpressed on principle. “You pay your debts and you haven't gotten me killed yet. That puts you above most of my customers.”",
+        choices: [
+          { label:"“High praise, coming from you.”", next:"opinion_charm", effects:{rep:2} },
+          { label:"“Sounds like a low bar.”", next:"opinion_flat", effects:{rep:-1} }
+        ] },
+      trade_kind: { text:"She snorts, but not unkindly. “Careful. Keep talking like that and I might start charging you less.” She doesn't.", choices: [] },
+      trade_cynic: { text:"“It really is,” she says, entirely serious. “Doesn't mean I enjoy watching people starve for it. There's a difference, even if the coin doesn't care.”", choices: [] },
+      opinion_charm: { text:"A real smile, brief and surprised out of her. “Don't let it go to your head. I still won't haggle.”", choices: [] },
+      opinion_flat: { text:"“It is,” she agrees flatly, already looking back down at her ledger. “Doesn't mean I'll raise it.”", choices: [] }
+    }
+  },
+  "bram-oswick": {
+    start: "root",
+    nodes: {
+      root: { text:"Elder Bram sits where he always sits, hands folded, watching the square like he's seen every version of this day before.",
+        choices: [
+          { label:"Ask what he's learned, watching all these years", next:"ask_wisdom" },
+          { label:"Ask if he worries about the war", next:"ask_worry" },
+          { label:"Let him keep his quiet" }
+        ] },
+      ask_wisdom: { text:"“That people are mostly the same everywhere. Frightened, mostly. Kind, when it costs them little. The rare few are kind when it costs them everything.” He looks at you when he says the last part.",
+        choices: [
+          { label:"“I'd like to be one of the rare few.”", next:"wisdom_aspire", effects:{rep:2} },
+          { label:"“That's a nice thought. Not very useful, though.”", next:"wisdom_dismiss", effects:{rep:-2} }
+        ] },
+      ask_worry: { text:"“Every day,” he says simply. “But worry never held a wall or fed a child. I do what an old man can, and I trust the rest to people like you.”",
+        choices: [
+          { label:"“I won't let that trust go to waste.”", next:"worry_reassure", effects:{rep:1} },
+          { label:"“That's a lot to put on someone you barely know.”", next:"worry_deflect", effects:{rep:-1} }
+        ] },
+      wisdom_aspire: { text:"He smiles, the kind that reaches all the way to his eyes. “Then you're further along than most already. Keep at it.”", choices: [] },
+      wisdom_dismiss: { text:"He doesn't argue, just nods slowly. “Maybe not. An old man's allowed his nice thoughts, though.” He turns back to watching the square.", choices: [] },
+      worry_reassure: { text:"“I believe you mean that,” he says. “Meaning it is most of the battle, in my experience.”", choices: [] },
+      worry_deflect: { text:"“It is,” he agrees, unoffended. “And yet here we both are.” He goes quiet again, watching the square.", choices: [] }
+    }
+  },
+  "priska-ren": {
+    start: "root",
+    nodes: {
+      root: { text:"Priska's already halfway to the door out of habit, like standing still too long offends her. “Make it quick — I don't like being indoors.”",
+        choices: [
+          { label:"Ask what the border's really like lately", next:"ask_border" },
+          { label:"Ask why she's always so restless", next:"ask_restless" },
+          { label:"“Never mind, go do your scouting.”" }
+        ] },
+      ask_border: { text:"“Quiet in the wrong way. The kind of quiet before something moves.” Her eyes flick toward the door again. “I'd rather be out there watching it than in here talking about it.”",
+        choices: [
+          { label:"“Trust your instincts. You've earned that.”", next:"border_trust", effects:{rep:2} },
+          { label:"“Maybe it's quiet because it's actually quiet.”", next:"border_dismiss", effects:{rep:-2} }
+        ] },
+      ask_restless: { text:"“Walls make my skin crawl. Always have.” She shrugs, like it's not worth dwelling on. “Out there, at least the danger's honest about what it is.”",
+        choices: [
+          { label:"“Fair enough. Not everyone's built for sitting still.”", next:"restless_accept", effects:{rep:1} },
+          { label:"“Sounds exhausting, if I'm honest.”", next:"restless_needle", effects:{rep:-1} }
+        ] },
+      border_trust: { text:"Something in her posture loosens, just slightly. “...Thanks. Not everyone bothers to say that.” She's out the door a moment later.", choices: [] },
+      border_dismiss: { text:"“Maybe,” she says, already moving. “I'd rather be wrong out there than right in here.” And she's gone.", choices: [] },
+      restless_accept: { text:"She almost smiles. “Didn't expect you to get it. Good talk.” She's already halfway out the door.", choices: [] },
+      restless_needle: { text:"“It is,” she says, unbothered, already moving. “Beats standing still.” And she's gone before you can say more.", choices: [] }
+    }
+  },
+  "corwin-hale": {
+    start: "root",
+    nodes: {
+      root: { text:"Sir Corwin leans against the wall like a man who's spent too many years waiting for orders that never quite come. “Come to keep an old knight company?”",
+        choices: [
+          { label:"Ask what 'between postings' really means", next:"ask_posting" },
+          { label:"Ask if he misses having a real command", next:"ask_command" },
+          { label:"“Just passing through, Ser Corwin.”" }
+        ] },
+      ask_posting: { text:"He laughs, short and a little bitter. “It means nobody's found a use for an aging knight with an unfashionable sense of honor. So I wait. And I keep my sword sharp, in case that changes.”",
+        choices: [
+          { label:"“Your honor's not unfashionable to me.”", next:"posting_kind", effects:{rep:2} },
+          { label:"“Maybe it's time to find a new trade.”", next:"posting_blunt", effects:{rep:-2} }
+        ] },
+      ask_command: { text:"“Every day. There's a particular kind of quiet in not being needed.” He straightens up a little, like just saying it cost him something. “But I'll not chase a command that isn't offered honestly.”",
+        choices: [
+          { label:"“Someone will see your worth eventually.”", next:"command_hope", effects:{rep:1} },
+          { label:"“Maybe honor's what's keeping you stuck.”", next:"command_challenge", effects:{rep:-1} }
+        ] },
+      posting_kind: { text:"He looks genuinely caught off guard. “...That's kind of you to say. Rarer than you'd think, these days.” He stands a little taller after that.", choices: [] },
+      posting_blunt: { text:"His jaw tightens. “Perhaps,” he says stiffly. “Or perhaps some things are worth waiting for.” He doesn't say anything else.", choices: [] },
+      command_hope: { text:"“From your mouth,” he says, almost smiling. “I'll hold onto that, for what it's worth.”", choices: [] },
+      command_challenge: { text:"He's quiet for a moment. “...Perhaps it is,” he admits, quieter than before. “Still. A man has to be something, even while he waits.”", choices: [] }
+    }
+  }
+};
 
 // A conversation, not a cash transaction — per the project owner, recruiting a companion means
 // hearing their story (their own `blurb`) and choosing whether to accept them, unlike a
@@ -4940,31 +5237,29 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple'){
-        showFlavorPanel(burgId, 'Temple', TEMPLE_LINES);
+        showFlavorDialoguePanel(burgId, 'Temple', 'temple', null, TEMPLE_LINES);
         const artEl = document.getElementById('loc-banner-art');
         artEl.classList.add('photo');
         artEl.innerHTML = `<img src="${getTempleArt(burgId)}" alt="Temple">`;
       }
       else if(btn.dataset.action === 'guardhouse'){
-        showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId));
+        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
         const artEl = document.getElementById('loc-banner-art');
         artEl.classList.add('photo');
         artEl.innerHTML = `<img src="${getGuardHouseArt(burgId)}" alt="Guard House">`;
-        wireMercenaryButtons(burgId);
-        showMercenaryLineupPortraits();
       }
       else if(btn.dataset.action === 'palace'){
-        showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
-        wirePalaceButtons(burgId);
+        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
-      else if(btn.dataset.action === 'talk') showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId));
+      else if(btn.dataset.action === 'talk') showFlavorDialoguePanel(burgId, 'Talk to Townsfolk', 'townsfolk', null, getTownsfolkLines(burgId));
       else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
       else if(btn.dataset.action === 'refugee_camp'){
-        showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
-        const aidBtn = document.getElementById('refugee-aid-btn');
-        if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+        showFlavorDialoguePanel(burgId, 'Refugee Camp', 'refugee_camp', buildRefugeeAidHTML(burgId), REFUGEE_LINES, ()=>{
+          const aidBtn = document.getElementById('refugee-aid-btn');
+          if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+        });
       }
       else if(btn.dataset.action === 'raid_village'){
         showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
@@ -5202,6 +5497,122 @@ function showFlavorPanel(burgId, title, lines, extraHTML){
   `;
   document.getElementById('flavor-back-btn').addEventListener('click', ()=> showLocationView(burgId));
 }
+// The multiple-choice counterpart to showFlavorPanel above, for the five location conversations
+// that got a real tree (see NOTABLE_FIGURE_TREES' own comment and the DIALOGUE TREES engine
+// comment near adjustCompanionLoyalty): Talk to Townsfolk, Temple, Guard House, Palace, and
+// Refugee Camp. showFlavorPanel itself is untouched and still used for pure one-shot flavor
+// (Raid the Village) that was never meant to be a conversation.
+//
+// introLines, when given, replaces just the tree's own root-node text on open — reusing each
+// action's existing reactive/random line pool (getTownsfolkLines, TEMPLE_LINES, etc.) as the
+// conversation's opening line, so none of that already-built flavor content or reactivity is
+// lost; the choices underneath are new. rewireExtra, when given, runs after every render (not
+// just the first) so extraHTML's own buttons (Hire a Mercenary, Petition for Troops, Give Aid...)
+// stay wired as the player moves deeper into the tree, not just at the panel's initial open.
+function showFlavorDialoguePanel(burgId, title, treeId, extraHTML, introLines, rewireExtra){
+  const b = graph.burgs[burgId];
+  const tree = FLAVOR_TREES[treeId];
+  let nodeId = tree.start;
+  const list = document.getElementById('loc-action-list');
+  const ctx = { kingdom: getControllerKingdom(burgId), cooldownKey: `flavor:${treeId}:${burgId}` };
+  function render(){
+    const raw = tree.nodes[nodeId];
+    const node = (nodeId === tree.start && introLines && introLines.length)
+      ? { ...raw, text: introLines[Math.floor(Math.random()*introLines.length)] }
+      : raw;
+    list.innerHTML = `
+      <button class="loc-action" id="flavor-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to ${b.name}</span></span>
+      </button>
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">${title}</div>
+      ${renderDialogueBody(node)}
+      ${extraHTML || ''}
+    `;
+    document.getElementById('flavor-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    wireDialogueChoices(node, choice => {
+      const note = applyDialogueEffects(choice.effects, ctx);
+      if(note) showToast(note);
+      if(choice.next){ nodeId = choice.next; render(); }
+      else showLocationView(burgId);
+    });
+    if(rewireExtra) rewireExtra();
+  }
+  render();
+}
+// One tree per generic location conversation — root plus one topic exchange, same shallow shape
+// as NOTABLE_FIGURE_TREES and for the same reason (these are anonymous townsfolk/staff, not a
+// named recurring character, so there's less to build toward across a longer tree). Effects are
+// small reputation nudges with the settlement's own controlling kingdom — friendlier/ruder small
+// talk, not a real transaction; the actual mechanical asks (hiring, petitions, aid) stay in each
+// action's own extraHTML card exactly as before.
+const FLAVOR_TREES = {
+  townsfolk: {
+    start: "root",
+    nodes: {
+      root: { text:"A knot of townsfolk are trading gossip near the well, the way they do in every town you've ever passed through.",
+        choices: [
+          { label:"Ask if there's anything you can do to help around here", next:"help_offer", effects:{rep:1} },
+          { label:"Grumble about the state of the roads", next:"grumble", effects:{rep:-1} },
+          { label:"Just listen and move on" }
+        ] },
+      help_offer: { text:"A few of them brighten up at that. “Kind of you to ask, stranger. Not everyone passing through bothers.” Word of it tends to get around.", choices: [] },
+      grumble: { text:"A couple of them nod along sourly, but one older woman mutters, “Easy to complain when you're not the one paving them.” The mood cools a little.", choices: [] }
+    }
+  },
+  temple: {
+    start: "root",
+    nodes: {
+      root: { text:"A quiet acolyte tends the candles near the altar, unhurried, used to travelers wandering in and out.",
+        choices: [
+          { label:"Offer a small, quiet blessing of thanks", next:"donate", effects:{rep:1} },
+          { label:"Ask what the temple really thinks of the war", next:"ask_war_temple" },
+          { label:"Sit a while in silence" }
+        ] },
+      donate: { text:"The acolyte accepts it with a small, genuine bow. “The faithful remember kindness, even the quiet kind. Walk safely.”", choices: [] },
+      ask_war_temple: { text:"The acolyte's expression tightens. “We pray for it to end. We don't pretend to know which side deserves to win — only that fewer of the dead would be a mercy.”", choices: [] }
+    }
+  },
+  guardhouse: {
+    start: "root",
+    nodes: {
+      root: { text:"A tired-looking guard leans on the doorframe, half-watching the street out of habit.",
+        choices: [
+          { label:"Ask if the watch needs anything from a passing hand", next:"guard_offer", effects:{rep:1} },
+          { label:"Needle them about how thin the watch looks", next:"guard_needle", effects:{rep:-1} },
+          { label:"Just nod and head to the hiring board" }
+        ] },
+      guard_offer: { text:"The guard straightens up a little. “Appreciate that. Doesn't hurt to have friendly eyes on the street, even ones just passing through.”", choices: [] },
+      guard_needle: { text:"The guard's expression sours. “Thin's better than nothing. Feel free to grab a spear yourself, if you've got opinions about it.”", choices: [] }
+    }
+  },
+  palace: {
+    start: "root",
+    nodes: {
+      root: { text:"A court steward eyes you the way palace staff eye everyone who isn't nobility — politely, and not for long.",
+        choices: [
+          { label:"Ask how the court's really holding up", next:"court_ask", effects:{rep:1} },
+          { label:"Make a joke at the court's expense", next:"court_joke", effects:{rep:-1} },
+          { label:"Keep to your business here" }
+        ] },
+      court_ask: { text:"The steward's guard drops, just slightly. “Better than the rumors suggest, worse than the official word. Same as any court, I imagine.” A rare honest answer.", choices: [] },
+      court_joke: { text:"The steward's smile goes thin and professional. “How droll,” they say, in a tone that suggests it was not, in fact, droll.", choices: [] }
+    }
+  },
+  refugee_camp: {
+    start: "root",
+    nodes: {
+      root: { text:"A cluster of recent arrivals huddle near a low fire, still getting used to a roof that isn't their own overhead.",
+        choices: [
+          { label:"Ask how they're holding up", next:"refugee_ask", effects:{rep:1} },
+          { label:"Ask when they think they'll move on", next:"refugee_press", effects:{rep:-1} },
+          { label:"Leave them to their rest" }
+        ] },
+      refugee_ask: { text:"One of them manages a tired smile. “Better, for someone bothering to ask. Most people just walk past.”", choices: [] },
+      refugee_press: { text:"The smile fades a little. “When there's somewhere worth moving on to. Until then, this fire's what we've got.”", choices: [] }
+    }
+  }
+};
 
 // Guard House shows real numbers alongside its flavor line — local population, the current
 // controlling *kingdom's own* mustered strength (not its whole race — see getArmyStrength),
@@ -5309,43 +5720,6 @@ function loyaltyLabel(val){
   if(val >= 10) return "Resentful";
   return "Hostile";
 }
-// The loyalty meter's first real "reading" surface beyond a bar on party.html — see
-// showCampfirePanel below. No per-companion personality yet (same limitation adjustPartyLoyalty
-// itself notes), so these are generic lines bucketed by the same mood word loyaltyLabel already
-// produces, one picked at random per companion each time the panel opens — same "no seeding,
-// re-roll on reopen" convention showFlavorPanel's own lines use.
-const CAMPFIRE_LINES = {
-  Devoted: [
-    "Wherever you lead, I'll follow — there's no question left in me about that.",
-    "I wondered once if I'd made the right choice, throwing in with you. I don't wonder anymore.",
-    "Sleep easy tonight. I'll keep first watch, and gladly.",
-    "You've more than earned my sword. My trust, too."
-  ],
-  Content: [
-    "Good fire tonight. Good company too, all things considered.",
-    "Could be worse company to be stuck out here with.",
-    "Another day on the road behind us. Can't complain.",
-    "This life suits me well enough, for now."
-  ],
-  Wary: [
-    "Just... don't ask me to do anything I'll regret, alright?",
-    "I'm still here. Don't read too much into that.",
-    "Some of your choices lately have given me pause.",
-    "I keep my own counsel these days. Seems wiser."
-  ],
-  Resentful: [
-    "I don't much like the company I've been keeping lately.",
-    "There's a version of this arrangement where I walk off tonight. Keep that in mind.",
-    "You'd do well to remember I didn't sign on for everything you've done.",
-    "I stay because I've nowhere better. Don't mistake that for loyalty."
-  ],
-  Hostile: [
-    "Say your piece and be quick about it. I'm not in a listening mood.",
-    "I don't trust you. Haven't for a while now.",
-    "Careful. My patience for this arrangement is about spent.",
-    "Don't mistake my silence for forgiveness."
-  ]
-};
 // Applies delta to every currently-recruited companion at once (no per-companion personality yet —
 // see the comment above). A companion whose loyalty hits 0 leaves for good, same permanent-loss
 // shape as allyFalls but a different door out: this is quitting on the player, not dying in combat,
@@ -5378,6 +5752,93 @@ function adjustPartyLoyalty(delta){
     return '';
   }
   return ` Loyalty ${delta > 0 ? '+' : ''}${delta}.`;
+}
+// Same shape as adjustPartyLoyalty, but scoped to the one companion a campfire conversation is
+// actually with — a chat with Ser Brannoc shouldn't move Wren's opinion of the player too. Used
+// only by dialogue trees (see below); every other loyalty-moving action in the game is a shared
+// party-wide event and still goes through adjustPartyLoyalty above.
+function adjustCompanionLoyalty(id, delta){
+  if(!delta) return '';
+  const party = getParty();
+  if(!party.includes(id)) return '';
+  const loyalty = getCompanionLoyalty();
+  const current = loyalty[id] === undefined ? 50 : loyalty[id];
+  const next = Math.max(0, Math.min(100, current + delta));
+  const c = COMPANIONS.find(c2 => c2.id === id);
+  if(next <= 0){
+    delete loyalty[id];
+    saveCompanionLoyalty(loyalty);
+    saveParty(party.filter(x => x !== id));
+    showToast(`${c ? c.name : id} lost all faith in you and left your service for good.`);
+    return '';
+  }
+  loyalty[id] = next;
+  saveCompanionLoyalty(loyalty);
+  return ` Loyalty ${delta > 0 ? '+' : ''}${delta}.`;
+}
+
+// ===================== DIALOGUE TREES =====================
+// A generic multiple-choice conversation engine, shared by three surfaces per the project
+// owner's request: Talk at the Campfire (one tree per companion), a Notable Figure's own Talk
+// button (one tree per figure), and the generic location conversations — Talk to Townsfolk,
+// Temple, Guard House, Palace, Refugee Camp (one tree per action type, reused at every
+// settlement that offers it). Replaces each surface's old "show one random flavor line" pattern
+// with a real back-and-forth.
+//
+// A tree is { start:'nodeId', nodes:{ nodeId:{ text, choices:[{label, next, effects}] } } }.
+// 'next' is another node id in the same tree; a choice with no 'next' ends the conversation
+// immediately (after applying its own effects, if any — used for a "walk away"/"leave it"
+// option that doesn't warrant its own reaction line). A node with no choices (or an empty
+// array) is a dead-end line — the last thing said — rendered with a single "(Leave)" button
+// rather than every terminal node repeating that itself.
+//
+// 'effects' is optional: {loyalty:N} nudges the one companion this conversation is with
+// (campfire only — see adjustCompanionLoyalty) or the whole party for a non-companion
+// conversation; {rep:N} nudges a specific kingdom's reputation ({kingdom:'X'} on the effect
+// itself, or the calling panel's own context kingdom if omitted); {gold:N} adds/removes gold.
+function renderDialogueBody(node){
+  const choices = (node.choices && node.choices.length) ? node.choices : [{ label:'(Leave)' }];
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0 10px;">
+      <div style="font-size:14px; line-height:1.55; color:var(--parchment); font-style:italic;">&ldquo;${node.text}&rdquo;</div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${choices.map((c, i) => `<button class="btn btn-secondary dialogue-choice-btn" data-choice-idx="${i}" style="text-align:left; padding:10px 14px; width:100%;">${c.label}</button>`).join('')}
+    </div>
+  `;
+}
+function wireDialogueChoices(node, onChoose){
+  const choices = (node.choices && node.choices.length) ? node.choices : [{ label:'(Leave)' }];
+  document.querySelectorAll('.dialogue-choice-btn').forEach(btn => {
+    btn.addEventListener('click', ()=> onChoose(choices[Number(btn.dataset.choiceIdx)]));
+  });
+}
+// Real effects (loyalty/reputation/gold) are gated to once per gameDay per conversation partner
+// (ctx.cooldownKey) — same gameDay-keyed cooldown shape as Work/Raid the Village. Nothing stops
+// re-opening Talk at the Campfire or re-visiting a Notable Figure at will, so without this a
+// player could pick the same generous choice over and over for infinite loyalty/reputation/gold.
+// The conversation itself always plays out the same either way — only the mechanical payoff is
+// capped, with a short note in place of the usual one when it's already been spent today.
+const DIALOGUE_EFFECT_DAY_KEY = "goblinwar_dialogueEffectDay";
+function getDialogueEffectDays(){ try{ return JSON.parse(localStorage.getItem(DIALOGUE_EFFECT_DAY_KEY)) || {}; }catch(e){ return {}; } }
+function hasDialogueEffectToday(key){ return getDialogueEffectDays()[key] === gameDay; }
+function markDialogueEffectToday(key){
+  const days = getDialogueEffectDays();
+  days[key] = gameDay;
+  localStorage.setItem(DIALOGUE_EFFECT_DAY_KEY, JSON.stringify(days));
+}
+function applyDialogueEffects(effects, ctx){
+  if(!effects) return '';
+  const hasRealEffect = !!(effects.loyalty || effects.rep || effects.gold);
+  if(hasRealEffect && ctx && ctx.cooldownKey){
+    if(hasDialogueEffectToday(ctx.cooldownKey)) return "You've already spoken enough today for that to matter.";
+    markDialogueEffectToday(ctx.cooldownKey);
+  }
+  let note = '';
+  if(effects.loyalty) note += (ctx && ctx.companionId) ? adjustCompanionLoyalty(ctx.companionId, effects.loyalty) : adjustPartyLoyalty(effects.loyalty);
+  if(effects.rep) note += adjustReputation(effects.kingdom || (ctx && ctx.kingdom), effects.rep);
+  if(effects.gold){ setGold(playerGold + effects.gold); note += ` ${effects.gold > 0 ? '+' : ''}${effects.gold}g.`; }
+  return note.trim();
 }
 
 // Per-kingdom reputation — a second, independent standing number from companion loyalty, tracked
@@ -5492,9 +5953,7 @@ function hireMercenary(burgId, typeId){
   mercs.push({ instanceId:`${type.id}_${gameDay}_${Math.floor(Math.random()*100000)}`, typeId:type.id, hiredDay:gameDay, lastUpkeepDay:gameDay });
   saveMercenaries(mercs);
   showToast(`${type.title} joins you — ${type.hireCost}g paid, ${type.upkeep}g/day upkeep from here.`);
-  showFlavorPanel(burgId, 'Guard House', GUARDHOUSE_LINES, buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId));
-  wireMercenaryButtons(burgId);
-  showMercenaryLineupPortraits();
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
 }
 function wireMercenaryButtons(burgId){
   document.querySelectorAll('[data-hire]').forEach(btn=>{
@@ -5599,8 +6058,7 @@ function acceptPetition(burgId){
   const repNote = adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
-  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
-  wirePalaceButtons(burgId);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Negotiate Peace — the counterpart to Petition for Troops, and the direct payoff of tracking
@@ -5655,8 +6113,7 @@ function acceptNegotiatePeace(burgId){
   const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
   showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.` + loyaltyNote + repNote);
-  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
-  wirePalaceButtons(burgId);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Incite War — the direct opposite of Negotiate Peace, per the project owner: instead of bribing
@@ -5710,8 +6167,7 @@ function acceptInciteWar(burgId){
   const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
   const repNote = adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
   showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.` + loyaltyNote + repNote);
-  showFlavorPanel(burgId, 'The Palace', PALACE_LINES, buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId));
-  wirePalaceButtons(burgId);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // All three Palace cards can appear together in the same panel render, so their click handlers
@@ -5756,9 +6212,10 @@ function acceptRefugeeAid(burgId){
   const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   const repNote = adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
   showToast(`The refugees thank you for your help. +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote + repNote);
-  showFlavorPanel(burgId, 'Refugee Camp', REFUGEE_LINES, buildRefugeeAidHTML(burgId));
-  const aidBtn = document.getElementById('refugee-aid-btn');
-  if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+  showFlavorDialoguePanel(burgId, 'Refugee Camp', 'refugee_camp', buildRefugeeAidHTML(burgId), REFUGEE_LINES, ()=>{
+    const aidBtn = document.getElementById('refugee-aid-btn');
+    if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
+  });
 }
 
 // Raid a Village — the direct opposite of Aid the Refugees, per the project owner: available at

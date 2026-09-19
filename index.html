@@ -387,12 +387,11 @@
   .buy-row .btn{ flex:none; padding:10px 16px; }
   .loc-action .li-icon{ width:26px; height:26px; flex:none; color:var(--parchment); }
   /* Real per-item art (Marketplace/Blacksmith rows only — most MARKET_ITEMS entries still fall
-     back to the generic SVG above until they have generated art of their own, see Item Forge). */
-  .loc-action .li-icon.li-icon-img{ object-fit:cover; border-radius:5px; border:1px solid rgba(209,164,69,.35); }
-  /* Per the project owner, Blacksmith rows specifically show weapon/armor art bigger than the
-     26px default every other item row (Marketplace/Bag) still uses — a request scoped to just
-     this shop, not a change to li-icon-img's own base size. */
-  .loc-action .li-icon.li-icon-img.blacksmith-icon{ width:76px; height:76px; border-radius:8px; }
+     back to the generic SVG above until they have generated art of their own, see Item Forge).
+     Per the project owner, real item art now shows at 76px everywhere it appears (Marketplace,
+     Blacksmith, and inventory.html's Bag — see that file's own .item-icon-img) rather than the
+     26px/19px sizes those rows used before — a deliberate size unification, not per-shop. */
+  .loc-action .li-icon.li-icon-img{ width:76px; height:76px; object-fit:cover; border-radius:8px; border:1px solid rgba(209,164,69,.35); }
   .loc-action .li-text b{ display:block; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px; color:var(--parchment); }
   .loc-action .li-text span{ font-size:12.5px; color:#a9926a; }
 
@@ -1154,6 +1153,9 @@ const CHANGELOG = [
   ]},
   { id:78, date:"2026-09-18", changes:[
     "Weapon and shield art at the Blacksmith now shows bigger, so the detail actually reads."
+  ]},
+  { id:79, date:"2026-09-19", changes:[
+    "Real weapon and shield art now shows at that same bigger size everywhere it appears — the Marketplace and your Bag, not just the Blacksmith."
   ]},
 ];
 
@@ -5803,7 +5805,7 @@ function showBlacksmithPanel(burgId){
       const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
-        ${mi.icon ? `<img class="li-icon li-icon-img blacksmith-icon" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>`}
+        ${mi.icon ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>`}
         <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">

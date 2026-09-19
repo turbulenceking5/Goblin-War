@@ -762,7 +762,7 @@ viewport.addEventListener('wheel', (e)=>{
 function handleTap(clientX, clientY){
   const el = document.elementFromPoint(clientX, clientY);
   if(el && el.dataset && el.dataset.battle){
-    showFieldBattlePanel(el.dataset.battle);
+    onBattleMarkerTap(el.dataset.battle);
   } else if(el && el.classList && el.classList.contains('hitzone')){
     onMapTap(el.dataset.burg);
   } else {
@@ -1187,6 +1187,9 @@ const CHANGELOG = [
   ]},
   { id:87, date:"2026-09-19", changes:[
     "Two opposing armies meeting on the map now sparks a real field battle you can join — tap the new crossed-swords marker to reach an Army Camp with soldiers to talk to, a place to resupply, and a Front Line to fight at. Head out, win or lose, and you're back at camp to rest up before the next clash — the fighting plays out in real stages until one side is routed."
+  ]},
+  { id:88, date:"2026-09-19", changes:[
+    "Reaching a field battle now takes a real trip, like traveling anywhere else — tapping the crossed-swords marker quotes the road/sea distance and travel time to the Army Camp instead of dropping you straight in."
   ]},
 ];
 
@@ -3525,6 +3528,7 @@ let graph = null;      // { burgs, states, burgByCell, edges:[{a,b,mi,kind,pts}]
 let adjacency = {};     // cellId -> [{to, mi, edge, forward}]
 let currentBurg = localStorage.getItem(LOC_KEY) || "5"; // Bary
 let selectedBurg = null;
+let selectedBattleId = null; // the info-card's other selection target — see onBattleMarkerTap
 let playerMarkerEl = null;
 let reachableSet = new Set(); // cell ids reachable from currentBurg's cell
 const labelElByBurg = {}; // (unused holdover — no longer needed with tap-zones)
@@ -3920,6 +3924,34 @@ function computeDistanceBetween(burgIdA, burgIdB){
   if(!a || !b) return null;
   return routeBetween(a.cell, {x:a.x, y:a.y}, b);
 }
+// A field battle's location (see goblinwar_fieldBattles) is an arbitrary map point — a merged
+// midpoint between two armies' own routes, see detectFieldBattles — not a settlement, so it has
+// no cell id of its own the way every other travel destination does. This finds the closest real
+// graph node to route to instead: every edge in travel-graph.json is already a minimal 2-point
+// segment between two adjacent cells (confirmed in travel-and-map.md's own inspection of the
+// data), so just checking every edge's two endpoints against every other edge's is a complete
+// search over every cell in the graph, not an approximation. A once-per-tap linear scan over
+// ~3000 edges is cheap enough not to need caching.
+function findNearestCell(x, y){
+  let best = null, bestDist = Infinity;
+  graph.edges.forEach(e=>{
+    const a = e.pts[0], b = e.pts[e.pts.length-1];
+    const da = Math.hypot(a[0]-x, a[1]-y);
+    if(da < bestDist){ bestDist = da; best = e.a; }
+    const db = Math.hypot(b[0]-x, b[1]-y);
+    if(db < bestDist){ bestDist = db; best = e.b; }
+  });
+  return best;
+}
+// Same shape as computeTravel(toId), for a raw map point instead of a settlement — see
+// findNearestCell above for why a field battle needs this rather than a burg id.
+function computeTravelToPoint(x, y, cell){
+  const r = routeBetween(getCurrentCell(), getCurrentXY(), {x, y, cell});
+  const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
+  const hours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
+  const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
+  return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
+}
 function formatDuration(hours){
   if(hours < HOURS_PER_DAY) return `${hours} hour${hours===1?'':'s'}`;
   const d = Math.floor(hours/HOURS_PER_DAY), h = hours%HOURS_PER_DAY;
@@ -3977,9 +4009,9 @@ function drawPlayerMarker(){
 // Build a flat list of {x,y} points tracing the actual road route (concatenating each
 // edge's real polyline, in the right direction), for path-following travel animation.
 let routePreviewEl = null;
-function drawRoutePreview(fromPos, toId, edgeSteps){
+function drawRoutePreview(fromPos, toId, edgeSteps, toXY){
   if(!routePreviewEl) return;
-  const { points } = buildRoutePolyline(fromPos, toId, edgeSteps);
+  const { points } = buildRoutePolyline(fromPos, toId, edgeSteps, toXY);
   const d = points.map((p,i)=> (i===0?'M':'L') + p.x + ',' + p.y).join(' ');
   routePreviewEl.setAttribute('d', d);
   routePreviewEl.style.opacity = '.9';
@@ -3988,11 +4020,15 @@ function clearRoutePreview(){
   if(routePreviewEl) routePreviewEl.style.opacity = '0';
 }
 
-function buildRoutePolyline(fromPos, toId, edgeSteps){
+// toXY is optional — a raw {x,y,cell} destination for the off-road fallback below, used when
+// toId isn't a real burg (see findNearestCell/beginTravelToBattle — a field battle's location is
+// an arbitrary map point, not a settlement). Every existing caller omits it and keeps looking up
+// graph.burgs[toId] exactly as before.
+function buildRoutePolyline(fromPos, toId, edgeSteps, toXY){
   if(!edgeSteps){
     // off-road (no drawn path) — animate a straight line to the destination
-    const endBurg = graph.burgs[toId];
-    return { points:[{x:fromPos.x, y:fromPos.y}, {x:endBurg.x, y:endBurg.y}], cellIds:[fromPos.cell, endBurg.cell] };
+    const end = toXY || graph.burgs[toId];
+    return { points:[{x:fromPos.x, y:fromPos.y}, {x:end.x, y:end.y}], cellIds:[fromPos.cell, end.cell] };
   }
   const points = [{x:fromPos.x, y:fromPos.y}];
   const cellIds = [fromPos.cell];
@@ -4011,8 +4047,8 @@ function buildRoutePolyline(fromPos, toId, edgeSteps){
 // the actual distance-fraction covered so far, and {x,y,cell} is the nearest real
 // road-graph point to the current position, used to snap the player there if they
 // stop or camp before arriving.
-function animateTravel(fromPos, toId, edgeSteps, destName, durationMs, onDone, onProgress){
-  const { points, cellIds } = buildRoutePolyline(fromPos, toId, edgeSteps);
+function animateTravel(fromPos, toId, edgeSteps, destName, durationMs, onDone, onProgress, toXY){
+  const { points, cellIds } = buildRoutePolyline(fromPos, toId, edgeSteps, toXY);
   const controller = { cancelled:false, rafId:null };
   if(points.length < 2){ onDone(); return controller; }
 
@@ -4082,6 +4118,7 @@ function closeCard(){
   document.getElementById('highlight-ring').classList.remove('show');
   selectedEl = null;
   selectedBurg = null;
+  selectedBattleId = null;
   clearRoutePreview();
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
@@ -4441,6 +4478,46 @@ function onMapTap(burgId){
   document.getElementById('info-card').classList.add('open');
 }
 
+// The battle-marker counterpart to onMapTap above — same #info-card, same "show a quote, Travel
+// Here starts a real trip" flow, just for an arbitrary map point instead of a settlement (see
+// findNearestCell/computeTravelToPoint). Per the project owner: reaching a battle should cost
+// real travel like anywhere else, not be an instant teleport.
+function onBattleMarkerTap(battleId){
+  const battle = getFieldBattles().find(b => b.id === battleId);
+  if(!battle){ closeCard(); return; }
+  selectedBurg = null;
+  selectedBattleId = battleId;
+  showHighlight(battle.x, battle.y);
+
+  document.getElementById('info-name').textContent = "Army Camp";
+  document.getElementById('info-meta').innerHTML = `<span>${battle.goodKingdom} vs ${battle.badKingdom}</span> — a battle rages here`;
+
+  const travelDiv = document.getElementById('info-travel');
+  const travelBtn = document.getElementById('btn-travel');
+
+  if(campPos && campPos.battleId === battleId){
+    travelDiv.textContent = "You are here.";
+    travelBtn.style.display = 'block';
+    travelBtn.textContent = 'Enter Camp';
+  } else {
+    const nearestCell = findNearestCell(battle.x, battle.y);
+    const t = computeTravelToPoint(battle.x, battle.y, nearestCell);
+    if(!t){
+      travelDiv.textContent = "Distance unknown.";
+      travelBtn.style.display = 'none';
+    } else {
+      const seaNote = t.bySea ? ` (includes a sea crossing — <b>${t.ferryCost}g ferry fare</b>)` : (t.mounted ? ' (riding — faster pace)' : '');
+      travelDiv.innerHTML = t.viaRoad
+        ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`
+        : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`;
+      travelBtn.style.display = 'block';
+      if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, null, t.edges, {x:battle.x, y:battle.y, cell:nearestCell});
+      travelBtn.textContent = t.ferryCost > 0 ? `Travel Here (${t.hours}h, ${t.ferryCost}g)` : `Travel Here (${t.hours}h)`;
+    }
+  }
+  document.getElementById('info-card').classList.add('open');
+}
+
 let activeTravel = null; // {controller, destId, destName, totalHours, lastSnap}
 
 function showTravelControls(destName){
@@ -4535,6 +4612,60 @@ function beginTravel(destId){
   activeTravel = { controller, destId, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
 }
 
+// beginTravel's counterpart for a field battle's Army Camp — a real map point, not a settlement
+// (see findNearestCell/computeTravelToPoint), so there's no destId to hand off to currentBurg;
+// campPos.battleId is what showFieldBattlePanel/onBattleMarkerTap check afterward instead.
+function beginTravelToBattle(battleId){
+  stopWaiting();
+  const battle = getFieldBattles().find(b => b.id === battleId);
+  if(!battle){
+    showToast("That battle has already moved on.");
+    closeCard();
+    return;
+  }
+  const nearestCell = findNearestCell(battle.x, battle.y);
+  const toXY = { x: battle.x, y: battle.y, cell: nearestCell };
+  const t = computeTravelToPoint(battle.x, battle.y, nearestCell);
+  if(!t) return;
+  if(t.ferryCost > 0 && playerGold < t.ferryCost){
+    showToast(`You can't afford the ${t.ferryCost}g ferry fare for this crossing.`);
+    return;
+  }
+  if(t.ferryCost > 0) setGold(playerGold - t.ferryCost);
+  const destName = "Army Camp";
+  const startHunger = playerHunger, startThirst = playerThirst, startHour = gameHour;
+  closeCard();
+
+  const fromPos = { ...getCurrentXY(), cell:getCurrentCell() };
+  centerOnLogical(fromPos.x, fromPos.y, view.scale);
+  showTravelControls(destName);
+
+  const duration = Math.max(4000, 2000 + t.miles*20);
+  const controller = animateTravel(fromPos, null, t.edges, destName, duration, ()=>{
+    hideTravelControls();
+    activeTravel = null;
+    campPos = { x: battle.x, y: battle.y, cell: nearestCell, name: destName, battleId };
+    advanceTime(t.hours);
+    addHunger(t.hungerGain);
+    addThirst(t.thirstGain);
+    refreshReachability();
+    if(rollAmbush(t.hours, startHour)){
+      triggerAmbushFight(currentBurg, ()=> showFieldBattlePanel(battleId), 'road');
+    } else if(rollWorldEvent()){
+      triggerWorldEvent(()=> showFieldBattlePanel(battleId));
+    } else {
+      showFieldBattlePanel(battleId);
+    }
+  }, (info)=>{
+    if(!activeTravel) return;
+    activeTravel.lastSnap = info;
+    updateLiveHungerThirstDisplay(startHunger, t.hungerGain, startThirst, t.thirstGain, info.frac);
+    updateLiveClockDisplay(startHour, t.hours, info.frac);
+  }, toXY);
+
+  activeTravel = { controller, destId: null, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
+}
+
 // Cancels the current journey in place — the character stops exactly where the
 // animation had gotten to (snapped to the nearest real road-graph point), not
 // back at the start. No time cost.
@@ -4584,6 +4715,16 @@ document.getElementById('btn-stop-travel').addEventListener('click', stopTravel)
 document.getElementById('btn-camp-travel').addEventListener('click', campMidTravel);
 
 document.getElementById('btn-travel').addEventListener('click', ()=>{
+  if(selectedBattleId){
+    if(campPos && campPos.battleId === selectedBattleId){
+      const battleId = selectedBattleId;
+      closeCard();
+      showFieldBattlePanel(battleId);
+      return;
+    }
+    beginTravelToBattle(selectedBattleId);
+    return;
+  }
   if(!selectedBurg) return;
   if(selectedBurg === currentBurg && !campPos){
     closeCard();

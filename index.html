@@ -1179,6 +1179,9 @@ const CHANGELOG = [
     "Mustering an army now actually costs the settlement it marches from real population — and a siege is decided by that specific army's own strength against the target's local garrison now, not a whole kingdom's pooled strength. A lone army from a small settlement can genuinely be too weak to take a well-defended city — a kingdom can send more than one army after the same target, and they'll merge into a single bigger, stronger force on the map once they meet.",
     "Travel takes noticeably less time now — trips between settlements cost roughly half the hours they used to, so days and months pass more slowly for the same amount of play."
   ]},
+  { id:86, date:"2026-09-19", changes:[
+    "Armies no longer all come out the same size — how much of a settlement's population gets mustered into a marching army now varies each time, anywhere from a small probing force to a full call-to-arms, still taken straight from that settlement's own people."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1274,6 +1277,8 @@ const ARMY_MILES_PER_DAY = 200;
 // same enemy at once — bounds map clutter/growth while still allowing real reinforcement (see
 // mergeArmies) rather than one muster being the only shot at a target ever.
 const MAX_ARMIES_PER_ENEMY_PAIR = 3;
+// ARMY_MUSTER_FRACTION_MIN/MAX (the randomized muster-size range) are declared further down,
+// right after MILITARY_FRACTION itself — see there.
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
@@ -1605,6 +1610,14 @@ const REFUGEE_DEATH_SHARE = 0.4;    // of population lost to war, this fraction 
 const REFUGEE_FLEE_SHARE = 0.6;     // ...and this fraction flees to the nearest peaceful settlement
 const REFUGEE_ARRIVAL_WINDOW_DAYS = 7; // how long a settlement counts as "recently received refugees" for the Aid the Refugees action
 const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could field as soldiers
+// Per the project owner: armies shouldn't all be the same size. Each muster (see spawnArmy) now
+// draws a random fraction of the origin's current population somewhere in this range — a small
+// probing force at the low end, a full call-to-arms at the high end — rather than always exactly
+// MILITARY_FRACTION. Centered on MILITARY_FRACTION itself (half below, half above) so the
+// *average* muster still costs/produces the same as before this varied; any single one now
+// genuinely doesn't.
+const ARMY_MUSTER_FRACTION_MIN = MILITARY_FRACTION * 0.5;
+const ARMY_MUSTER_FRACTION_MAX = MILITARY_FRACTION * 1.5;
 // Weekly regrowth — the mirror image of WAR_ATTRITION_RATE above, and the first system to
 // actually use the long-tracked "Ork/Goblin multiply faster" race trait (see context/roadmap.md's
 // Character Creation & Race section). Scoped to whoever *currently* controls a settlement, not its
@@ -2071,15 +2084,16 @@ function pointAlongPolyline(points, frac){
 // merge when they share the same kingdom and the same targetBurgId, so a reinforcement has to be
 // explicitly aimed at the existing push, not just "some other border settlement."
 //
-// Mustering costs the origin settlement real population now — the same MILITARY_FRACTION share
-// getGarrisonStrength/getArmyStrength already treat as "fieldable," genuinely subtracted here
-// (via setPopulation) rather than only ever being a theoretical pool, and carried forward as the
-// army's own strength (see advanceSiege's "An army's own strength" note). A kingdom that musters
-// repeatedly against the same enemy — reinforcement after reinforcement in a long war — measurably
-// thins its own capital's population doing it; regrowth (applyPopulationGrowth) only resumes once
-// that kingdom is at peace again. This population cost is permanent — it isn't refunded if the
-// army later disbands or is destroyed, same one-way-loss precedent attrition/siege damage/Raid a
-// Village already set.
+// Mustering costs the origin settlement real population now — a randomized fraction of its
+// current population (ARMY_MUSTER_FRACTION_MIN-MAX, see the comment by MILITARY_FRACTION) rather
+// than always the same amount, so armies genuinely come out different sizes — genuinely
+// subtracted here (via setPopulation) rather than only ever being a theoretical pool, and carried
+// forward as the army's own strength (see advanceSiege's "An army's own strength" note). A
+// kingdom that musters repeatedly against the same enemy — reinforcement after reinforcement in a
+// long war — measurably thins its own capital's population doing it; regrowth
+// (applyPopulationGrowth) only resumes once that kingdom is at peace again. This population cost
+// is permanent — it isn't refunded if the army later disbands or is destroyed, same one-way-loss
+// precedent attrition/siege damage/Raid a Village already set.
 function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
   const target = sharedTargetBurgId ? graph.burgs[sharedTargetBurgId] : pickRaidTarget(kingdom, defenderKingdom);
   if(!target) return null;
@@ -2089,7 +2103,8 @@ function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
   if(!route || !route.edges) return null;
   const { points } = buildRoutePolyline({x:origin.x, y:origin.y}, target.id, route.edges);
   const originPop = getPopulation(origin.id);
-  const strength = originPop * MILITARY_FRACTION;
+  const musterFraction = ARMY_MUSTER_FRACTION_MIN + Math.random() * (ARMY_MUSTER_FRACTION_MAX - ARMY_MUSTER_FRACTION_MIN);
+  const strength = originPop * musterFraction;
   setPopulation(origin.id, originPop - strength);
   const armies = getArmies();
   const army = {

@@ -1175,6 +1175,10 @@ const CHANGELOG = [
   { id:84, date:"2026-09-19", changes:[
     "Kingdoms at war now muster and march real armies across the map on their way to besiege a settlement, instead of a siege just starting out of nowhere — you can watch a small marker actually travel the roads and sea lanes before it arrives."
   ]},
+  { id:85, date:"2026-09-19", changes:[
+    "Mustering an army now actually costs the settlement it marches from real population — and a siege is decided by that specific army's own strength against the target's local garrison now, not a whole kingdom's pooled strength. A lone army from a small settlement can genuinely be too weak to take a well-defended city — a kingdom can send more than one army after the same target, and they'll merge into a single bigger, stronger force on the map once they meet.",
+    "Travel takes noticeably less time now — trips between settlements cost roughly half the hours they used to, so days and months pass more slowly for the same amount of play."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1255,17 +1259,21 @@ const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
 const SIEGE_KEY = "goblinwar_sieges";
 // A visible, marching army — see "Armies march before a siege starts" in
-// context/factions-and-territory.md. At most one active army per attacking-kingdom-per-enemy
-// pair, same "at most one active X" simplicity precedent goblinwar_sieges/Notable Figure/
-// Alliance Reinforcement already set. {id, kingdom, defenderKingdom, race, originBurgId,
-// targetBurgId, routePts:[{x,y}...], routeMiles, progressMiles, x, y,
-// status:'marching'|'sieging', spawnedDay, lastAdvancedDay}.
+// context/factions-and-territory.md. Up to MAX_ARMIES_PER_ENEMY_PAIR active armies per
+// attacking-kingdom-per-enemy pair at once (see below) — multiple can be mustered against the
+// same target and merge into one stronger force (mergeArmies). {id, kingdom, defenderKingdom,
+// race, originBurgId, targetBurgId, routePts:[{x,y}...], routeMiles, progressMiles, x, y,
+// strength, status:'marching'|'sieging', spawnedDay, lastAdvancedDay}.
 const ARMY_KEY = "goblinwar_armies";
 // First-pass balance number, easy to retune later (same convention as RAID_AMBUSH_CHANCE etc,
 // see context/combat.md) — picked so a typical border siege (pickRaidTarget prefers an actually
 // adjacent settlement) marches in a handful of days, while a rare far/sea-separated target takes
 // noticeably longer.
 const ARMY_MILES_PER_DAY = 200;
+// Caps how many armies a kingdom can have in flight (marching + sieging combined) against the
+// same enemy at once — bounds map clutter/growth while still allowing real reinforcement (see
+// mergeArmies) rather than one muster being the only shot at a target ever.
+const MAX_ARMIES_PER_ENEMY_PAIR = 3;
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
@@ -1833,7 +1841,9 @@ function getArmies(){
 }
 function saveArmies(list){ localStorage.setItem(ARMY_KEY, JSON.stringify(list)); }
 // A settlement's own local defense, distinct from getArmyStrength(kingdom) (that kingdom's
-// whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege.
+// whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege, and
+// now a real mechanical input to advanceSiege's own math too (see "An army's own strength, not
+// the whole kingdom's" in context/factions-and-territory.md), not just a displayed number.
 function getGarrisonStrength(burgId){ return getPopulation(burgId) * MILITARY_FRACTION; }
 
 // A small log of real siege/attack outcomes — the "news you hear" behind Tavern Talk's rumour
@@ -1955,11 +1965,23 @@ function pickRaidTarget(attackerKingdom, defenderKingdom){
 // Starts a new siege (if attackerKingdom has none running against defenderKingdom yet) or
 // advances the existing one by one tick's worth of progress — replacing the old single-tick
 // coin-flip raid with a persistent, multi-week conflict over one specific settlement. Progress
-// per tick still comes from the same clamped attacker/defender strength ratio the old
-// attemptRaid used, just applied repeatedly instead of once; the besieged settlement also takes
-// RAID_DAMAGE_RATE attrition every tick it remains under siege, not only at the start. At 100%
-// progress the settlement actually changes hands and the siege ends.
-function advanceSiege(attackerKingdom, defenderKingdom){
+// per tick still comes from a clamped attacker/defender strength ratio, applied repeatedly
+// instead of once; the besieged settlement also takes RAID_DAMAGE_RATE attrition every tick it
+// remains under siege, not only at the start. At 100% progress the settlement actually changes
+// hands and the siege ends.
+//
+// attackerStrength now comes from the specific marching army that arrived (attackerArmy.strength
+// — see "An army's own strength, not the whole kingdom's" in context/factions-and-territory.md),
+// not the whole kingdom's pooled getArmyStrength — a lone army from one modest settlement can
+// genuinely be too weak to take a well-defended city alone, which is the point; runFactionAITick's
+// pass 2 (the only real caller now) always passes the arrived army. defenderStrength is now that
+// settlement's own local getGarrisonStrength, not the whole defending kingdom's pool either — the
+// fair comparison for "can this one army take this one city," and the mechanical teeth
+// getGarrisonStrength was always meant to have (see its own comment). attackerArmy is optional
+// only for the dead "create on first call" branch below, unreachable in practice since an army
+// always creates the siege entry itself on arrival (see advanceArmies) — kept as a safe fallback
+// rather than assuming that invariant always holds.
+function advanceSiege(attackerKingdom, defenderKingdom, attackerArmy){
   const sieges = getSieges();
   const existing = Object.entries(sieges).find(([bid, s]) => s.attackerKingdom===attackerKingdom && s.defenderKingdom===defenderKingdom);
   let burgId, siege;
@@ -1972,12 +1994,12 @@ function advanceSiege(attackerKingdom, defenderKingdom){
     siege = { attackerKingdom, defenderKingdom, startedDay: gameDay, progress: 0 };
   }
 
-  const attackerStrength = getArmyStrength(attackerKingdom);
+  const attackerStrength = attackerArmy ? attackerArmy.strength : getArmyStrength(attackerKingdom);
   // War Help payoff of per-kingdom reputation (see context/factions-and-territory.md's
   // "Per-kingdom reputation") — a Trusted defender's own garrison fights harder in the background,
   // a flat multiplier on its effective strength here rather than anything touching the player's
   // own Defend the Walls fight (startCombat/triggerSiegeDefenseFight are untouched by this).
-  const defenderStrength = getArmyStrength(defenderKingdom)
+  const defenderStrength = getGarrisonStrength(burgId)
     * (reputationLabel(getReputation(defenderKingdom)) === 'Trusted' ? TRUSTED_DEFENSE_BONUS : 1);
   const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
   const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
@@ -2041,26 +2063,84 @@ function pointAlongPolyline(points, frac){
 // pathfinding player travel itself uses — see context/travel-and-map.md). Returns null (a
 // no-op) whenever no legitimate target/origin/route exists, same "sometimes nothing happens"
 // shape pickRaidTarget's own null return already has.
-function spawnArmy(kingdom, defenderKingdom){
-  const target = pickRaidTarget(kingdom, defenderKingdom);
+//
+// sharedTargetBurgId, when passed, skips picking a fresh target and marches on that exact
+// settlement instead — how runFactionAITick's pass 2 musters a *reinforcement* toward a kingdom's
+// own already-in-flight campaign against the same enemy, rather than rolling an unrelated second
+// target. It's what lets two armies actually meet later (see mergeArmies below): they only ever
+// merge when they share the same kingdom and the same targetBurgId, so a reinforcement has to be
+// explicitly aimed at the existing push, not just "some other border settlement."
+//
+// Mustering costs the origin settlement real population now — the same MILITARY_FRACTION share
+// getGarrisonStrength/getArmyStrength already treat as "fieldable," genuinely subtracted here
+// (via setPopulation) rather than only ever being a theoretical pool, and carried forward as the
+// army's own strength (see advanceSiege's "An army's own strength" note). A kingdom that musters
+// repeatedly against the same enemy — reinforcement after reinforcement in a long war — measurably
+// thins its own capital's population doing it; regrowth (applyPopulationGrowth) only resumes once
+// that kingdom is at peace again. This population cost is permanent — it isn't refunded if the
+// army later disbands or is destroyed, same one-way-loss precedent attrition/siege damage/Raid a
+// Village already set.
+function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
+  const target = sharedTargetBurgId ? graph.burgs[sharedTargetBurgId] : pickRaidTarget(kingdom, defenderKingdom);
   if(!target) return null;
   const origin = findArmyOrigin(kingdom, target);
   if(!origin || origin.id === target.id) return null;
   const route = computeDistanceBetween(origin.id, target.id);
   if(!route || !route.edges) return null;
   const { points } = buildRoutePolyline({x:origin.x, y:origin.y}, target.id, route.edges);
+  const originPop = getPopulation(origin.id);
+  const strength = originPop * MILITARY_FRACTION;
+  setPopulation(origin.id, originPop - strength);
   const armies = getArmies();
   const army = {
     id: `army_${gameDay}_${Math.floor(Math.random()*1e6)}`,
     kingdom, defenderKingdom, race: KINGDOM_RACE[kingdom],
     originBurgId: origin.id, targetBurgId: target.id,
     routePts: points, routeMiles: route.miles, progressMiles: 0,
-    x: origin.x, y: origin.y,
+    x: origin.x, y: origin.y, strength,
     status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay
   };
   armies.push(army);
   saveArmies(armies);
   return army;
+}
+// Same-kingdom armies marching or sieging toward the exact same settlement combine into one
+// stronger force whenever they come within ARMY_MERGE_RADIUS of each other — the intended way to
+// take a target a single muster is too weak for (see spawnArmy's population-based strength above
+// and pass 2's reinforcement roll below): send another wave, let it catch up, and the combined
+// strength is what actually decides the siege now. The earlier-indexed army always survives and
+// absorbs the other's strength; if either was already 'sieging' the merged force is too, snapped
+// to the target's own position (a marching survivor's position otherwise stays wherever it was —
+// only strength/status matter mechanically, not whose route "wins"). Runs after every day's
+// movement in advanceArmies, repeating until no more pairs qualify — safe to loop since the army
+// count only shrinks each pass, and there are never more than a handful in flight at once.
+const ARMY_MERGE_RADIUS = 15; // logical-space units — see LOGICAL_W/STAGE_W in travel-and-map.md
+function mergeArmies(){
+  const armies = getArmies();
+  let changed = false;
+  let mergedSomething = true;
+  while(mergedSomething){
+    mergedSomething = false;
+    for(let i = 0; i < armies.length && !mergedSomething; i++){
+      for(let j = i+1; j < armies.length; j++){
+        const a = armies[i], b = armies[j];
+        if(a.kingdom !== b.kingdom || a.targetBurgId !== b.targetBurgId) continue;
+        if(Math.hypot(a.x-b.x, a.y-b.y) > ARMY_MERGE_RADIUS) continue;
+        a.strength += b.strength;
+        if(b.status === 'sieging') a.status = 'sieging';
+        if(a.status === 'sieging'){
+          const t = graph.burgs[a.targetBurgId];
+          if(t){ a.x = t.x; a.y = t.y; }
+        }
+        armies.splice(j, 1);
+        changed = true;
+        mergedSomething = true;
+        break;
+      }
+    }
+  }
+  if(changed) saveArmies(armies);
+  return changed;
 }
 // Removes one army by id — spliced in place (not filter+reassign) so a mutation made while
 // _tickCache is active is visible to every later getArmies() call in the same tick, same
@@ -2102,7 +2182,12 @@ function advanceArmies(){
     if(frac >= 1){
       if(getControllerKingdom(army.targetBurgId) === army.defenderKingdom){
         army.status = 'sieging';
-        sieges[army.targetBurgId] = { attackerKingdom: army.kingdom, defenderKingdom: army.defenderKingdom, startedDay: gameDay, progress: 0 };
+        // Don't clobber an already-running siege at this settlement — a reinforcement army
+        // arriving after an earlier one is already sieging joins it (mergeArmies below combines
+        // their strength once they're at the same spot), it doesn't restart that siege's progress.
+        if(!sieges[army.targetBurgId]){
+          sieges[army.targetBurgId] = { attackerKingdom: army.kingdom, defenderKingdom: army.defenderKingdom, startedDay: gameDay, progress: 0 };
+        }
       } else {
         return false; // arrived to find someone else already took it — nothing left to besiege
       }
@@ -2112,8 +2197,9 @@ function advanceArmies(){
   if(changed){
     setSieges(sieges);
     saveArmies(kept);
-    buildArmyMarkers();
   }
+  const merged = mergeArmies();
+  if(changed || merged) buildArmyMarkers();
 }
 
 // Runs the whole weekly tick and returns a short list of {text} events worth telling the player
@@ -2180,18 +2266,24 @@ function runFactionAITick(){
         // A siege only actually progresses once a marching army has arrived (see
         // "Armies march before a siege starts" in context/factions-and-territory.md) — an army
         // still en route just keeps marching, handled daily by advanceArmies() rather than here.
-        const existingArmy = getArmies().find(a => a.kingdom === kingdom && a.defenderKingdom === enemy);
-        if(existingArmy){
-          if(existingArmy.status === 'sieging' && Math.random() < RAID_CHANCE){
-            const result = advanceSiege(kingdom, enemy);
-            if(result && result.captured){
-              removeArmy(existingArmy.id);
-              events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
-              recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
-            }
+        // Up to MAX_ARMIES_PER_ENEMY_PAIR can be in flight against the same enemy at once now —
+        // a kingdom whose first muster is too weak to take a well-defended target can send more,
+        // which merge with it once they meet (see mergeArmies) into one stronger combined force.
+        // Advancing an already-arrived siege and rolling a fresh reinforcement are independent
+        // decisions, so both can happen the same week.
+        const pairArmies = getArmies().filter(a => a.kingdom === kingdom && a.defenderKingdom === enemy);
+        const siegingArmy = pairArmies.find(a => a.status === 'sieging');
+        if(siegingArmy && Math.random() < RAID_CHANCE){
+          const result = advanceSiege(kingdom, enemy, siegingArmy);
+          if(result && result.captured){
+            // Every army still in flight toward this exact settlement was part of the same push.
+            pairArmies.forEach(a => removeArmy(a.id));
+            events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
+            recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
           }
-        } else if(Math.random() < RAID_CHANCE){
-          spawnArmy(kingdom, enemy);
+        }
+        if(pairArmies.length < MAX_ARMIES_PER_ENEMY_PAIR && Math.random() < RAID_CHANCE){
+          spawnArmy(kingdom, enemy, pairArmies[0] ? pairArmies[0].targetBurgId : null);
         }
       });
     });
@@ -3268,8 +3360,16 @@ function triggerAmbushFight(burgId, onEnd, context){
 // road/trail/sea route is a node, so junctions are handled naturally instead
 // of only counting direct burg-to-burg route matches.
 const LOC_KEY = "goblinwar_currentBurg";
-const ROAD_PACE = 20;    // miles per day, travelling via drawn roads
-const OFFROAD_PACE = 12; // miles per day, cross-country with no road
+// Per the project owner: trips were eating too much of the calendar — a typical cross-map
+// journey landed around a full in-game day (sampled against the real travel-graph data), enough
+// that a normal session of settlement-hopping could burn several days without the player really
+// noticing. Both paces doubled (was 20/12) so the same distance now costs roughly half the
+// hours — a typical cross-map trip runs closer to half a day than a whole one, and adjacent-
+// village hops (already often floored at the 1-hour minimum) barely change. Hunger/Thirst gain
+// and gameDay's own rollover are both still driven off these hours, so this doesn't just make
+// travel "feel" faster — days and months genuinely accrue slower for the same amount of play.
+const ROAD_PACE = 40;    // miles per day, travelling via drawn roads
+const OFFROAD_PACE = 24; // miles per day, cross-country with no road
 // A carried Horse (MARKET_ITEMS) speeds up overland road travel — checked in computeTravel only
 // (not routeBetween, which quest-distance pricing also calls and shouldn't react to what the
 // player happens to own). Doesn't apply to a route with any sea leg (bySea) — a horse doesn't
@@ -4116,7 +4216,11 @@ function buildArmyMarkers(){
     const color = ARMY_MARKER_COLOR[ALLIANCE[army.race]] || '#a9926a';
     const marker = document.createElementNS(ns, "path");
     // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
-    marker.setAttribute("d", `M${army.x},${army.y-5} L${army.x+4},${army.y} L${army.x},${army.y+5} L${army.x-4},${army.y} Z`);
+    // Half-width scales (mildly, clamped) with the army's own strength — see mergeArmies — so a
+    // merged, reinforced force actually reads as a bigger army on the map, not just a bigger
+    // number nobody sees.
+    const hw = Math.max(3, Math.min(9, 3 + Math.sqrt(army.strength || 0) * 2.5));
+    marker.setAttribute("d", `M${army.x},${army.y-hw} L${army.x+hw*0.8},${army.y} L${army.x},${army.y+hw} L${army.x-hw*0.8},${army.y} Z`);
     marker.setAttribute("fill", color);
     marker.setAttribute("stroke", "#1c150c");
     marker.setAttribute("stroke-width", "0.8");

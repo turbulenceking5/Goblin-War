@@ -1157,6 +1157,10 @@ const CHANGELOG = [
   { id:79, date:"2026-09-19", changes:[
     "Real weapon and shield art now shows at that same bigger size everywhere it appears — the Marketplace and your Bag, not just the Blacksmith."
   ]},
+  { id:80, date:"2026-09-19", changes:[
+    "Wars now wind down on their own the longer they drag on, instead of having the same flat chance to end every week.",
+    "When a long war ends this way, whoever gained more ground keeps it, collects reparations from the loser (shown as a price swing at the Marketplace/Blacksmith and a note at the Guard House), and can't go back to war with them again for a while."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1237,9 +1241,12 @@ const REINFORCE_KEY = "goblinwar_reinforcements";
 const LASTWARTICK_KEY = "goblinwar_lastWarTick";
 const SIEGE_KEY = "goblinwar_sieges";
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
+const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
+const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
+const TRIBUTE_KEY = "goblinwar_tribute";          // {kingdomName: {role, counterpart, expiresDay}} — reparations, see "War exhaustion"
 const WAR_TICK_INTERVAL_DAYS = 7;   // faction AI only rolls once per in-game week
 const WAR_DECLARE_CHANCE = 0.06;    // per cross-alliance kingdom pair, per tick, while at peace
-const WAR_PEACE_CHANCE = 0.15;      // per cross-alliance kingdom pair, per tick, while at war — sues for peace
+const WAR_PEACE_CHANCE = 0.15;      // per cross-alliance kingdom pair, per tick, while at war — base "sues for peace" chance before war exhaustion (below) piles on
 const RAID_CHANCE = 0.35;           // per kingdom, per enemy it's at war with, per tick — attempts to start/advance a siege
 const RAID_CANDIDATE_POOL = 15;     // nearest enemy-held settlements considered when no real border exists (see pickRaidTarget)
 const RAID_SUCCESS_MIN = 0.2, RAID_SUCCESS_MAX = 0.8; // siege progress per tick is population-driven (see pickRaidTarget/advanceSiege) but always stays uncertain
@@ -1247,6 +1254,31 @@ const SIEGE_PROGRESS_MAX_PER_TICK = 45; // % progress a siege can gain in one ti
 // War Help payoff of per-kingdom reputation — see advanceSiege below and
 // context/factions-and-territory.md's "Per-kingdom reputation".
 const TRUSTED_DEFENSE_BONUS = 1.15; // a Trusted defender's effective strength in advanceSiege's ratio math
+
+// War exhaustion — per the project owner: a war shouldn't just run forever at the same flat
+// WAR_PEACE_CHANCE. The longer a specific kingdom pair has been at war, the more that pair's own
+// peace-roll chance climbs on top of the base, via getWarStartDay/setWarStart below. And when a
+// long war *does* end this way (as opposed to a player buying it off early with Negotiate Peace),
+// whichever kingdom made the bigger real territorial gain is treated as having won it — see
+// determineWarWinner/settleWarExhaustionPeace in runFactionAITick's first pass. The winner keeps
+// whatever it captured (already true — setController is one-way, nothing new needed there), plus
+// two new effects: the loser pays it reparations (getTribute/setTribute — a temporary Marketplace
+// price swing, not literal kingdom gold, since kingdoms don't carry a treasury anywhere else in
+// this system) and that exact pair can't go back to war for a while (isWarCooldownActive). Since
+// goblinwar_relations' war/peace state has no concept of "who's the aggressor" for a given
+// pair — advanceSiege's attacker/defender roles are decided fresh, per enemy, every tick, not tied
+// to who first declared — a one-sided "only the winner can't attack" isn't something the pairwise
+// relations model can express. What's built instead is the closest honest equivalent: the whole
+// pair is barred from re-entering war (via the tick's own declare roll, and via acceptInciteWar's
+// candidate filter, below) until the cooldown expires — a real peace treaty holding for both
+// sides, not just a one-way leash on the winner.
+const WAR_EXHAUSTION_GRACE_WEEKS = 2;          // a war has to run this many ticks before exhaustion starts adding to the peace chance at all
+const WAR_EXHAUSTION_PEACE_BONUS_PER_WEEK = 0.02; // added to WAR_PEACE_CHANCE per tick elapsed past the grace period
+const WAR_PEACE_CHANCE_MAX = 0.6;              // exhaustion can never make peace a certainty
+const WAR_TREATY_COOLDOWN_DAYS = 60;           // how long a war-exhaustion peace bars that exact pair from fighting again
+const WAR_TRIBUTE_DURATION_DAYS = 60;          // reparations last exactly as long as the treaty holds
+const WAR_TRIBUTE_SURCHARGE = 1.15;            // the paying kingdom's own Marketplace/Blacksmith prices, on top of everything else
+const WAR_TRIBUTE_DISCOUNT = 0.9;              // the receiving kingdom's own prices — a wartime dividend
 
 // Tick-scoped read cache for the sparse override maps below (territory control, population,
 // relations, sieges, reinforcements). Every getXxx() normally does a fresh JSON.parse on every
@@ -1382,6 +1414,98 @@ function setRelation(k1, k2, state){
   const map = getRelationsMap();
   map[getRelationKey(k1, k2)] = state;
   localStorage.setItem(RELATIONS_KEY, JSON.stringify(map));
+}
+
+// War exhaustion bookkeeping (see the const block above) — same sparse, order-independent-key
+// shape as relations itself. A war with no recorded start (any war already underway in a save
+// from before this shipped) is treated as having just started rather than as infinitely old —
+// same "self-healing, not silently wrong" approach the legacy territory-control format above
+// already takes, rather than trying to reconstruct a start date that was never recorded.
+function getWarStartsMap(){
+  if(_tickCache) return _tickCache.warStarts;
+  try{ return JSON.parse(localStorage.getItem(WARSTART_KEY)) || {}; }catch(e){ return {}; }
+}
+function getWarStartDay(k1, k2){
+  const map = getWarStartsMap();
+  const key = getRelationKey(k1, k2);
+  if(map[key] === undefined){
+    // A war already underway with no recorded start (any war predating this feature) would
+    // otherwise never accumulate exhaustion at all, since nothing would ever stamp a start day for
+    // it — so this backfills one, starting the clock now rather than leaving it permanently absent.
+    // Idempotent after the first call: once written, this branch never runs again for this pair.
+    map[key] = gameDay;
+    localStorage.setItem(WARSTART_KEY, JSON.stringify(map));
+  }
+  return map[key];
+}
+function setWarStart(k1, k2){
+  const map = getWarStartsMap();
+  map[getRelationKey(k1, k2)] = gameDay;
+  localStorage.setItem(WARSTART_KEY, JSON.stringify(map));
+}
+function clearWarStart(k1, k2){
+  const map = getWarStartsMap();
+  delete map[getRelationKey(k1, k2)];
+  localStorage.setItem(WARSTART_KEY, JSON.stringify(map));
+}
+
+function getWarCooldownsMap(){
+  if(_tickCache) return _tickCache.warCooldowns;
+  try{ return JSON.parse(localStorage.getItem(WARCOOLDOWN_KEY)) || {}; }catch(e){ return {}; }
+}
+function isWarCooldownActive(k1, k2){
+  const expires = getWarCooldownsMap()[getRelationKey(k1, k2)];
+  return expires !== undefined && gameDay < expires;
+}
+function setWarCooldown(k1, k2, expiresDay){
+  const map = getWarCooldownsMap();
+  map[getRelationKey(k1, k2)] = expiresDay;
+  localStorage.setItem(WARCOOLDOWN_KEY, JSON.stringify(map));
+}
+// Every kingdom a treaty currently bars this one from fighting again — surfaced on Guard House
+// (see buildGuardHouseStats) so a still-cooling-down treaty is something the player can actually
+// see, not just an invisible number.
+function getTreatyBoundEnemies(kingdom){
+  return ALL_KINGDOMS.filter(k => k !== kingdom && isWarCooldownActive(kingdom, k));
+}
+
+// War reparations — the economic half of a war-exhaustion peace (see settleWarExhaustionPeace).
+// Kingdoms don't carry a treasury anywhere else in this system, so "gets paid by the defeated
+// kingdom" is modeled the same way every other kingdom-level effect on the player already is: a
+// temporary multiplicative factor in getBuyPrice, alongside war pricing/getSettlementDiscount/
+// getReputationDiscount — the payer's own settlements cost more to shop at (funding the tribute),
+// the receiver's cost less (a wartime dividend). One active tribute per kingdom, in either
+// direction — a new war-exhaustion peace overwrites rather than stacks, same precedent
+// setReinforcement already set for goblinwar_reinforcements.
+function getTributeMap(){
+  if(_tickCache) return _tickCache.tribute;
+  try{ return JSON.parse(localStorage.getItem(TRIBUTE_KEY)) || {}; }catch(e){ return {}; }
+}
+function getTribute(kingdom){
+  if(!kingdom) return null;
+  const t = getTributeMap()[kingdom];
+  if(!t || gameDay > t.expiresDay) return null;
+  return t;
+}
+function setTribute(payerKingdom, receiverKingdom, expiresDay){
+  const map = getTributeMap();
+  map[payerKingdom] = { role:'payer', counterpart: receiverKingdom, expiresDay };
+  map[receiverKingdom] = { role:'receiver', counterpart: payerKingdom, expiresDay };
+  localStorage.setItem(TRIBUTE_KEY, JSON.stringify(map));
+}
+function getTributeMultiplier(burgId){
+  const tribute = getTribute(getControllerKingdom(burgId));
+  if(!tribute) return 1;
+  return tribute.role === 'payer' ? WAR_TRIBUTE_SURCHARGE : WAR_TRIBUTE_DISCOUNT;
+}
+// Shared by showMarketPanel/showBlacksmithPanel's own banners, alongside their existing
+// port/village/mithril notes.
+function buildTributeNote(burgId){
+  const tribute = getTribute(getControllerKingdom(burgId));
+  if(!tribute) return '';
+  return tribute.role === 'payer'
+    ? '<div style="margin-top:4px; font-size:11.5px; color:#e2857f;">Paying war reparations — prices up</div>'
+    : '<div style="margin-top:4px; font-size:11.5px; color:#7fbf6a;">War spoils flowing in — prices down</div>';
 }
 // Every opposite-alliance kingdom this one currently has a "war" relation with. Reads
 // getRelationsMap() once up front rather than calling getRelation() per candidate (which would
@@ -1653,7 +1777,7 @@ function getReputationDiscount(burgId){
   return 1;
 }
 function getBuyPrice(mi, burgId){
-  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId));
+  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId) * getTributeMultiplier(burgId));
 }
 function getSellPrice(mi, burgId){
   return (isWarRelevant(mi) && isAtWarAt(burgId))
@@ -1709,6 +1833,44 @@ function cancelSiegesBetween(k1, k2){
     }
   });
   if(changed) setSieges(sieges);
+}
+
+// How many of loserKingdom's *original* settlements winnerKingdom currently controls — the real,
+// territorial half of "who's winning this war," reusing the same b.state (identity) vs.
+// getControllerKingdom (control) split the rest of this file already draws on. Used only by
+// determineWarWinner below, which calls it at most twice per kingdom pair, only on the (rare)
+// tick a war actually ends — not worth tick-caching on top of the territory/population caches it
+// already reads through.
+function countSettlementsCapturedFrom(winnerKingdom, loserKingdom){
+  return Object.values(graph.burgs).filter(b => b.state === loserKingdom && getControllerKingdom(b.id) === winnerKingdom).length;
+}
+// Whoever has captured more of the other's original settlements is the winner; a tie (including
+// the common case of two kingdoms that fought for weeks without either actually finishing a
+// siege) has no winner at all — an ordinary peace, no reparations, no cooldown. Returns
+// {winner, loser} or null.
+function determineWarWinner(k1, k2){
+  const k1Gains = countSettlementsCapturedFrom(k1, k2);
+  const k2Gains = countSettlementsCapturedFrom(k2, k1);
+  if(k1Gains === k2Gains) return null;
+  return k1Gains > k2Gains ? { winner: k1, loser: k2 } : { winner: k2, loser: k1 };
+}
+// Called from runFactionAITick's first pass whenever a war ends via exhaustion (NOT via the
+// player buying it off with Negotiate Peace, which has its own, deliberately simpler resolution —
+// see acceptNegotiatePeace). The winner (if the war produced a clear one — see determineWarWinner)
+// keeps whatever it captured (already true, nothing to do there), starts collecting reparations
+// from the loser (setTribute — see the const block above for why this is a price effect rather
+// than literal kingdom gold), and that exact pair can't go back to war for a while (setWarCooldown
+// — see the const block above for why this brackets both sides, not just the winner). Pushed onto
+// `events` the same way a settlement capture is, since "a whole war just ended, with reparations
+// changing hands" is at least as notable as one settlement changing hands.
+function settleWarExhaustionPeace(k1, k2, events){
+  const outcome = determineWarWinner(k1, k2);
+  if(!outcome) return;
+  const { winner, loser } = outcome;
+  setWarCooldown(winner, loser, gameDay + WAR_TREATY_COOLDOWN_DAYS);
+  setTribute(loser, winner, gameDay + WAR_TRIBUTE_DURATION_DAYS);
+  events.push(`${loser} sues for peace with ${winner} after a long war — ${winner} keeps the ground it took and will collect reparations.`);
+  recordWorldEvent(`Word has it ${loser} has sued for peace with ${winner}, ceding the ground it lost and agreeing to pay reparations.`);
 }
 
 // Picks one settlement belonging to defenderKingdom for attackerKingdom to besiege. Prefers a
@@ -1779,11 +1941,13 @@ function advanceSiege(attackerKingdom, defenderKingdom){
 }
 
 // Runs the whole weekly tick and returns a short list of {text} events worth telling the player
-// about (captures only — declarations/peace deals are frequent enough that surfacing every one
-// would be noise). Two passes: first, war/peace rolls once per cross-alliance kingdom pair
-// (same-alliance kingdoms never fight — see ALLIANCE); second, every kingdom currently at war
-// bleeds attrition and, per specific enemy it's fighting, has a chance to start or advance a
-// siege against that enemy.
+// about (captures, plus a war-exhaustion peace that produced a clear winner — see
+// settleWarExhaustionPeace — since a whole war ending with reparations changing hands is at least
+// as notable as one settlement changing hands; an ordinary declaration or a tied, reparations-free
+// peace stays silent, same as before). Two passes: first, war/peace rolls once per cross-alliance
+// kingdom pair (same-alliance kingdoms never fight — see ALLIANCE); second, every kingdom
+// currently at war bleeds attrition and, per specific enemy it's fighting, has a chance to start
+// or advance a siege against that enemy.
 function runFactionAITick(){
   // Populate the tick-scoped read cache (see its declaration near KINGDOM_RACE above) — every
   // getXxx() call for the rest of this function, and everything it calls (getArmyStrength,
@@ -1797,6 +1961,9 @@ function runFactionAITick(){
     relations: getRelationsMap(),
     sieges: getSieges(),
     reinforcements: getReinforcements(),
+    warStarts: getWarStartsMap(),
+    warCooldowns: getWarCooldownsMap(),
+    tribute: getTributeMap(),
     warState: {}, // see getWarState — populated lazily, safe for the whole tick once the declare/peace pass below finishes
   };
   try{
@@ -1806,10 +1973,23 @@ function runFactionAITick(){
         const k1 = ALL_KINGDOMS[i], k2 = ALL_KINGDOMS[j];
         if(ALLIANCE[KINGDOM_RACE[k1]] === ALLIANCE[KINGDOM_RACE[k2]]) continue;
         if(getRelation(k1, k2) === 'peace'){
-          if(Math.random() < WAR_DECLARE_CHANCE) setRelation(k1, k2, 'war');
-        } else if(Math.random() < WAR_PEACE_CHANCE){
-          setRelation(k1, k2, 'peace');
-          cancelSiegesBetween(k1, k2);
+          // A war-exhaustion treaty (below) bars this exact pair from re-declaring until it expires.
+          if(!isWarCooldownActive(k1, k2) && Math.random() < WAR_DECLARE_CHANCE){
+            setRelation(k1, k2, 'war');
+            setWarStart(k1, k2);
+          }
+        } else {
+          // War exhaustion: the longer this specific pair has been fighting, the likelier peace —
+          // WAR_PEACE_CHANCE is just the floor for a war still inside its grace period.
+          const weeksAtWar = Math.floor((gameDay - getWarStartDay(k1, k2)) / WAR_TICK_INTERVAL_DAYS);
+          const exhaustionWeeks = Math.max(0, weeksAtWar - WAR_EXHAUSTION_GRACE_WEEKS);
+          const peaceChance = Math.min(WAR_PEACE_CHANCE_MAX, WAR_PEACE_CHANCE + exhaustionWeeks * WAR_EXHAUSTION_PEACE_BONUS_PER_WEEK);
+          if(Math.random() < peaceChance){
+            setRelation(k1, k2, 'peace');
+            cancelSiegesBetween(k1, k2);
+            settleWarExhaustionPeace(k1, k2, events);
+            clearWarStart(k1, k2);
+          }
         }
       }
     }
@@ -4959,8 +5139,11 @@ function showFlavorPanel(burgId, title, lines, extraHTML){
 
 // Guard House shows real numbers alongside its flavor line — local population, the current
 // controlling *kingdom's own* mustered strength (not its whole race — see getArmyStrength),
-// both population-derived (see advanceSiege), and — new — this settlement's own siege state if
-// one is currently underway (see goblinwar_sieges/advanceSiege).
+// both population-derived (see advanceSiege), this settlement's own siege state if one is
+// currently underway (see goblinwar_sieges/advanceSiege), and — new — a war-exhaustion peace's
+// two lingering effects: reparations (getTribute) and a standing treaty barring this kingdom from
+// re-attacking whoever it just made peace with (getTreatyBoundEnemies) — see the "War exhaustion"
+// const block above.
 function buildGuardHouseStats(burgId){
   const controllerKingdom = getControllerKingdom(burgId);
   const pop = getPopulation(burgId);
@@ -4969,12 +5152,22 @@ function buildGuardHouseStats(burgId){
   const siegeRow = siege
     ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#e07a5f;"><span>Under siege by ${siege.attackerKingdom}</span><b>${Math.round(Math.min(100,siege.progress))}%</b></div>`
     : '';
+  const tribute = getTribute(controllerKingdom);
+  const tributeRow = tribute
+    ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:${tribute.role==='payer' ? '#e07a5f' : '#7fbf6a'};"><span>${tribute.role==='payer' ? 'Paying war reparations to' : 'Receiving reparations from'} ${tribute.counterpart}</span></div>`
+    : '';
+  const boundEnemies = getTreatyBoundEnemies(controllerKingdom);
+  const treatyRow = boundEnemies.length
+    ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#a9926a;"><span>Bound by treaty, can't yet move against</span><b>${boundEnemies.join(', ')}</b></div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>${controllerKingdom || 'Unknown'} forces</span><b>${formatPopulation(army)}</b></div>
       <div style="display:flex; justify-content:space-between;"><span>${controllerKingdom || 'This kingdom'}'s opinion of you</span><b>${reputationLabel(getReputation(controllerKingdom))}</b></div>
       ${siegeRow}
+      ${tributeRow}
+      ${treatyRow}
     </div>
   `;
 }
@@ -5354,6 +5547,7 @@ function acceptNegotiatePeace(burgId){
   setGold(playerGold - offer.cost);
   setRelation(offer.kingdom, offer.enemy, 'peace');
   cancelSiegesBetween(offer.kingdom, offer.enemy);
+  clearWarStart(offer.kingdom, offer.enemy); // a bought-off peace isn't the war-exhaustion kind — no winner, no reparations, no cooldown; just reset the clock for next time
   buildFrontlineMarkers();
   const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
@@ -5376,6 +5570,7 @@ function generateInciteWarOffer(burgId){
   if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
   const candidates = ALL_KINGDOMS.filter(k =>
     k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== ALLIANCE[KINGDOM_RACE[kingdom]] && getRelation(kingdom, k) !== 'war'
+    && !isWarCooldownActive(kingdom, k) // a war-exhaustion treaty holding between these two can't be paid around
   );
   if(!candidates.length) return null;
   const myStrength = getArmyStrength(kingdom);
@@ -5406,6 +5601,7 @@ function acceptInciteWar(burgId){
   const offer = generateInciteWarOffer(burgId);
   if(!offer){ showLocationView(burgId); return; } // relations shifted since the panel opened
   setRelation(offer.kingdom, offer.target, 'war');
+  setWarStart(offer.kingdom, offer.target);
   buildFrontlineMarkers();
   setGold(playerGold + offer.gold);
   const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
@@ -5676,6 +5872,7 @@ function showMarketPanel(burgId){
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
         ${b.port ? '<div style="margin-top:4px; font-size:11.5px; color:#8fb3a8;">Port settlement — Waterskin sold cheaper here</div>' : ''}
         ${b.tier === 'village' ? '<div style="margin-top:4px; font-size:11.5px; color:#8fb3a8;">Village — Food sold cheaper here</div>' : ''}
+        ${buildTributeNote(burgId)}
       </div>
       ${itemRows}
     `;
@@ -5830,6 +6027,7 @@ function showBlacksmithPanel(burgId){
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Carried weight</span><b>${getCarriedWeight()} / ${getCarryCapacity()}</b></div>
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
         ${b.tier !== 'capital' ? '<div style="margin-top:4px; font-size:11.5px; color:#a9926a;">The rarest mithril work is only forged in a Capital</div>' : ''}
+        ${buildTributeNote(burgId)}
       </div>
       ${buildRepairGearHTML()}
       ${itemRows}
@@ -6013,6 +6211,9 @@ function collectCharacterSnapshot(){
     refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
     recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
+    warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
+    warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
+    tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

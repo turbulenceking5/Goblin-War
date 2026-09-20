@@ -547,6 +547,7 @@
       <img id="map-img" src="assets/world-raster.jpg" alt="World map" draggable="false">
       <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
         <g id="roads" style="pointer-events:none"></g>
+        <g id="border-markers" style="pointer-events:none"></g>
         <g id="settlement-dots" style="pointer-events:none"></g>
         <path id="route-preview"/>
         <g id="hitzones"></g>
@@ -1244,6 +1245,9 @@ const CHANGELOG = [
     "Recruited companions can now ask you for a personal favor around the campfire — a one-time quest just for them, paying off in loyalty rather than gold or a kingdom's opinion of you.",
     "Palace Loans: borrow gold at a Capital against future income. Real interest, a due date, and a real consequence for falling behind — that kingdom's merchants mark you up until you settle the debt.",
     "New \"Realistic\" difficulty option at character creation: past 60, there's now a real (if small) yearly chance of dying of old age. Off by default."
+  ]},
+  { id:92, date:"2026-09-20", changes:[
+    "The map now shows a real political border — a dashed line marking where Good-alliance territory meets Bad-alliance territory, updated as settlements change hands."
   ]},
 ];
 
@@ -2614,6 +2618,7 @@ function maybeRunFactionAI(){
   localStorage.setItem(LASTWARTICK_KEY, String(gameDay));
   const events = runFactionAITick();
   buildFrontlineMarkers();
+  buildBorderMarkers();
   buildArmyMarkers();
   buildBattleMarkers();
   if(events.length){
@@ -4594,6 +4599,59 @@ function buildArmyMarkers(){
     marker.setAttribute("stroke", "#1c150c");
     marker.setAttribute("stroke-width", "0.8");
     g.appendChild(marker);
+  });
+}
+
+// Political border overlay — per the project owner, a real "who controls what" visual on the map
+// itself, distinct from buildFrontlineMarkers' abandoned per-settlement rings above (turned off
+// for reading as "something's broken" rather than "a border"). This is a deliberately calmer,
+// different shape: one thin dashed line per burgAdjacency edge (the same road/sea-graph border
+// geometry isFrontlineBurg/pickRaidTarget already treat as the real border — see
+// context/factions-and-territory.md), drawn only where the edge actually crosses the Good/Bad
+// alliance line, split-colored at the midpoint (ARMY_MARKER_COLOR, for visual consistency with the
+// army markers) so it reads as "Good ends here, Bad begins" right at the point of contact. Reflects
+// current territorial control only, not live war state — a political border exists whether or not
+// the two sides are actively fighting, unlike the old rings' war-specific alarm framing. Same-
+// alliance boundaries (Human/Dwarf, Ork/Goblin) are skipped entirely: not visually interesting,
+// and it keeps the total line count to just the real Good-vs-Bad frontier rather than every
+// settlement-to-settlement seam on the map, the actual root of the old rings' clutter complaint.
+//
+// Known simplification: a straight line between two adjacent settlements' own points, not a traced
+// cell boundary — travel-graph.json has no per-settlement territory polygon to draw instead (see
+// context/data-files.md), so this is the same approximation pickRaidTarget's own "prefers a real
+// border settlement" already relies on for game logic, just drawn rather than only computed.
+function buildBorderMarkers(){
+  const g = document.getElementById('border-markers');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  const drawnPairs = new Set(); // burgAdjacency is symmetric — draw each border edge once, not twice
+  Object.keys(burgAdjacency).forEach(burgId=>{
+    const kingdom = getControllerKingdom(burgId);
+    if(!kingdom) return;
+    const alliance = ALLIANCE[KINGDOM_RACE[kingdom]];
+    const b = graph.burgs[burgId];
+    (burgAdjacency[burgId] || []).forEach(neighborId=>{
+      const pairKey = burgId < neighborId ? `${burgId}|${neighborId}` : `${neighborId}|${burgId}`;
+      if(drawnPairs.has(pairKey)) return;
+      const neighborKingdom = getControllerKingdom(neighborId);
+      if(!neighborKingdom) return;
+      const neighborAlliance = ALLIANCE[KINGDOM_RACE[neighborKingdom]];
+      if(neighborAlliance === alliance) return; // only the real Good/Bad frontier gets drawn
+      drawnPairs.add(pairKey);
+      const n = graph.burgs[neighborId];
+      const midX = (b.x + n.x) / 2, midY = (b.y + n.y) / 2;
+      [[b, midX, midY, alliance], [n, midX, midY, neighborAlliance]].forEach(([from, mx, my, side])=>{
+        const seg = document.createElementNS(ns, "line");
+        seg.setAttribute("x1", from.x); seg.setAttribute("y1", from.y);
+        seg.setAttribute("x2", mx); seg.setAttribute("y2", my);
+        seg.setAttribute("stroke", ARMY_MARKER_COLOR[side]);
+        seg.setAttribute("stroke-width", "2.2");
+        seg.setAttribute("stroke-dasharray", "6,4");
+        seg.setAttribute("opacity", "0.6");
+        g.appendChild(seg);
+      });
+    });
   });
 }
 
@@ -7908,6 +7966,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   }
 
   buildRoads();
+  buildBorderMarkers();
   buildSettlementDots();
   buildHitzones();
   buildLabels();

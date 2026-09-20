@@ -3035,18 +3035,39 @@ const COMBAT_INTRO_LINES = [
   "One breath in, one breath out. Then the world turns to violence.",
 ];
 // Real environment art behind the enemy portraits — see the Scene Backdrops tracker's "biome"
-// category. Full biome-aware selection is still unbuilt (travel-graph.json carries no biome
-// data yet — see roadmap.md's combat backdrop note), so Forest is the only one wired up so
-// far, standing in for the plain on-the-road ambush (see triggerAmbushFight) until that
-// plumbing exists. Picked fresh each fight (Math.random(), not seeded) since a fight has no
-// persistent identity to stay consistent across, unlike a settlement's GUARDHOUSE_ART/TEMPLE_ART.
-const FOREST_ART = [
-  "assets/biomes/forest-canopy.jpg",
-  "assets/biomes/forest-deadwood.jpg",
-  "assets/biomes/forest-birch.jpg",
-];
-function getForestBackdrop(){
-  return FOREST_ART[Math.floor(Math.random() * FOREST_ART.length)];
+// category (Forest/Plains/Hills/Mountains/Desert/Swamp/Snow, plus Coast). Only Forest has real
+// art committed so far, so every other category's array is empty below — getBiomeBackdrop falls
+// back to Forest whenever a burg's own category has no art yet (including every burg that
+// predates the `biome` field itself), so this is a no-visible-change swap today, not a new
+// feature: it starts paying off burg-by-burg/category-by-category as (a) travel-graph.json's
+// burgs actually carry a `biome` field (see scripts/tag-burg-biomes.js and
+// context/data-files.md) and (b) that category's own array gets filled in with real art. Coast
+// deliberately isn't one of these categories — a burg's own `port` flag (already in
+// travel-graph.json) answers "is this coastal?" for free, no biome data needed.
+const BIOME_ART = {
+  forest: [
+    "assets/biomes/forest-canopy.jpg",
+    "assets/biomes/forest-deadwood.jpg",
+    "assets/biomes/forest-birch.jpg",
+  ],
+  plains: [], desert: [], hills: [], mountains: [], swamp: [], snow: [], coast: [],
+};
+function pickBackdrop(list){
+  return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null;
+}
+// Picks a real backdrop for an ambush at burgId — port settlements try Coast art first, then
+// whichever BIOME_ART category that burg's own `biome` field names, falling back to Forest
+// (today's only real art, and the safe default for a burg with no `biome` tag at all) if that
+// category is still empty. Picked fresh each fight (Math.random(), not seeded) since a fight has
+// no persistent identity to stay consistent across, unlike a settlement's GUARDHOUSE_ART/TEMPLE_ART.
+function getBiomeBackdrop(burgId){
+  const b = graph.burgs[burgId];
+  if(b && b.port){
+    const coastArt = pickBackdrop(BIOME_ART.coast);
+    if(coastArt) return coastArt;
+  }
+  const category = (b && b.biome) || 'forest';
+  return pickBackdrop(BIOME_ART[category]) || pickBackdrop(BIOME_ART.forest);
 }
 // Paints (or clears) a real photo behind #combat-view's own content — combined with a
 // darkening gradient in the same `background` value so the enemy portraits, bars, and log
@@ -3559,10 +3580,11 @@ function triggerAmbushFight(burgId, onEnd, context){
   const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
   const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? 'Ork raiders' : 'Goblin raiders');
   showToast(`${label} ${scene}!`);
-  // Forest stands in for the generic on-the-road ambush until real biome-aware backdrops are
-  // built (see FOREST_ART above) — a camp ambush stays backdrop-less for now (Night Camp's own
-  // art is a separate, still-unbuilt Scene Backdrops entry).
-  const backdrop = context === 'camp' ? null : getForestBackdrop();
+  // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — still reads as Forest-always until
+  // travel-graph.json's burgs carry real `biome` tags and more categories get real art. A camp
+  // ambush stays backdrop-less for now (Night Camp's own art is a separate, still-unbuilt Scene
+  // Backdrops entry).
+  const backdrop = context === 'camp' ? null : getBiomeBackdrop(burgId);
   triggerEnemyFight(enemy, onEnd, backdrop);
 }
 

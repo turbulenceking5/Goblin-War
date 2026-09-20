@@ -844,7 +844,7 @@ function advanceTime(hours, quiet){
   if(daysCrossed > 0){
     gameDay += daysCrossed;
     localStorage.setItem(CAL_KEY, String(gameDay));
-    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); }
+    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); applyAging(); }
   }
   refreshCalendarUI();
 }
@@ -861,7 +861,50 @@ function restThroughNight(){
   advanceArmies();
   chargeMercenaryUpkeep();
   maybeRunFactionAI();
+  applyAging();
   refreshCalendarUI();
+}
+
+// "Realistic" difficulty — die of old age (see PERMADEATH_OLDAGE_KEY above and
+// context/roadmap.md). goblinwar_age was tracked and shown on character.html but never actually
+// advanced with calendar time — this is the missing half: DAYS_PER_YEAR reuses the exact same
+// year length formatCalendar's own year math already assumes (DAYS_PER_MONTH*MONTHS_PER_YEAR).
+// goblinwar_lastAgedDay is lazily initialized to *today* the first time this ever runs for a
+// given character, rather than assuming any history — the same "self-healing, not silently
+// wrong" precedent WARSTART's own "no recorded start = treated as just started" already set — so
+// an existing character simply starts aging from whenever they next play after this update
+// ships, never retroactively aged for time already played before it existed.
+const DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR;
+const LASTAGED_KEY = "goblinwar_lastAgedDay";
+const OLD_AGE_DEATH_THRESHOLD = 60; // no death roll at all below this age, permadeathOldAge or not
+const OLD_AGE_DEATH_CHANCE_PER_YEAR = 0.05; // rolled once per birthday past the threshold, not once per day
+function applyAging(){
+  let lastAged = parseInt(localStorage.getItem(LASTAGED_KEY), 10);
+  if(isNaN(lastAged)){ localStorage.setItem(LASTAGED_KEY, String(gameDay)); return; }
+  const yearsElapsed = Math.floor((gameDay - lastAged) / DAYS_PER_YEAR);
+  if(yearsElapsed <= 0) return;
+  const age = parseInt(localStorage.getItem(AGE_KEY), 10) || 24;
+  const newAge = age + yearsElapsed;
+  localStorage.setItem(AGE_KEY, String(newAge));
+  localStorage.setItem(LASTAGED_KEY, String(lastAged + yearsElapsed * DAYS_PER_YEAR));
+  if(!permadeathOldAge || newAge < OLD_AGE_DEATH_THRESHOLD) return;
+  // One roll per year actually aged past the threshold — a big single jump (a long journey or
+  // rest crossing several birthdays at once) doesn't get a free pass, but also isn't rolled
+  // against more times than years that genuinely elapsed.
+  for(let i=0;i<yearsElapsed;i++){
+    if(Math.random() < OLD_AGE_DEATH_CHANCE_PER_YEAR){ triggerOldAgeDeath(newAge); return; }
+  }
+}
+// Same isDead/redirect shape as endCombat's permadeathPlayer branch (see there), just triggered
+// by a calendar birthday instead of a lost fight — a defeat's already-open combat log doesn't
+// exist here, so this owns its own toast instead of appending a fallenNote.
+function triggerOldAgeDeath(age){
+  playerIsDead = true;
+  localStorage.setItem(ISDEAD_KEY, 'true');
+  showToast(`${localStorage.getItem(NAME_KEY) || 'Your hero'} has died of old age at ${age}. This journey ends here.`);
+  saveActiveCharacter().finally(()=>{
+    setTimeout(()=>{ location.href = 'characters.html?_=' + Date.now(); }, 1800);
+  });
 }
 
 // ===================== CHANGE LOG / WHAT'S NEW =====================
@@ -1196,6 +1239,11 @@ const CHANGELOG = [
   ]},
   { id:90, date:"2026-09-20", changes:[
     "A kingdom that loses every last settlement it holds now falls for good — every war it was still fighting ends in peace (the actual conqueror still collects reparations), and news of it leads that week's report. Also fixed a bug where a captured settlement kept losing population under its old owner's war status instead of its new one's."
+  ]},
+  { id:91, date:"2026-09-20", changes:[
+    "Recruited companions can now ask you for a personal favor around the campfire — a one-time quest just for them, paying off in loyalty rather than gold or a kingdom's opinion of you.",
+    "Palace Loans: borrow gold at a Capital against future income. Real interest, a due date, and a real consequence for falling behind — that kingdom's merchants mark you up until you settle the debt.",
+    "New \"Realistic\" difficulty option at character creation: past 60, there's now a real (if small) yearly chance of dying of old age. Off by default."
   ]},
 ];
 
@@ -1592,6 +1640,43 @@ function getTributeMultiplier(burgId){
   if(!tribute) return 1;
   return tribute.role === 'payer' ? WAR_TRIBUTE_SURCHARGE : WAR_TRIBUTE_DISCOUNT;
 }
+
+// Palace Loans — borrow gold at a Capital against future income, per the project owner's own
+// roadmap note. At most one loan at a time (same "at most one X" simplicity precedent as a siege/
+// Notable Figure quest), null when none is outstanding. Interest is simple, not compound — owed
+// is a pure function of days elapsed since borrowing, so there's nothing to periodically accrue on
+// a tick; it's just computed fresh wherever it's needed (getLoanOwed), and grows linearly even if
+// the player ignores it indefinitely rather than compounding into something unbounded.
+const LOAN_KEY = "goblinwar_loan"; // null | {kingdom, principal, borrowedDay, dueDay}
+const LOAN_PRINCIPAL = 200;
+const LOAN_INTEREST_RATE_PER_DAY = 0.01; // 1%/day of the original principal
+const LOAN_TERM_DAYS = 30;
+// The real "consequence for defaulting" the roadmap asked for. Implemented as a steep price
+// surcharge — the same multiplicative-factor mechanism getTributeMultiplier/getReputationDiscount
+// above already use for a kingdom-level pricing effect — rather than an outright purchase block,
+// which nothing else in this game does either; a defaulted loan reads as "that kingdom's merchants
+// mark you up until you pay," the practical shape of "services refusing you" this pricing system
+// can actually express.
+const LOAN_DEFAULT_SURCHARGE = 1.5;
+function getLoan(){ try{ return JSON.parse(localStorage.getItem(LOAN_KEY)); }catch(e){ return null; } }
+function saveLoan(loan){ localStorage.setItem(LOAN_KEY, JSON.stringify(loan)); }
+function getLoanOwed(loan){
+  if(!loan) return 0;
+  const daysElapsed = Math.max(0, gameDay - loan.borrowedDay);
+  return Math.round(loan.principal * (1 + LOAN_INTEREST_RATE_PER_DAY * daysElapsed));
+}
+function isLoanInDefault(loan){ return !!loan && gameDay > loan.dueDay; }
+function getLoanDefaultMultiplier(burgId){
+  const loan = getLoan();
+  if(!loan || getControllerKingdom(burgId) !== loan.kingdom || !isLoanInDefault(loan)) return 1;
+  return LOAN_DEFAULT_SURCHARGE;
+}
+// Shared by showMarketPanel/showBlacksmithPanel's own banners, alongside buildTributeNote.
+function buildLoanDefaultNote(burgId){
+  const loan = getLoan();
+  if(!loan || getControllerKingdom(burgId) !== loan.kingdom || !isLoanInDefault(loan)) return '';
+  return '<div style="margin-top:4px; font-size:11.5px; color:#e2857f;">Word of your unpaid debt precedes you — prices up</div>';
+}
 // Shared by showMarketPanel/showBlacksmithPanel's own banners, alongside their existing
 // port/village/mithril notes.
 function buildTributeNote(burgId){
@@ -1889,7 +1974,7 @@ function getReputationDiscount(burgId){
   return 1;
 }
 function getBuyPrice(mi, burgId){
-  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId) * getTributeMultiplier(burgId));
+  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId) * getTributeMultiplier(burgId) * getLoanDefaultMultiplier(burgId));
 }
 function getSellPrice(mi, burgId){
   return (isWarRelevant(mi) && isAtWarAt(burgId))
@@ -2556,6 +2641,10 @@ const ISDEAD_KEY = "goblinwar_isDead";
 const PERMADEATH_PLAYER_KEY = "goblinwar_permadeathPlayer";
 const PERMADEATH_COMPANIONS_KEY = "goblinwar_permadeathCompanions";
 const PERMADEATH_MERCENARIES_KEY = "goblinwar_permadeathMercenaries";
+// A fourth toggle in the same permadeath family, per context/roadmap.md's "Realistic difficulty:
+// die of old age" — off by default like permadeathPlayer, since it's an opt-in harsher difficulty
+// rather than the game's original behavior. See applyAging() below for the actual mechanic.
+const PERMADEATH_OLDAGE_KEY = "goblinwar_permadeathOldAge";
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -2834,6 +2923,7 @@ let playerIsDead = localStorage.getItem(ISDEAD_KEY) === 'true';
 const permadeathPlayer = localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true';
 const permadeathCompanions = localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true'; // gates allyFalls() for recruited companions, same as permadeathMercenaries does for mercenaries
 const permadeathMercenaries = localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true';
+const permadeathOldAge = localStorage.getItem(PERMADEATH_OLDAGE_KEY) === 'true'; // gates applyAging()'s death roll, see there
 let playerGold = parseInt(localStorage.getItem(GOLD_KEY), 10);
 let playerLevel = parseInt(localStorage.getItem(LEVEL_KEY), 10);
 let playerXp = parseInt(localStorage.getItem(XP_KEY), 10);
@@ -3488,26 +3578,38 @@ function endCombat(result){
       // Notable Figure kill-quests complete on the next matching victory anywhere — Kill
       // Bandits wants a Bandit, Drive Off the Raiders wants a Goblin or Ork (see
       // context/quests.md). Only one can ever be active (checked by source, not type, in
-      // showNotableFigurePanel), so there's at most one to resolve here regardless of race.
+      // showNotableFigurePanel). A companion's own personal kill-quest (companion_kill, see
+      // COMPANION_QUESTS) can be active at the same time as a Notable Figure one though — up to
+      // one per recruited companion, each with its own targetRaces — so this now resolves every
+      // matching active quest off a single kill, not just the first.
       if(enemyRace){
         const questMatchesRace = q =>
           (q.type==='kill_bandits' && enemyRace==='bandit') ||
-          (q.type==='kill_raiders' && (enemyRace==='goblin' || enemyRace==='ork'));
+          (q.type==='kill_raiders' && (enemyRace==='goblin' || enemyRace==='ork')) ||
+          (q.type==='companion_kill' && q.targetRaces && q.targetRaces.includes(enemyRace));
         const quests = getQuests();
         const remaining = [];
-        let questReward = null;
+        const rewarded = [];
         quests.forEach(q => {
-          if(!questReward && q.status==='active' && questMatchesRace(q)) questReward = q;
+          if(q.status==='active' && questMatchesRace(q)) rewarded.push(q);
           else remaining.push(q);
         });
-        if(questReward){
-          setGold(playerGold + questReward.reward.gold);
-          if(addXp(questReward.reward.xp)) anyLevelUp = true;
+        if(rewarded.length){
           saveQuests(remaining);
-          recordCompletedQuest(questReward);
+          rewarded.forEach(questReward => {
+            setGold(playerGold + questReward.reward.gold);
+            if(addXp(questReward.reward.xp)) anyLevelUp = true;
+            recordCompletedQuest(questReward);
+            if(questReward.type === 'companion_kill'){
+              markCompanionQuestCompleted(questReward.companionId);
+              const loyaltyNote = adjustCompanionLoyalty(questReward.companionId, questReward.reward.loyalty || COMPANION_QUEST_LOYALTY_GAIN);
+              msg += ` ${questReward.giverName}'s personal request is fulfilled — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${loyaltyNote}`;
+            } else {
+              const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
+              msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
+            }
+          });
           refreshQuestBadge();
-          const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
-          msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
         }
       }
 
@@ -5049,11 +5151,31 @@ function showCampfirePanel(destId, destName, partialHours){
     const c = COMPANIONS.find(c2 => c2.id === id);
     if(!c) return '';
     const mood = loyaltyLabel(loyalty[id] === undefined ? 50 : loyalty[id]);
+    // A companion's own personal quest (see COMPANION_QUESTS) — an offer card if there's one to
+    // give, an in-progress note if already accepted, or nothing at all once it's done/there isn't
+    // one for this companion.
+    const offer = getCompanionQuestOffer(id);
+    const activeQuest = getActiveQuests().find(q => q.source==='companion' && q.companionId===id);
+    const questHTML = offer ? `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${offer.title}</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${c.name} ${offer.ask}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${offer.gold}g &middot; ${offer.xp} XP</span>
+          <button class="btn btn-primary" style="flex:none; padding:8px 16px;" data-companion-quest-accept="${id}">Accept</button>
+        </div>
+      </div>
+    ` : activeQuest ? `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px; font-size:13px; color:#a9926a;">
+        <b style="color:var(--parchment);">${questTitle(activeQuest)}</b><br>${questDesc(activeQuest)}
+      </div>
+    ` : '';
     return `
       <button class="loc-action campfire-talk-btn" data-companion-id="${c.id}" style="margin-bottom:10px;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span class="li-text"><b>Talk to ${c.name}</b><span>${c.title} &middot; ${mood}</span></span>
       </button>
+      ${questHTML}
     `;
   }).join('');
   list.innerHTML = `
@@ -5064,6 +5186,9 @@ function showCampfirePanel(destId, destName, partialHours){
     <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">Around the Campfire</div>
     ${cards || `<div style="font-size:13px; color:#a9926a; font-style:italic;">There's no one here to talk to tonight.</div>`}
   `;
+  document.querySelectorAll('[data-companion-quest-accept]').forEach(btn=>{
+    btn.addEventListener('click', ()=> acceptCompanionQuest(btn.dataset.companionQuestAccept, destId, destName, partialHours));
+  });
   const portraitEl = document.getElementById('loc-banner-portrait');
   const portraits = party.map(id => COMPANIONS.find(c => c.id === id)).filter(c => c && c.portrait);
   if(portraits.length){
@@ -5292,6 +5417,7 @@ function questTitle(q){
   if(q.type === 'deliver_cargo') return 'Deliver Cargo';
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return 'Drive Off the Raiders';
+  if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
   return 'Quest';
 }
 // Delivery-only — kill quests have no fixed destination to measure a distance to.
@@ -5304,6 +5430,8 @@ function questDesc(q){
   if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
   if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
+  if(q.type === 'companion_deliver') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
+  if(q.type === 'companion_kill') return `${q.giverName} ${(COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].ask) || 'asked for your help.'}`;
   return '';
 }
 
@@ -5411,7 +5539,7 @@ function generateNotableFigureOffer(burgId){
 // player reaches the quest's target settlement. Called at the top of showLocationView so it
 // fires on arrival, on re-entering, even after a Back from a sub-panel; harmless to call
 // repeatedly since a completed quest is removed immediately.
-const DELIVERY_QUEST_TYPES = ['deliver_message', 'deliver_cargo'];
+const DELIVERY_QUEST_TYPES = ['deliver_message', 'deliver_cargo', 'companion_deliver'];
 function checkQuestTurnIns(burgId){
   const quests = getQuests();
   const remaining = [];
@@ -5420,11 +5548,19 @@ function checkQuestTurnIns(burgId){
     if(q.status === 'active' && DELIVERY_QUEST_TYPES.includes(q.type) && q.targetBurgId === burgId){
       setGold(playerGold + q.reward.gold);
       const leveledUp = addXp(q.reward.xp);
-      const verb = q.type === 'deliver_cargo' ? 'Cargo delivered!' : 'Delivered!';
       recordCompletedQuest(q);
-      const repNote = adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
-      showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
-        + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
+      if(q.type === 'companion_deliver'){
+        // A personal favor pays out loyalty, not reputation with a kingdom — see COMPANION_QUESTS.
+        markCompanionQuestCompleted(q.companionId);
+        const loyaltyNote = adjustCompanionLoyalty(q.companionId, q.reward.loyalty || COMPANION_QUEST_LOYALTY_GAIN);
+        showToast(`Delivered! ${q.giverName}'s word reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
+          + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote);
+      } else {
+        const verb = q.type === 'deliver_cargo' ? 'Cargo delivered!' : 'Delivered!';
+        const repNote = adjustReputation(getControllerKingdom(q.targetBurgId), REP_GAIN_MINOR);
+        showToast(`${verb} ${q.giverName}'s ${q.type === 'deliver_cargo' ? 'shipment' : 'message'} reaches ${q.targetName}. +${q.reward.gold}g, +${q.reward.xp} XP.`
+          + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
+      }
       anyCompleted = true;
     } else {
       remaining.push(q);
@@ -5948,7 +6084,7 @@ function showLocationView(burgId){
         artEl.innerHTML = `<img src="${getGuardHouseArt(burgId)}" alt="Guard House">`;
       }
       else if(btn.dataset.action === 'palace'){
-        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
@@ -6336,6 +6472,10 @@ function buildGuardHouseStats(burgId){
   const treatyRow = boundEnemies.length
     ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#a9926a;"><span>Bound by treaty, can't yet move against</span><b>${boundEnemies.join(', ')}</b></div>`
     : '';
+  const loan = getLoan();
+  const loanRow = (loan && loan.kingdom === controllerKingdom)
+    ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:${isLoanInDefault(loan) ? '#e07a5f' : '#e0a860'};"><span>${isLoanInDefault(loan) ? 'Loan overdue to' : 'Owe a loan to'} ${controllerKingdom}</span><b>${getLoanOwed(loan)}g</b></div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
@@ -6344,6 +6484,7 @@ function buildGuardHouseStats(burgId){
       ${siegeRow}
       ${tributeRow}
       ${treatyRow}
+      ${loanRow}
     </div>
   `;
 }
@@ -6386,6 +6527,73 @@ const COMPANIONS = [
   { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png", homeBurgId:"346", combatHp:40, combatDmgRange:[10,18] },
   { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png", homeBurgId:"7", combatHp:70, combatDmgRange:[8,14] },
 ];
+// One small personal quest per recruited companion, per the project owner's roadmap note —
+// reuses the existing Deliver/Kill quest turn-in architecture verbatim (see context/quests.md's
+// "Adding a new quest type": a new source is mostly a new offer-generator plus a matching
+// condition, not new architecture) rather than inventing a third completion mechanism. Fixed,
+// one-time content per companion (not randomized/reofferable — see getCompanionQuestsCompleted),
+// offered at the Campfire (showCampfirePanel below) since that's already the one place a
+// recruited companion is a real individual rather than a roster entry. Payoff is gold/XP plus a
+// real loyalty boost (COMPANION_QUEST_LOYALTY_GAIN, bigger than any single existing action —
+// this is meant to read as the single biggest positive personal moment with that companion,
+// same weighting spirit Incite War's penalty gives the single biggest negative one), deliberately
+// no reputation nudge — a personal favor for a companion isn't a kingdom-facing act.
+const COMPANION_QUEST_LOYALTY_GAIN = 20;
+const COMPANION_QUESTS = {
+  "brannoc-ward": {
+    type: "companion_kill", targetRaces: ["ork","goblin"],
+    title: "An Old Debt",
+    ask: "asks you to put down a raiding party in his old mentor's name — a debt he never got to repay.",
+    gold: 40, xp: 35
+  },
+  "wren-sable": {
+    type: "companion_deliver", targetBurgId: "346",
+    title: "Word Home",
+    ask: "asks you to carry a letter back to her family, to let them know she's still alive.",
+    gold: 35, xp: 30
+  },
+  "thrain-emberforge": {
+    type: "companion_kill", targetRaces: ["bandit"],
+    title: "Cleared Roads",
+    ask: "asks you to clear the bandits off the trade road his old forge always depended on.",
+    gold: 35, xp: 30
+  }
+};
+const COMPANION_QUEST_DONE_KEY = "goblinwar_companionQuestsCompleted";
+function getCompanionQuestsCompleted(){ try{ return JSON.parse(localStorage.getItem(COMPANION_QUEST_DONE_KEY)) || []; }catch(e){ return []; } }
+function markCompanionQuestCompleted(id){
+  const done = getCompanionQuestsCompleted();
+  if(!done.includes(id)){ done.push(id); localStorage.setItem(COMPANION_QUEST_DONE_KEY, JSON.stringify(done)); }
+}
+// null when there's nothing to offer — already done, already active, or no personal quest
+// defined for this companion at all.
+function getCompanionQuestOffer(id){
+  const def = COMPANION_QUESTS[id];
+  if(!def) return null;
+  if(getCompanionQuestsCompleted().includes(id)) return null;
+  if(getActiveQuests().some(q => q.source==='companion' && q.companionId===id)) return null;
+  return def;
+}
+function acceptCompanionQuest(companionId, destId, destName, partialHours){
+  const def = COMPANION_QUESTS[companionId];
+  const c = COMPANIONS.find(c2 => c2.id === companionId);
+  if(!def || !c || !getCompanionQuestOffer(companionId)){ showCampfirePanel(destId, destName, partialHours); return; }
+  const quests = getQuests();
+  quests.push({
+    id: `q_${Date.now()}_${Math.floor(Math.random()*1e6)}`,
+    type: def.type, source:'companion', companionId,
+    giverName: c.name,
+    targetBurgId: def.targetBurgId, targetName: def.targetBurgId ? graph.burgs[def.targetBurgId].name : undefined,
+    targetRaces: def.targetRaces,
+    reward: { gold: def.gold, xp: def.xp, loyalty: COMPANION_QUEST_LOYALTY_GAIN },
+    acceptedDay: gameDay, status:'active'
+  });
+  saveQuests(quests);
+  buildQuestMarkers();
+  refreshQuestBadge();
+  showToast(`${c.name} is grateful — you've taken up ${def.title}.`);
+  showCampfirePanel(destId, destName, partialHours);
+}
 function getParty(){ try{ return JSON.parse(localStorage.getItem(PARTY_KEY)) || []; }catch(e){ return []; } }
 function saveParty(list){ localStorage.setItem(PARTY_KEY, JSON.stringify(list)); }
 function getMercenaries(){ try{ return JSON.parse(localStorage.getItem(MERCENARY_KEY)) || []; }catch(e){ return []; } }
@@ -6757,7 +6965,7 @@ function acceptPetition(burgId){
   const repNote = adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Negotiate Peace — the counterpart to Petition for Troops, and the direct payoff of tracking
@@ -6812,7 +7020,7 @@ function acceptNegotiatePeace(burgId){
   const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
   showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.` + loyaltyNote + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Incite War — the direct opposite of Negotiate Peace, per the project owner: instead of bribing
@@ -6867,10 +7075,71 @@ function acceptInciteWar(burgId){
   const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
   const repNote = adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
   showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.` + loyaltyNote + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
-// All three Palace cards can appear together in the same panel render, so their click handlers
+// Palace Loans — the fourth Palace card. Shows a borrow offer when nothing's outstanding, or the
+// current debt (with a Repay button) once one is — never both, since only one loan can be active
+// at a time (see LOAN_KEY above). Only repayable at its own lender's court, same "that specific
+// kingdom" scoping Negotiate Peace/Incite War already key their own offers off.
+function buildLoanHTML(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race) return ''; // no legitimate court left here
+  const loan = getLoan();
+  if(loan){
+    if(loan.kingdom !== kingdom) return '';
+    const owed = getLoanOwed(loan);
+    const defaulted = isLoanInDefault(loan);
+    return `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid ${defaulted ? 'rgba(226,133,127,.5)' : 'rgba(209,164,69,.35)'}; border-radius:10px; padding:14px; margin-top:12px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Outstanding Loan</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${defaulted ? `Overdue since day ${loan.dueDay} — ${kingdom}'s merchants have marked you up until it's settled.` : `Due by day ${loan.dueDay}.`}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:${defaulted ? '#e2857f' : '#e0a860'}; font-weight:700;">${owed}g owed</span>
+          <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="repay-loan-btn">Repay</button>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Palace Loan</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Borrow against the crown's coffers — ${Math.round(LOAN_INTEREST_RATE_PER_DAY*100)}% interest a day, due within ${LOAN_TERM_DAYS} days. Fall behind and ${kingdom}'s merchants will remember.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#7fbf6a; font-weight:700;">+${LOAN_PRINCIPAL}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="borrow-loan-btn">Borrow</button>
+      </div>
+    </div>
+  `;
+}
+function acceptLoan(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race || getLoan()){ showLocationView(burgId); return; } // court's gone, or already carrying a loan
+  saveLoan({ kingdom, principal: LOAN_PRINCIPAL, borrowedDay: gameDay, dueDay: gameDay + LOAN_TERM_DAYS });
+  setGold(playerGold + LOAN_PRINCIPAL);
+  showToast(`${kingdom}'s treasury advances you ${LOAN_PRINCIPAL}g, due within ${LOAN_TERM_DAYS} days.`);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+}
+// A loan repaid before its due date nudges reputation up a little — the same "keeping your word"
+// spirit already worth something everywhere else in this file; a defaulted one that's finally
+// cleared doesn't undo the trust already lost, so it settles the debt with no reputation payoff
+// either way rather than rewarding paying it off only after the surcharge already made the point.
+function repayLoan(burgId){
+  const loan = getLoan();
+  if(!loan){ showLocationView(burgId); return; }
+  const owed = getLoanOwed(loan);
+  if(playerGold < owed){ showToast(`You need ${owed}g to clear the debt — you don't have it yet.`); return; }
+  const wasDefaulted = isLoanInDefault(loan);
+  setGold(playerGold - owed);
+  localStorage.removeItem(LOAN_KEY);
+  const repNote = wasDefaulted ? '' : adjustReputation(loan.kingdom, REP_GAIN_MINOR);
+  showToast(`Debt to ${loan.kingdom} cleared — ${owed}g repaid.${repNote}`);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+}
+
+// All four Palace cards can appear together in the same panel render, so their click handlers
 // are wired from one shared place rather than duplicating the "if the button exists, wire it"
 // guard at every call site that re-renders the panel.
 function wirePalaceButtons(burgId){
@@ -6880,6 +7149,10 @@ function wirePalaceButtons(burgId){
   if(negotiateBtn) negotiateBtn.addEventListener('click', ()=> acceptNegotiatePeace(burgId));
   const inciteBtn = document.getElementById('incite-war-btn');
   if(inciteBtn) inciteBtn.addEventListener('click', ()=> acceptInciteWar(burgId));
+  const borrowBtn = document.getElementById('borrow-loan-btn');
+  if(borrowBtn) borrowBtn.addEventListener('click', ()=> acceptLoan(burgId));
+  const repayBtn = document.getElementById('repay-loan-btn');
+  if(repayBtn) repayBtn.addEventListener('click', ()=> repayLoan(burgId));
 }
 
 // Aid the Refugees — the simplest of the three player-involvement hooks, deliberately: spend
@@ -7403,6 +7676,7 @@ function showMarketPanel(burgId){
         ${b.port ? '<div style="margin-top:4px; font-size:11.5px; color:#8fb3a8;">Port settlement — Waterskin sold cheaper here</div>' : ''}
         ${b.tier === 'village' ? '<div style="margin-top:4px; font-size:11.5px; color:#8fb3a8;">Village — Food sold cheaper here</div>' : ''}
         ${buildTributeNote(burgId)}
+        ${buildLoanDefaultNote(burgId)}
       </div>
       ${itemRows}
     `;
@@ -7558,6 +7832,7 @@ function showBlacksmithPanel(burgId){
         <div style="display:flex; justify-content:space-between;"><span>${b.state||'This region'}</span><b style="color:${atWar?'#e2857f':'#7fbf6a'};">${atWar ? 'At war — prices up' : 'At peace'}</b></div>
         ${b.tier !== 'capital' ? '<div style="margin-top:4px; font-size:11.5px; color:#a9926a;">The rarest mithril work is only forged in a Capital</div>' : ''}
         ${buildTributeNote(burgId)}
+        ${buildLoanDefaultNote(burgId)}
       </div>
       ${buildRepairGearHTML()}
       ${itemRows}
@@ -7714,7 +7989,9 @@ function collectCharacterSnapshot(){
     permadeathPlayer: localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true',
     permadeathCompanions: localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true',
     permadeathMercenaries: localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true',
+    permadeathOldAge: localStorage.getItem(PERMADEATH_OLDAGE_KEY) === 'true',
     age: localStorage.getItem(AGE_KEY) || "24",
+    lastAgedDay: localStorage.getItem(LASTAGED_KEY) || "",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
@@ -7749,6 +8026,8 @@ function collectCharacterSnapshot(){
     armies: localStorage.getItem(ARMY_KEY) || "[]",
     fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
+    companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
+    loan: localStorage.getItem(LOAN_KEY) || "null",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

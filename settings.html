@@ -155,7 +155,9 @@ const ISDEAD_KEY = "goblinwar_isDead";
 const PERMADEATH_PLAYER_KEY = "goblinwar_permadeathPlayer";
 const PERMADEATH_COMPANIONS_KEY = "goblinwar_permadeathCompanions";
 const PERMADEATH_MERCENARIES_KEY = "goblinwar_permadeathMercenaries";
+const PERMADEATH_OLDAGE_KEY = "goblinwar_permadeathOldAge";
 const AGE_KEY = "goblinwar_age";
+const LASTAGED_KEY = "goblinwar_lastAgedDay";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
@@ -175,6 +177,8 @@ const TRIBUTE_KEY = "goblinwar_tribute"; // {kingdomName: {role, counterpart, ex
 const ARMY_KEY = "goblinwar_armies"; // JSON array of marching/sieging armies — see index.html's "Armies march before a siege starts"
 const FIELD_BATTLE_KEY = "goblinwar_fieldBattles"; // JSON array of active field battles — see index.html's "Field battles"
 const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
+const COMPANION_QUEST_DONE_KEY = "goblinwar_companionQuestsCompleted";
+const LOAN_KEY = "goblinwar_loan"; // null | {kingdom, principal, borrowedDay, dueDay} — see index.html's "Palace Loans"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -251,7 +255,7 @@ function renderCurrent(){
   // Read-only — chosen once at character creation (see characters.html), can't be changed here.
   const onOff = v => v === 'true' ? 'On' : 'Off';
   document.getElementById('current-difficulty').textContent =
-    `Permadeath — You: ${onOff(localStorage.getItem(PERMADEATH_PLAYER_KEY))} · Companions: ${onOff(localStorage.getItem(PERMADEATH_COMPANIONS_KEY))} · Mercenaries: ${onOff(localStorage.getItem(PERMADEATH_MERCENARIES_KEY))}`;
+    `Permadeath — You: ${onOff(localStorage.getItem(PERMADEATH_PLAYER_KEY))} · Companions: ${onOff(localStorage.getItem(PERMADEATH_COMPANIONS_KEY))} · Mercenaries: ${onOff(localStorage.getItem(PERMADEATH_MERCENARIES_KEY))} · Old Age: ${onOff(localStorage.getItem(PERMADEATH_OLDAGE_KEY))}`;
 }
 
 // Same snapshot shape index.html's collectCharacterSnapshot() and characters.html's
@@ -276,7 +280,9 @@ function collectCharacterSnapshot(){
     permadeathPlayer: localStorage.getItem(PERMADEATH_PLAYER_KEY) === 'true',
     permadeathCompanions: localStorage.getItem(PERMADEATH_COMPANIONS_KEY) === 'true',
     permadeathMercenaries: localStorage.getItem(PERMADEATH_MERCENARIES_KEY) === 'true',
+    permadeathOldAge: localStorage.getItem(PERMADEATH_OLDAGE_KEY) === 'true',
     age: localStorage.getItem(AGE_KEY) || "24",
+    lastAgedDay: localStorage.getItem(LASTAGED_KEY) || "",
     gold: parseInt(localStorage.getItem(GOLD_KEY) || "50", 10),
     inventory: localStorage.getItem(INV_KEY) || JSON.stringify(DEFAULT_INVENTORY),
     equipped: localStorage.getItem(EQUIPPED_KEY) || "{}",
@@ -311,6 +317,8 @@ function collectCharacterSnapshot(){
     armies: localStorage.getItem(ARMY_KEY) || "[]",
     fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
+    companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
+    loan: localStorage.getItem(LOAN_KEY) || "null",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

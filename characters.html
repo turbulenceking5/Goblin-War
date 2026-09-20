@@ -107,8 +107,9 @@
         <div class="field-label">Difficulty</div>
         <div class="difficulty-options">
           <label class="difficulty-check"><input type="checkbox" id="diff-player">Permadeath: you — losing a fight ends this character for good, instead of surviving at 10 HP</label>
-          <label class="difficulty-check"><input type="checkbox" id="diff-companions" checked>Permadeath: companions — not relevant yet, since none can be recruited, but locked in now for when they can</label>
+          <label class="difficulty-check"><input type="checkbox" id="diff-companions" checked>Permadeath: companions — a recruited companion can die for good in a fight (already true by default)</label>
           <label class="difficulty-check"><input type="checkbox" id="diff-mercenaries" checked>Permadeath: mercenaries — a hired sword can die for good in a fight (already true by default)</label>
+          <label class="difficulty-check"><input type="checkbox" id="diff-oldage">Realistic: old age — past 60, there's a real (if small) yearly chance this character dies of old age</label>
         </div>
         <div class="difficulty-note">Chosen once, here — there's no way to change it after this character is created.</div>
         <div class="error" id="create-error"></div>
@@ -158,7 +159,7 @@ function escapeHTML(str){
 // character predating this field (or created via a path that never passes one) plays exactly
 // as it always did.
 function freshCharacterData(name, burgId, difficulty){
-  const diff = Object.assign({ permadeathPlayer:false, permadeathCompanions:true, permadeathMercenaries:true }, difficulty);
+  const diff = Object.assign({ permadeathPlayer:false, permadeathCompanions:true, permadeathMercenaries:true, permadeathOldAge:false }, difficulty);
   return {
     name,
     burgId: burgId || "5", day: 0, hour: 8, heading: 0,
@@ -169,7 +170,8 @@ function freshCharacterData(name, burgId, difficulty){
     permadeathPlayer: diff.permadeathPlayer,
     permadeathCompanions: diff.permadeathCompanions,
     permadeathMercenaries: diff.permadeathMercenaries,
-    age: "24", gold: 50,
+    permadeathOldAge: diff.permadeathOldAge,
+    age: "24", lastAgedDay: "", gold: 50,
     inventory: JSON.stringify(DEFAULT_INVENTORY),
     equipped: "{}",
     durability: "{}",
@@ -181,6 +183,7 @@ function freshCharacterData(name, burgId, difficulty){
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", recentEvents: "[]",
     warStarts: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
     fieldBattles: "[]", fieldBattleCooldowns: "{}",
+    companionQuestsCompleted: "[]", loan: "null",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -211,7 +214,9 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_permadeathPlayer", String(merged.permadeathPlayer));
   localStorage.setItem("goblinwar_permadeathCompanions", String(merged.permadeathCompanions));
   localStorage.setItem("goblinwar_permadeathMercenaries", String(merged.permadeathMercenaries));
+  localStorage.setItem("goblinwar_permadeathOldAge", String(merged.permadeathOldAge));
   localStorage.setItem("goblinwar_age", String(merged.age));
+  localStorage.setItem("goblinwar_lastAgedDay", String(merged.lastAgedDay));
   localStorage.setItem("goblinwar_gold", String(merged.gold));
   localStorage.setItem("goblinwar_inventory", merged.inventory);
   localStorage.setItem("goblinwar_equipped", merged.equipped);
@@ -246,6 +251,8 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_armies", merged.armies);
   localStorage.setItem("goblinwar_fieldBattles", merged.fieldBattles);
   localStorage.setItem("goblinwar_fieldBattleCooldowns", merged.fieldBattleCooldowns);
+  localStorage.setItem("goblinwar_companionQuestsCompleted", merged.companionQuestsCompleted);
+  localStorage.setItem("goblinwar_loan", merged.loan);
 }
 
 function targetPage(){
@@ -298,6 +305,7 @@ document.getElementById('confirm-create-btn').addEventListener('click', async ()
     permadeathPlayer: document.getElementById('diff-player').checked,
     permadeathCompanions: document.getElementById('diff-companions').checked,
     permadeathMercenaries: document.getElementById('diff-mercenaries').checked,
+    permadeathOldAge: document.getElementById('diff-oldage').checked,
   };
   const { data: row, error } = await sb.from('characters')
     .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId, difficulty) })

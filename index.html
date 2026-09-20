@@ -1191,6 +1191,9 @@ const CHANGELOG = [
   { id:88, date:"2026-09-19", changes:[
     "Reaching a field battle now takes a real trip, like traveling anywhere else — tapping the crossed-swords marker quotes the road/sea distance and travel time to the Army Camp instead of dropping you straight in."
   ]},
+  { id:89, date:"2026-09-20", changes:[
+    "A second way to help at a field battle: Raid the Enemy Camp, a leaner fight against camp guards that cripples the enemy army's own strength directly rather than just pushing the battle your way — a real dent that carries into their next fight too, not just this one."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1309,6 +1312,14 @@ const FIELD_BATTLE_ADVANTAGE_MAX_PER_TICK = 30;
 const FIELD_BATTLE_ADVANTAGE_RELIEF = 35;
 const FIELD_BATTLE_GOLD_RANGE = [25,50];
 const FIELD_BATTLE_XP_RANGE = [30,50];
+// Raid the Enemy Camp's own payoff (see FIELD_BATTLE_ENGAGEMENTS.raid below): winning cripples the
+// enemy army's own .strength directly rather than pushing the shared advantage meter front-line
+// fighting does — a real strategic difference the project owner asked for, since a weakened army
+// stays weaker for every future clash, including the unattended weekly tick's own strength-ratio
+// math. Randomized per raid, same "not a single flat number" precedent ARMY_MUSTER_FRACTION_MIN/MAX
+// already set for muster size.
+const FIELD_BATTLE_RAID_DAMAGE_MIN = 0.15;
+const FIELD_BATTLE_RAID_DAMAGE_MAX = 0.3;
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
@@ -6983,6 +6994,14 @@ function showFieldBattlePanel(battleId){
     : staminaLow
       ? "Too exhausted to fight — Resupply first"
       : `Join the fighting alongside ${battle.goodKingdom}'s soldiers`;
+  // Same daily cooldown as the front line, checked once here rather than per-engagement — the
+  // player picks one way to help this battle per day, not one of each, matching the "fight,
+  // withdraw, resupply" cadence the cooldown already enforces.
+  const raidDisabledNote = engagedToday
+    ? "You've already fought here today — Resupply first"
+    : staminaLow
+      ? "Too exhausted to fight — Resupply first"
+      : `Strike at ${battle.badKingdom}'s camp to weaken their army directly`;
 
   list.innerHTML = `
     <button class="loc-action" id="battle-retreat-btn">
@@ -7004,6 +7023,10 @@ function showFieldBattlePanel(battleId){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>
       <span class="li-text"><b>Head to the Front Line</b><span>${frontlineDisabledNote}</span></span>
     </button>
+    <button class="loc-action" id="battle-raid-btn" ${engagedToday || staminaLow ? 'disabled' : ''}>
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3l7 7-9.5 9.5a2 2 0 0 1-3-3L18 6"/><path d="M4 20l3-3"/></svg>
+      <span class="li-text"><b>Raid the Enemy Camp</b><span>${raidDisabledNote}</span></span>
+    </button>
   `;
   document.getElementById('battle-retreat-btn').addEventListener('click', ()=> document.getElementById('location-view').classList.remove('show'));
   document.getElementById('battle-rest-btn').addEventListener('click', ()=>{
@@ -7018,6 +7041,10 @@ function showFieldBattlePanel(battleId){
   const frontlineBtn = document.getElementById('battle-frontline-btn');
   if(frontlineBtn && !frontlineBtn.disabled){
     frontlineBtn.addEventListener('click', ()=> triggerFieldBattleEngagement(battleId, 'frontline'));
+  }
+  const raidBtn = document.getElementById('battle-raid-btn');
+  if(raidBtn && !raidBtn.disabled){
+    raidBtn.addEventListener('click', ()=> triggerFieldBattleEngagement(battleId, 'raid'));
   }
   document.getElementById('location-view').classList.add('show');
 }
@@ -7087,10 +7114,14 @@ function showFieldBattleCharacterConversation(battleId, charId){
 
 // A small catalog, deliberately — so "Raid the Enemy Camp" and whatever else the project owner
 // wants to add later (see roadmap.md's "Armies meet and fight in the field") are each just one
-// more entry, not a rewrite of showFieldBattlePanel. Only 'frontline' ships in this pass.
-// buildEnemies(battle) returns the enemySpecs startCombat expects; onWin(battle) decides what a
-// victory actually does — frontline pushes the shared advantage meter, a future raid-type entry
-// would instead reduce the enemy army's own .strength directly (see the plan's own note on why).
+// more entry, not a rewrite of showFieldBattlePanel. Two entries ship now: 'frontline' (the
+// original pass) and 'raid' (Phase 2b). buildEnemies(battle) returns the enemySpecs startCombat
+// expects; onWin(battle) decides what a victory actually does — frontline pushes the shared
+// advantage meter, raid instead reduces the enemy army's own .strength directly (see
+// FIELD_BATTLE_RAID_DAMAGE_MIN/MAX above for why that's a real strategic difference, not just
+// flavor). introLine/victoryMessage/defeatMessage are optional per-entry flavor text; frontline
+// omits them and falls back to the original generic wording in triggerFieldBattleEngagement/
+// resolveFieldBattleEngagement below, so it's unchanged by raid's addition.
 const FIELD_BATTLE_ENGAGEMENTS = {
   frontline: {
     title: "Head to the Front Line",
@@ -7107,6 +7138,33 @@ const FIELD_BATTLE_ENGAGEMENTS = {
       if(!b) return;
       b.advantage = Math.max(-100, Math.min(100, b.advantage + FIELD_BATTLE_ADVANTAGE_RELIEF));
       saveFieldBattles(battles);
+    }
+  },
+  raid: {
+    title: "Raid the Enemy Camp",
+    buildEnemies(battle){
+      const variants = ENEMY_VARIANTS[battle.badRace] || ENEMY_VARIANTS.ork;
+      const count = 1 + Math.floor(Math.random()*2); // 1 or 2 — camp guards caught off guard, a leaner fight than the front line
+      const specs = [];
+      for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+      return specs;
+    },
+    introLine(battle){
+      return `You slip past the lines toward ${battle.badKingdom}'s camp, aiming to strike at their supplies before anyone raises the alarm!`;
+    },
+    onWin(battle){
+      const armies = getArmies();
+      const badArmy = armies.find(a => a.id === battle.badArmyId);
+      if(!badArmy) return; // background tick already resolved this pairing some other way — nothing left to weaken
+      const dmgFraction = FIELD_BATTLE_RAID_DAMAGE_MIN + Math.random()*(FIELD_BATTLE_RAID_DAMAGE_MAX - FIELD_BATTLE_RAID_DAMAGE_MIN);
+      badArmy.strength = Math.max(1, Math.round(badArmy.strength * (1 - dmgFraction)));
+      saveArmies(armies);
+    },
+    victoryMessage(battle){
+      return `You tear through ${battle.badKingdom}'s camp, burning supplies and scattering their guard!`;
+    },
+    defeatMessage(){
+      return `The raid goes wrong — you slip back out before the whole camp turns on you.`;
     }
   }
 };
@@ -7131,8 +7189,8 @@ function triggerFieldBattleEngagement(battleId, engagementId){
   startCombat(specs, PLAYER_DMG_RANGE, (result)=> resolveFieldBattleEngagement(battleId, engagementId, result), battle.badRace);
   document.getElementById('combat-title').textContent = engagement.title + '!';
   const log = document.getElementById('combat-log');
-  log.innerHTML = log.querySelector('.combat-intro-line').outerHTML
-    + `<div>${battle.goodKingdom}'s line clashes with ${battle.badKingdom}'s forces!</div>`;
+  const introText = engagement.introLine ? engagement.introLine(battle) : `${battle.goodKingdom}'s line clashes with ${battle.badKingdom}'s forces!`;
+  log.innerHTML = log.querySelector('.combat-intro-line').outerHTML + `<div>${introText}</div>`;
 }
 // Victory applies the engagement's own effect (frontline: a capped push toward Good — see the
 // catalog above) plus gold/XP, bigger than Defend the Walls' since this is a bigger fight but
@@ -7150,10 +7208,12 @@ function resolveFieldBattleEngagement(battleId, engagementId, result){
     setGold(playerGold + gold);
     const leveledUp = addXp(xp);
     const repNote = adjustReputation(battle.goodKingdom, REP_GAIN_MAJOR);
-    showToast(`You help push back ${battle.badKingdom}'s line! +${gold}g, +${xp} XP.`
+    const victoryText = engagement.victoryMessage ? engagement.victoryMessage(battle) : `You help push back ${battle.badKingdom}'s line!`;
+    showToast(`${victoryText} +${gold}g, +${xp} XP.`
       + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
   } else {
-    showToast(`You withdraw from the clash, worse for wear.`);
+    const defeatText = (battle && engagement && engagement.defeatMessage) ? engagement.defeatMessage(battle) : `You withdraw from the clash, worse for wear.`;
+    showToast(defeatText);
   }
   showFieldBattlePanel(battleId);
 }

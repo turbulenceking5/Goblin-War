@@ -1194,6 +1194,9 @@ const CHANGELOG = [
   { id:89, date:"2026-09-20", changes:[
     "A second way to help at a field battle: Raid the Enemy Camp, a leaner fight against camp guards that cripples the enemy army's own strength directly rather than just pushing the battle your way — a real dent that carries into their next fight too, not just this one."
   ]},
+  { id:90, date:"2026-09-20", changes:[
+    "A kingdom that loses every last settlement it holds now falls for good — every war it was still fighting ends in peace (the actual conqueror still collects reparations), and news of it leads that week's report. Also fixed a bug where a captured settlement kept losing population under its old owner's war status instead of its new one's."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -1738,6 +1741,16 @@ function getReinforcementSource(kingdom){
   return r.fromKingdom;
 }
 
+// Derived, not stored — a kingdom is "eliminated" once it controls zero settlements (checked via
+// getControllerKingdom, the same current-ownership accessor getArmyStrength/findArmyOrigin already
+// use, not the static b.state a settlement was originally founded under). Deliberately uncached:
+// this only ever runs right after an actual capture (see eliminateKingdom below), a rare event
+// compared to the tick's other per-kingdom-per-week checks, so a fresh Object.keys scan each call
+// is cheap and — unlike the tick's own _tickCache-memoized lookups — can never go stale mid-tick if
+// two different kingdoms happen to finish off the same enemy's last two settlements in one week.
+function isKingdomEliminated(kingdom){
+  return !Object.keys(graph.burgs).some(id => getControllerKingdom(id) === kingdom);
+}
 // Total population one specific kingdom currently controls, times MILITARY_FRACTION, plus any
 // active reinforcement bonus (above) — what advanceSiege compares attacker vs. defender with.
 // Deliberately not capped to any one settlement's local garrison — a kingdom's whole territory
@@ -2005,6 +2018,45 @@ function settleWarExhaustionPeace(k1, k2, events){
   setTribute(loser, winner, gameDay + WAR_TRIBUTE_DURATION_DAYS);
   events.push(`${loser} sues for peace with ${winner} after a long war — ${winner} keeps the ground it took and will collect reparations.`);
   recordWorldEvent(`Word has it ${loser} has sued for peace with ${winner}, ceding the ground it lost and agreeing to pay reparations.`);
+}
+
+// Called once, right after a capture (see runFactionAITick's pass 2 — the only place setController
+// ever runs) leaves `kingdom` controlling zero settlements (see isKingdomEliminated above). Without
+// this, a kingdom in that state would just sit in the relations matrix forever — a kingdom with no
+// territory can never muster another army (findArmyOrigin already returns null with nothing to
+// muster from), so it would be stuck at war, unable to fight back or sue for peace on its own,
+// forever. This settles every one of its wars at once: settleWarExhaustionPeace runs first so
+// whichever kingdom actually did the conquering still collects the reparations/cooldown a real
+// war-exhaustion peace would (same territorial-winner logic, no special-casing) — but that alone
+// isn't enough on its own, since determineWarWinner can come back with no winner between this
+// exact pair (a THIRD kingdom may have done all the actual conquering; see this function's own
+// case in context/factions-and-territory.md for the concrete scenario), so the explicit
+// setRelation/clearWarStart/cancelSiegesBetween calls after it are what actually guarantee the war
+// ends either way. cancelSiegesBetween also turns back any of `kingdom`'s own armies still marching
+// or sieging against that enemy — deliberately, not left to resolve on their own, since letting a
+// stray leftover army go on to capture something afterward would "revive" an already-announced-
+// fallen kingdom, which would read as a bug rather than a feature.
+//
+// Per the roadmap's own open questions on this: no explicit NOTABLE_FIGURES retirement step is
+// needed — getFigureForBurg already returns null once a figure's home settlement isn't controlled
+// by its own race, and elimination means every one of `kingdom`'s settlements already meets that
+// condition. No alliance-wide strength aggregation exists (or is added here) either — nothing today
+// pools getArmyStrength above the single-kingdom level, and this doesn't change that. And this is
+// not reversible: with no way to muster an army without owning territory to draw it from, an
+// eliminated kingdom can never reclaim ground on its own — consistent with setController already
+// being a one-way operation everywhere else in this file.
+function eliminateKingdom(kingdom, events){
+  ALL_KINGDOMS.filter(k => k !== kingdom && getRelation(kingdom, k) === 'war').forEach(enemy=>{
+    settleWarExhaustionPeace(kingdom, enemy, events);
+    setRelation(kingdom, enemy, 'peace');
+    clearWarStart(kingdom, enemy);
+    cancelSiegesBetween(kingdom, enemy);
+  });
+  // Unshifted, not pushed — a fallen kingdom is the most notable thing that can happen in a given
+  // week, so it leads maybeRunFactionAI's "N settlements changed hands, including X" summary rather
+  // than being crowded out by an ordinary capture that happened to get pushed first.
+  events.unshift(`${kingdom} has fallen — every settlement it once held now belongs to someone else.`);
+  recordWorldEvent(`Word has it ${kingdom} has fallen, its last stronghold lost, its people scattered to other banners.`);
 }
 
 // Picks one settlement belonging to defenderKingdom for attackerKingdom to besiege. Prefers a
@@ -2348,6 +2400,11 @@ function runFactionAITick(){
       for(let j=i+1;j<ALL_KINGDOMS.length;j++){
         const k1 = ALL_KINGDOMS[i], k2 = ALL_KINGDOMS[j];
         if(ALLIANCE[KINGDOM_RACE[k1]] === ALLIANCE[KINGDOM_RACE[k2]]) continue;
+        // A kingdom eliminateKingdom already settled to peace with everyone stays there — without
+        // this, a later tick's WAR_DECLARE_CHANCE roll could drag a kingdom with zero territory
+        // back into a "war" it can never fight or end on its own (see isKingdomEliminated/
+        // eliminateKingdom above).
+        if(isKingdomEliminated(k1) || isKingdomEliminated(k2)) continue;
         if(getRelation(k1, k2) === 'peace'){
           // A war-exhaustion treaty (below) bars this exact pair from re-declaring until it expires.
           if(!isWarCooldownActive(k1, k2) && Math.random() < WAR_DECLARE_CHANCE){
@@ -2372,9 +2429,12 @@ function runFactionAITick(){
     ALL_KINGDOMS.forEach(kingdom=>{
       const enemies = getEnemiesAtWar(kingdom);
       if(!enemies.length) return;
-      // Every settlement that originally belongs to this kingdom bleeds a little population just
-      // from being at war, regardless of whether it's the one under siege this tick.
-      Object.values(graph.burgs).filter(b=>b.state===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
+      // Every settlement this kingdom currently controls bleeds a little population just from
+      // being at war, regardless of whether it's the one under siege this tick. Keyed off
+      // getControllerKingdom (current ownership), not b.state (the settlement's original owner) —
+      // a settlement already captured away from `kingdom` shouldn't keep bleeding under its old
+      // owner's war status forever; it's the new controller's war (if any) that should apply to it.
+      Object.values(graph.burgs).filter(b=>getControllerKingdom(b.id)===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
       enemies.forEach(enemy=>{
         // A siege only actually progresses once a marching army has arrived (see
         // "Armies march before a siege starts" in context/factions-and-territory.md) — an army
@@ -2393,6 +2453,9 @@ function runFactionAITick(){
             pairArmies.forEach(a => removeArmy(a.id));
             events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
             recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
+            // That capture may have been enemy's very last settlement — see isKingdomEliminated/
+            // eliminateKingdom above for what happens next.
+            if(isKingdomEliminated(enemy)) eliminateKingdom(enemy, events);
           }
         }
         if(pairArmies.length < MAX_ARMIES_PER_ENEMY_PAIR && Math.random() < RAID_CHANCE){
@@ -6745,6 +6808,7 @@ function generateInciteWarOffer(burgId){
   const candidates = ALL_KINGDOMS.filter(k =>
     k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== ALLIANCE[KINGDOM_RACE[kingdom]] && getRelation(kingdom, k) !== 'war'
     && !isWarCooldownActive(kingdom, k) // a war-exhaustion treaty holding between these two can't be paid around
+    && !isKingdomEliminated(k) // a fallen kingdom (see eliminateKingdom) has nothing left to incite a war with
   );
   if(!candidates.length) return null;
   const myStrength = getArmyStrength(kingdom);

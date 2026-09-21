@@ -1292,6 +1292,9 @@ const CHANGELOG = [
     "Kingdom territory names now scale to how much land a kingdom actually holds, and nearby names nudge apart instead of overlapping.",
     "A border between two kingdoms actually at war now stands out — thicker, solid, and red — instead of looking identical to a peaceful one."
   ]},
+  { id:97, date:"2026-09-21", changes:[
+    "The political border is bolder now and colored to match each kingdom's own name color, so a stretch of border reads as whose it is, not just where Good ends and Bad begins."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4884,40 +4887,61 @@ function buildBorderMarkers(){
         top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
         bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
       };
-      cases.forEach(([a,c])=> (atWar ? warSegments : peaceSegments).push([pt[a], pt[c]]));
+      cases.forEach(([a,c])=>{
+        if(atWar){ warSegments.push([pt[a], pt[c]]); return; }
+        // Split at the midpoint so each half can carry its own kingdom's color — see the doc
+        // comment above for why a whole segment can't just pick one side's color.
+        const p1 = pt[a], p2 = pt[c];
+        const mid = [(p1[0]+p2[0])/2, (p1[1]+p2[1])/2];
+        peaceSegments.push([p1, mid, posKingdom], [mid, p2, negKingdom]);
+      });
     }
   }
-  // Two full passes per style — a dark outline stroke, then a bright fill on top — the same
-  // halo-then-centerline trick buildRoads()/rivers use, and for the same reason: a single-color
-  // line disappears against this map's busy painterly terrain (confirmed by rendering an earlier
+  // Two full passes — a dark outline stroke, then a bright fill on top — the same halo-then-
+  // centerline trick buildRoads()/rivers use, and for the same reason: a single flat color
+  // disappears against this map's busy painterly terrain (confirmed by rendering an earlier
   // single-tone version directly over world-raster.jpg — it was nearly invisible even though the
   // contour itself was correct, which is why a player reported seeing no border at all after that
   // version shipped). Two full passes rather than outline-then-fill per segment in turn, so one
   // segment's outline never paints over a neighboring segment's fill at a shared joint — and peace
   // drawn entirely before war, so an at-war stretch always reads on top where the two meet.
-  const drawPass = (segments, outlineWidth, fill, fillWidth, dash)=>{
+  //
+  // Peace segments are colored per kingdom now, not one flat cream for the whole map — per the
+  // project owner, borders should read as *whose* border, matching the same kingdomColor() every
+  // settlement name and territory label already uses, not just where Good ends and Bad begins.
+  // Each segment already knows the two kingdoms it sits between (posKingdom/negKingdom, needed for
+  // the war check above anyway), split at its midpoint so each half can carry its own color —
+  // there's no single "whose line is this" answer for a segment that's the boundary between two
+  // different kingdoms. Also bumped up across the board (both widths, denser dashes) per the
+  // project owner's separate ask to make the border more apparent generally.
+  const outlinePass = (segments, width)=>{
     segments.forEach(([p1,p2])=>{
       const outline = document.createElementNS(ns, "line");
       outline.setAttribute("x1", p1[0]); outline.setAttribute("y1", p1[1]);
       outline.setAttribute("x2", p2[0]); outline.setAttribute("y2", p2[1]);
       outline.setAttribute("stroke", "#1c150c");
-      outline.setAttribute("stroke-width", outlineWidth);
+      outline.setAttribute("stroke-width", width);
       outline.setAttribute("stroke-linecap", "round");
       g.appendChild(outline);
     });
-    segments.forEach(([p1,p2])=>{
+  };
+  const fillPass = (segments, colorOf, width, dash)=>{
+    segments.forEach(seg=>{
+      const [p1,p2] = seg;
       const line = document.createElementNS(ns, "line");
       line.setAttribute("x1", p1[0]); line.setAttribute("y1", p1[1]);
       line.setAttribute("x2", p2[0]); line.setAttribute("y2", p2[1]);
-      line.setAttribute("stroke", fill);
-      line.setAttribute("stroke-width", fillWidth);
+      line.setAttribute("stroke", colorOf(seg));
+      line.setAttribute("stroke-width", width);
       if(dash) line.setAttribute("stroke-dasharray", dash);
       line.setAttribute("stroke-linecap", "round");
       g.appendChild(line);
     });
   };
-  drawPass(peaceSegments, "4.2", "#f4ecd8", "1.8", "5,4");
-  drawPass(warSegments, "5.4", "#e2857f", "2.6", null); // thicker, solid, danger-red — a front line, not an administrative one
+  outlinePass(peaceSegments, "5.0");
+  outlinePass(warSegments, "6.0");
+  fillPass(peaceSegments, seg=> kingdomColor(seg[2]), "2.4", "7,3");
+  fillPass(warSegments, ()=> "#e2857f", "3.2", null); // thicker, solid, danger-red — a front line, not an administrative one, unaffected by per-kingdom color
 }
 
 // Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable

@@ -1249,6 +1249,9 @@ const CHANGELOG = [
   { id:92, date:"2026-09-20", changes:[
     "The map now shows a real political border — a dashed line marking where Good-alliance territory meets Bad-alliance territory, updated as settlements change hands."
   ]},
+  { id:93, date:"2026-09-21", changes:[
+    "Fixed the new political border so it actually reads as a border — it now traces one clean line along the real Good/Bad frontier instead of a tangle of crisscrossing lines."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4604,55 +4607,86 @@ function buildArmyMarkers(){
 
 // Political border overlay — per the project owner, a real "who controls what" visual on the map
 // itself, distinct from buildFrontlineMarkers' abandoned per-settlement rings above (turned off
-// for reading as "something's broken" rather than "a border"). This is a deliberately calmer,
-// different shape: one thin dashed line per burgAdjacency edge (the same road/sea-graph border
-// geometry isFrontlineBurg/pickRaidTarget already treat as the real border — see
-// context/factions-and-territory.md), drawn only where the edge actually crosses the Good/Bad
-// alliance line, split-colored at the midpoint (ARMY_MARKER_COLOR, for visual consistency with the
-// army markers) so it reads as "Good ends here, Bad begins" right at the point of contact. Reflects
-// current territorial control only, not live war state — a political border exists whether or not
-// the two sides are actively fighting, unlike the old rings' war-specific alarm framing. Same-
-// alliance boundaries (Human/Dwarf, Ork/Goblin) are skipped entirely: not visually interesting,
-// and it keeps the total line count to just the real Good-vs-Bad frontier rather than every
-// settlement-to-settlement seam on the map, the actual root of the old rings' clutter complaint.
-//
-// Known simplification: a straight line between two adjacent settlements' own points, not a traced
-// cell boundary — travel-graph.json has no per-settlement territory polygon to draw instead (see
-// context/data-files.md), so this is the same approximation pickRaidTarget's own "prefers a real
-// border settlement" already relies on for game logic, just drawn rather than only computed.
+// for reading as "something's broken" rather than "a border"). A first version of this drew one
+// line per buildBurgAdjacency() edge crossing the Good/Bad alliance line — shipped, then found
+// (rendering it against the live travel-graph.json data after a player reported seeing no border
+// at all) to be the wrong geometry for a visual: that graph is a road/sea-graph BFS that fans out
+// far past a settlement's real neighbors before hitting the next burg across open terrain — fine
+// for isFrontlineBurg's yes/no check, but drawing every one of those edges produced a dense,
+// unreadable tangle covering most of the continent instead of a legible line (2302 edges over 426
+// burgs). This is a real territorial contour instead: classify a fine grid over logical space by
+// its nearest burg's CURRENT controlling alliance (a Voronoi-by-alliance field — "whichever
+// kingdom would actually hold this patch of ground"), then trace the boundary between Good- and
+// Bad-dominant cells with marching squares, the same technique a real elevation contour/isoline
+// uses. Confirmed by rendering it against the live data before shipping this version: one clean,
+// continuous, coastline-like line, including small closed loops around an isolated pocket of the
+// other alliance's territory — genuinely legible as "a border," unlike the discarded per-edge
+// version. Reflects current territorial control only, not live war state — a political border
+// exists whether or not the two sides are actively fighting. Same-alliance boundaries (Human/
+// Dwarf, Ork/Goblin) never produce a contour crossing at all, since both map to the same sign.
+const TERRITORY_CONTOUR_COLS = 160, TERRITORY_CONTOUR_ROWS = 80;
+// Marching-squares edge table for a 2-value (sign-only) field — which pair(s) of a cell's 4 edges
+// the boundary crosses, keyed by a 4-bit corner-sign code (bits: top-left|top-right|bottom-right|
+// bottom-left). Omits 0 and 15 (all four corners agree — no crossing).
+const CONTOUR_EDGE_TABLE = {
+  1:[['left','bottom']], 2:[['bottom','right']], 3:[['left','right']],
+  4:[['top','right']], 5:[['top','left'],['bottom','right']], 6:[['top','bottom']],
+  7:[['top','left']], 8:[['left','top']], 9:[['top','bottom']],
+  10:[['left','top'],['bottom','right']], 11:[['top','right']],
+  12:[['left','right']], 13:[['bottom','right']], 14:[['left','bottom']]
+};
 function buildBorderMarkers(){
   const g = document.getElementById('border-markers');
   if(!g) return;
   g.innerHTML = '';
+  if(!graph || !ALL_KINGDOMS.length) return;
   const ns = "http://www.w3.org/2000/svg";
-  const drawnPairs = new Set(); // burgAdjacency is symmetric — draw each border edge once, not twice
-  Object.keys(burgAdjacency).forEach(burgId=>{
-    const kingdom = getControllerKingdom(burgId);
-    if(!kingdom) return;
-    const alliance = ALLIANCE[KINGDOM_RACE[kingdom]];
-    const b = graph.burgs[burgId];
-    (burgAdjacency[burgId] || []).forEach(neighborId=>{
-      const pairKey = burgId < neighborId ? `${burgId}|${neighborId}` : `${neighborId}|${burgId}`;
-      if(drawnPairs.has(pairKey)) return;
-      const neighborKingdom = getControllerKingdom(neighborId);
-      if(!neighborKingdom) return;
-      const neighborAlliance = ALLIANCE[KINGDOM_RACE[neighborKingdom]];
-      if(neighborAlliance === alliance) return; // only the real Good/Bad frontier gets drawn
-      drawnPairs.add(pairKey);
-      const n = graph.burgs[neighborId];
-      const midX = (b.x + n.x) / 2, midY = (b.y + n.y) / 2;
-      [[b, midX, midY, alliance], [n, midX, midY, neighborAlliance]].forEach(([from, mx, my, side])=>{
-        const seg = document.createElementNS(ns, "line");
-        seg.setAttribute("x1", from.x); seg.setAttribute("y1", from.y);
-        seg.setAttribute("x2", mx); seg.setAttribute("y2", my);
-        seg.setAttribute("stroke", ARMY_MARKER_COLOR[side]);
-        seg.setAttribute("stroke-width", "2.2");
-        seg.setAttribute("stroke-dasharray", "6,4");
-        seg.setAttribute("opacity", "0.6");
-        g.appendChild(seg);
+  const burgs = Object.values(graph.burgs).map(b=>{
+    const kingdom = getControllerKingdom(b.id);
+    const alliance = kingdom ? ALLIANCE[KINGDOM_RACE[kingdom]] : null;
+    return alliance ? { x:b.x, y:b.y, alliance } : null;
+  }).filter(Boolean);
+  if(!burgs.length) return;
+  const cols = TERRITORY_CONTOUR_COLS, rows = TERRITORY_CONTOUR_ROWS;
+  const val = [];
+  for(let gy=0; gy<=rows; gy++){
+    const row = [];
+    const y = gy/rows*LOGICAL_H;
+    for(let gx=0; gx<=cols; gx++){
+      const x = gx/cols*LOGICAL_W;
+      let best = null, bestD = Infinity;
+      for(const b of burgs){
+        const dx=x-b.x, dy=y-b.y, d=dx*dx+dy*dy;
+        if(d < bestD){ bestD = d; best = b; }
+      }
+      row.push(best.alliance === 'Good' ? 1 : -1);
+    }
+    val.push(row);
+  }
+  const interp = (v0, v1)=> v0/(v0-v1); // fraction along an edge where the sign crosses zero
+  for(let gy=0; gy<rows; gy++){
+    for(let gx=0; gx<cols; gx++){
+      const tl=val[gy][gx], tr=val[gy][gx+1], bl=val[gy+1][gx], br=val[gy+1][gx+1];
+      const idx = (tl>0?8:0)|(tr>0?4:0)|(br>0?2:0)|(bl>0?1:0);
+      const cases = CONTOUR_EDGE_TABLE[idx];
+      if(!cases) continue;
+      const x0=gx/cols*LOGICAL_W, x1=(gx+1)/cols*LOGICAL_W, y0=gy/rows*LOGICAL_H, y1=(gy+1)/rows*LOGICAL_H;
+      const pt = {
+        top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
+        bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
+      };
+      cases.forEach(([a,c])=>{
+        const line = document.createElementNS(ns, "line");
+        line.setAttribute("x1", pt[a][0]); line.setAttribute("y1", pt[a][1]);
+        line.setAttribute("x2", pt[c][0]); line.setAttribute("y2", pt[c][1]);
+        line.setAttribute("stroke", "#c9773f");
+        line.setAttribute("stroke-width", "1.6");
+        line.setAttribute("stroke-dasharray", "4,3");
+        line.setAttribute("opacity", "0.7");
+        g.appendChild(line);
       });
-    });
-  });
+    }
+  }
 }
 
 // Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable

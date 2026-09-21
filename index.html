@@ -112,8 +112,12 @@
 
   .hitzone{ fill:transparent; cursor:pointer; }
   .map-label{
+    /* fill is set per-element (buildLabels(), via .style.fill not the fill attribute — a plain
+       attribute loses to any CSS rule, even this class selector, so a CSS fill here would
+       silently win and flatten every label back to one color) rather than here, so each
+       settlement's name can be colored by its controlling kingdom (kingdomColor()). */
     font-family:'Cinzel', serif; text-anchor:middle;
-    fill:var(--gold-lt); paint-order:stroke; stroke:#0d1220; stroke-width:.6px; stroke-linejoin:round;
+    paint-order:stroke; stroke:#0d1220; stroke-width:.6px; stroke-linejoin:round;
   }
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
@@ -137,6 +141,25 @@
 
   .player-token{ pointer-events:none; }
 
+  /* Kingdom territory-name labels — screen-space, NOT a child of #map-stage, so their on-screen
+     size stays constant regardless of zoom instead of scaling with the map transform like every
+     other overlay in #overlay does. That's deliberate here specifically: these are only ever
+     shown near the most-zoomed-out view, and minScale (clampView) is directly proportional to
+     the viewport's own CSS width — a phone and a desktop reach very different minScale values,
+     so a fixed *logical* font size (the convention every other label in this file uses) would
+     render at wildly different, often illegible, CSS pixel sizes across devices at that exact
+     zoom level. A fixed *screen* font size sidesteps that entirely. Positioned/toggled from
+     applyView() — see buildKingdomTerritoryLabels()/positionKingdomLabels() in the script below.
+     z-index sits below #night-overlay/#ui-vignette (still tinted/vignetted like the map itself)
+     but above #map-stage. */
+  #kingdom-labels-layer{ position:absolute; inset:0; pointer-events:none; z-index:10; overflow:hidden; opacity:0; transition:opacity .3s ease; }
+  #kingdom-labels-layer.show{ opacity:1; }
+  .kingdom-label{
+    position:absolute; transform:translate(-50%,-50%); white-space:nowrap;
+    font-family:'Cinzel Decorative', 'Cinzel', serif; font-weight:700;
+    letter-spacing:2px; text-transform:uppercase;
+    text-shadow:0 0 5px rgba(0,0,0,.9), 0 0 10px rgba(0,0,0,.75), 0 2px 3px rgba(0,0,0,.9);
+  }
   #ui-vignette{ position:absolute; inset:0; pointer-events:none; z-index:15; box-shadow: inset 0 0 100px 34px rgba(0,0,0,.5); }
   /* A color wash over the whole viewport, not the map content itself — stays put regardless of
      pan/zoom, same reasoning as #ui-vignette above it. Opacity is set live from gameHour (see
@@ -561,6 +584,7 @@
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
       </svg>
     </div>
+    <div id="kingdom-labels-layer"></div>
     <div id="night-overlay"></div>
     <div id="ui-vignette"></div>
   </div>
@@ -668,6 +692,8 @@ const REGION_W = 260;                        // default zoom shows this many log
 
 let view = { scale: 1, tx: 0, ty: 0 };
 let svgEl = document.getElementById('overlay'); // the interaction overlay (tap zones, marker, etc.)
+let mapMinScale = 1; // set fresh by clampView() every call — the "fit whole map" zoom level, used by
+                      // positionKingdomLabels() below to decide when we're zoomed out enough to show them
 
 function clampView(){
   const holder = document.getElementById('map-viewport');
@@ -675,6 +701,7 @@ function clampView(){
   const minScaleToFillW = vw / STAGE_W, minScaleToFillH = vh / STAGE_H;
   const minScale = Math.max(minScaleToFillW, minScaleToFillH); // can't zoom out past fitting the map
   const maxScale = 3.0; // deepest zoom-in (beyond native pixel res, graceful upscale)
+  mapMinScale = minScale;
   view.scale = Math.max(minScale, Math.min(maxScale, view.scale));
   const scaledW = STAGE_W*view.scale, scaledH = STAGE_H*view.scale;
   view.tx = Math.max(vw - scaledW, Math.min(0, view.tx));
@@ -683,6 +710,7 @@ function clampView(){
 function applyView(){
   clampView();
   document.getElementById('map-stage').style.transform = `translate(${view.tx}px,${view.ty}px) scale(${view.scale})`;
+  positionKingdomLabels();
 }
 function centerOnLogical(lx, ly, scale){
   const holder = document.getElementById('map-viewport');
@@ -1254,6 +1282,10 @@ const CHANGELOG = [
   ]},
   { id:94, date:"2026-09-21", changes:[
     "Fixed the political border being nearly invisible against the map's terrain art — it now draws with a dark outline and a bright fill, so it actually stands out."
+  ]},
+  { id:95, date:"2026-09-21", changes:[
+    "Every settlement's name on the map is now colored by its controlling kingdom instead of one flat gold for everyone.",
+    "Zoom out far enough and a kingdom's own name now floats over its territory, the way a real map labels a country rather than just its cities."
   ]},
 ];
 
@@ -2625,6 +2657,8 @@ function maybeRunFactionAI(){
   const events = runFactionAITick();
   buildFrontlineMarkers();
   buildBorderMarkers();
+  buildLabels();
+  buildKingdomTerritoryLabels();
   buildArmyMarkers();
   buildBattleMarkers();
   if(events.length){
@@ -4509,6 +4543,27 @@ function buildHitzones(){
 // always shown now — small text under a small dot, all the way down.
 const LABEL_FONT_SIZE = { village:3, town:3, city:3.8, capital:4.5 };
 const LABEL_OFFSET_Y = { village:5, town:5, city:9, capital:11 };
+
+// One stable color per kingdom, evenly spaced around the hue wheel by that kingdom's index in
+// ALL_KINGDOMS (fixed for the session once buildFactionData() runs at load) — used to color both
+// a settlement's own name label (buildLabels(), below) and its kingdom's territory-name label
+// (buildKingdomTerritoryLabels(), further below), so the two visually tie together. Fixed
+// saturation/lightness for a bright, readable pastel regardless of hue; legibility against the
+// busy map terrain comes from each label's own dark stroke/text-shadow outline (see .map-label
+// and .kingdom-label), the same halo trick used everywhere else on this map — not from the hue
+// itself, unlike the political border line, which had no such outline and had to be fixed for
+// exactly that reason (see roadmap.md's "Colored factions/borders on the map").
+const kingdomColorCache = {};
+function kingdomColor(kingdom){
+  if(!kingdom) return 'var(--gold-lt)';
+  if(kingdomColorCache[kingdom]) return kingdomColorCache[kingdom];
+  const idx = ALL_KINGDOMS.indexOf(kingdom);
+  const hue = idx < 0 ? 42 : Math.round(idx * 360 / ALL_KINGDOMS.length);
+  const color = `hsl(${hue}, 68%, 66%)`;
+  kingdomColorCache[kingdom] = color;
+  return color;
+}
+
 function buildLabels(){
   const g = document.getElementById('labels');
   g.innerHTML = '';
@@ -4521,9 +4576,73 @@ function buildLabels(){
     t.setAttribute("y", b.y + (LABEL_OFFSET_Y[b.tier] || 11));
     t.setAttribute("font-size", LABEL_FONT_SIZE[b.tier] || 4);
     t.setAttribute("font-weight", b.tier === 'capital' ? '700' : '500');
+    t.style.fill = kingdomColor(getControllerKingdom(id)); // inline style, not the fill attribute — .map-label's own CSS fill:var(--gold-lt) rule would otherwise win over a plain attribute (confirmed: SVG presentation attributes lose to any CSS rule, even a bare class selector)
     t.textContent = b.name;
     g.appendChild(t);
   }
+}
+
+// Kingdom territory-name labels — per the project owner, a kingdom's name shown floating over its
+// own territory when zoomed out, the way a real political map shows a country's name rather than
+// only its individual cities. One label per kingdom that currently controls at least one
+// settlement (an eliminated kingdom — see "Kingdom elimination" in factions-and-territory.md —
+// controls none, so it's skipped automatically, no separate check needed), positioned at the
+// population-weighted centroid of every settlement it currently controls (getControllerKingdom,
+// not original b.state — a kingdom's label should follow what it actually holds today, same
+// "control, not identity" convention the rest of this file uses). Population-weighted rather than
+// a plain average so the label lands nearer the kingdom's real population center (its capital and
+// major cities) instead of being dragged toward a cluster of minor villages.
+//
+// Known simplification: one centroid per kingdom, not per contiguous landmass — a kingdom with a
+// scattered exclave (a captured settlement far from its core territory) gets one label pulled
+// somewhat toward that exclave rather than a second label over it, or a smarter shape-aware
+// placement. `travel-graph.json` has no polygon geometry to place a label "inside" a shape
+// properly (same gap buildBorderMarkers' own doc comment already notes for the border contour) —
+// a centroid is the simple, honest version of this the data supports.
+//
+// Screen-space, not part of the scaled #overlay SVG — see #kingdom-labels-layer's own CSS comment
+// for why a fixed logical font size doesn't work for a zoomed-out-only label. Built once on load
+// and rebuilt after the weekly tick (territory can change hands there); repositioned on every
+// pan/zoom via positionKingdomLabels(), called from applyView().
+let kingdomTerritoryCentroids = []; // [{kingdom, lx, ly}], recomputed by buildKingdomTerritoryLabels()
+function buildKingdomTerritoryLabels(){
+  const layer = document.getElementById('kingdom-labels-layer');
+  if(!layer) return;
+  layer.innerHTML = '';
+  kingdomTerritoryCentroids = [];
+  if(!graph || !ALL_KINGDOMS.length) return;
+  const totals = {}; // kingdom -> {sx, sy, sw}
+  Object.values(graph.burgs).forEach(b=>{
+    const kingdom = getControllerKingdom(b.id);
+    if(!kingdom) return;
+    const w = Math.max(0.5, b.population || 1);
+    const t = totals[kingdom] || (totals[kingdom] = {sx:0, sy:0, sw:0});
+    t.sx += b.x*w; t.sy += b.y*w; t.sw += w;
+  });
+  ALL_KINGDOMS.forEach(kingdom=>{
+    const t = totals[kingdom];
+    if(!t || !t.sw) return; // no territory left — eliminated, skip
+    const lx = t.sx/t.sw, ly = t.sy/t.sw;
+    const el = document.createElement('div');
+    el.className = 'kingdom-label';
+    el.style.color = kingdomColor(kingdom);
+    el.style.fontSize = '17px';
+    el.textContent = kingdom;
+    layer.appendChild(el);
+    kingdomTerritoryCentroids.push({ kingdom, lx, ly, el });
+  });
+  positionKingdomLabels();
+}
+const KINGDOM_LABEL_ZOOM_MULT = 1.4; // show kingdom labels while view.scale <= mapMinScale * this
+function positionKingdomLabels(){
+  const layer = document.getElementById('kingdom-labels-layer');
+  if(!layer) return;
+  layer.classList.toggle('show', view.scale <= mapMinScale * KINGDOM_LABEL_ZOOM_MULT);
+  const kx = STAGE_W/LOGICAL_W, ky = STAGE_H/LOGICAL_H;
+  kingdomTerritoryCentroids.forEach(({lx, ly, el})=>{
+    el.style.left = (lx*kx*view.scale + view.tx) + 'px';
+    el.style.top = (ly*ky*view.scale + view.ty) + 'px';
+  });
 }
 
 // ---- castle-medallion image marking City/Capital-tier settlements, centered exactly on the
@@ -8033,6 +8152,7 @@ fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
   buildSettlementDots();
   buildHitzones();
   buildLabels();
+  buildKingdomTerritoryLabels();
   buildCityIcons();
   buildFrontlineMarkers();
   buildArmyMarkers();

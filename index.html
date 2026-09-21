@@ -117,7 +117,7 @@
        silently win and flatten every label back to one color) rather than here, so each
        settlement's name can be colored by its controlling kingdom (kingdomColor()). */
     font-family:'Cinzel', serif; text-anchor:middle;
-    paint-order:stroke; stroke:#0d1220; stroke-width:.6px; stroke-linejoin:round;
+    paint-order:stroke; stroke:#0d1220; stroke-width:.75px; stroke-linejoin:round;
   }
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
@@ -1286,6 +1286,11 @@ const CHANGELOG = [
   { id:95, date:"2026-09-21", changes:[
     "Every settlement's name on the map is now colored by its controlling kingdom instead of one flat gold for everyone.",
     "Zoom out far enough and a kingdom's own name now floats over its territory, the way a real map labels a country rather than just its cities."
+  ]},
+  { id:96, date:"2026-09-21", changes:[
+    "Settlement names on the map are bigger and easier to read.",
+    "Kingdom territory names now scale to how much land a kingdom actually holds, and nearby names nudge apart instead of overlapping.",
+    "A border between two kingdoms actually at war now stands out — thicker, solid, and red — instead of looking identical to a peaceful one."
   ]},
 ];
 
@@ -4540,9 +4545,11 @@ function buildHitzones(){
 // size across every tier deliberately, per the project owner: an earlier pass scaled Capital
 // labels up to 8 and hid Town/Village labels until zoomed in, which read as inconsistent
 // (some names huge, most just missing) rather than as decluttered. Every settlement's name is
-// always shown now — small text under a small dot, all the way down.
-const LABEL_FONT_SIZE = { village:3, town:3, city:3.8, capital:4.5 };
-const LABEL_OFFSET_Y = { village:5, town:5, city:9, capital:11 };
+// always shown now — small text under a small dot, all the way down. Sizes bumped up again
+// (per the project owner, still hard to read) — proportions across tiers, and the offset/stroke
+// that keep bigger text clear of its dot and legible over terrain, scaled up to match.
+const LABEL_FONT_SIZE = { village:4, town:4, city:5, capital:6 };
+const LABEL_OFFSET_Y = { village:6.5, town:6.5, city:11.5, capital:14 };
 
 // One stable color per kingdom, evenly spaced around the hue wheel by that kingdom's index in
 // ALL_KINGDOMS (fixed for the session once buildFactionData() runs at load) — used to color both
@@ -4604,45 +4611,93 @@ function buildLabels(){
 // for why a fixed logical font size doesn't work for a zoomed-out-only label. Built once on load
 // and rebuilt after the weekly tick (territory can change hands there); repositioned on every
 // pan/zoom via positionKingdomLabels(), called from applyView().
-let kingdomTerritoryCentroids = []; // [{kingdom, lx, ly}], recomputed by buildKingdomTerritoryLabels()
+//
+// Sized to its territory, not one flat size for every kingdom — per the project owner, a small
+// kingdom's name at the same size as a sprawling one just reads as clutter, especially where two
+// small, close-together kingdoms' names collide. Font size scales with each kingdom's own
+// population-weighted spread (`sqrt` of the weighted variance of its controlled burgs' positions
+// around their centroid — a "typical territory radius" in logical units, cheap to compute from
+// data already gathered for the centroid itself), mapped through `KINGDOM_LABEL_REF_RADIUS`
+// (sampled against the real travel-graph.json data — the single biggest kingdom's radius lands
+// close to it) to a `MIN`–`MAX` px range, so a one-city kingdom (radius ~0) reads small and a
+// kingdom spread across dozens of settlements reads large, the way a real political map's country
+// names scale with the country's own size.
+const KINGDOM_LABEL_MIN_PX = 10, KINGDOM_LABEL_MAX_PX = 26, KINGDOM_LABEL_REF_RADIUS = 300;
+let kingdomTerritoryCentroids = []; // [{kingdom, lx, ly, el, w, h}], recomputed by buildKingdomTerritoryLabels()
 function buildKingdomTerritoryLabels(){
   const layer = document.getElementById('kingdom-labels-layer');
   if(!layer) return;
   layer.innerHTML = '';
   kingdomTerritoryCentroids = [];
   if(!graph || !ALL_KINGDOMS.length) return;
-  const totals = {}; // kingdom -> {sx, sy, sw}
+  const totals = {}; // kingdom -> {sx, sy, sw, pts:[{x,y,w}]}
   Object.values(graph.burgs).forEach(b=>{
     const kingdom = getControllerKingdom(b.id);
     if(!kingdom) return;
     const w = Math.max(0.5, b.population || 1);
-    const t = totals[kingdom] || (totals[kingdom] = {sx:0, sy:0, sw:0});
+    const t = totals[kingdom] || (totals[kingdom] = {sx:0, sy:0, sw:0, pts:[]});
     t.sx += b.x*w; t.sy += b.y*w; t.sw += w;
+    t.pts.push({x:b.x, y:b.y, w});
   });
   ALL_KINGDOMS.forEach(kingdom=>{
     const t = totals[kingdom];
     if(!t || !t.sw) return; // no territory left — eliminated, skip
     const lx = t.sx/t.sw, ly = t.sy/t.sw;
+    const variance = t.pts.reduce((sum,p)=> sum + p.w*((p.x-lx)**2 + (p.y-ly)**2), 0) / t.sw;
+    const radius = Math.sqrt(variance);
+    const fontPx = KINGDOM_LABEL_MIN_PX + (KINGDOM_LABEL_MAX_PX-KINGDOM_LABEL_MIN_PX) * Math.min(1, Math.sqrt(radius/KINGDOM_LABEL_REF_RADIUS));
     const el = document.createElement('div');
     el.className = 'kingdom-label';
     el.style.color = kingdomColor(kingdom);
-    el.style.fontSize = '17px';
+    el.style.fontSize = fontPx.toFixed(1) + 'px';
     el.textContent = kingdom;
     layer.appendChild(el);
-    kingdomTerritoryCentroids.push({ kingdom, lx, ly, el });
+    const rect = el.getBoundingClientRect(); // measured once here, reused every positionKingdomLabels() call below
+    kingdomTerritoryCentroids.push({ kingdom, lx, ly, el, w:rect.width, h:rect.height });
   });
   positionKingdomLabels();
 }
 const KINGDOM_LABEL_ZOOM_MULT = 1.4; // show kingdom labels while view.scale <= mapMinScale * this
+// Lightweight collision avoidance — per the project owner, close/small kingdoms' names were
+// still reading as "all mixed together" even once sized to their own territory. Each label starts
+// at its ideal (population-weighted centroid) screen position, then a handful of pairwise AABB-
+// separation passes nudge any two that actually overlap apart along the line between their
+// centers (split evenly, whichever axis needs less movement to clear) — a standard, cheap
+// force-relaxation label layout, not true bin-packing. Recomputed from scratch (from each label's
+// ideal position, not the previous frame's nudged one) on every call rather than accumulated, so
+// it stays stable and deterministic under repeated pan/zoom instead of drifting. Only ~24 labels
+// ever exist and this only runs while the layer is actually shown, so the cost (a few hundred
+// AABB checks) is negligible even on a slow device.
+const KINGDOM_LABEL_SEPARATION_PASSES = 6, KINGDOM_LABEL_PAD_PX = 6;
 function positionKingdomLabels(){
   const layer = document.getElementById('kingdom-labels-layer');
   if(!layer) return;
-  layer.classList.toggle('show', view.scale <= mapMinScale * KINGDOM_LABEL_ZOOM_MULT);
+  const shown = view.scale <= mapMinScale * KINGDOM_LABEL_ZOOM_MULT;
+  layer.classList.toggle('show', shown);
+  if(!shown) return; // nothing visible — skip the separation math entirely
   const kx = STAGE_W/LOGICAL_W, ky = STAGE_H/LOGICAL_H;
-  kingdomTerritoryCentroids.forEach(({lx, ly, el})=>{
-    el.style.left = (lx*kx*view.scale + view.tx) + 'px';
-    el.style.top = (ly*ky*view.scale + view.ty) + 'px';
-  });
+  const pts = kingdomTerritoryCentroids.map(c=>({
+    x: c.lx*kx*view.scale + view.tx, y: c.ly*ky*view.scale + view.ty,
+    hw: c.w/2 + KINGDOM_LABEL_PAD_PX, hh: c.h/2 + KINGDOM_LABEL_PAD_PX, el: c.el
+  }));
+  for(let pass=0; pass<KINGDOM_LABEL_SEPARATION_PASSES; pass++){
+    for(let i=0; i<pts.length; i++){
+      for(let j=i+1; j<pts.length; j++){
+        const a = pts[i], b = pts[j];
+        const dx = b.x-a.x, dy = b.y-a.y;
+        const ox = (a.hw+b.hw) - Math.abs(dx), oy = (a.hh+b.hh) - Math.abs(dy);
+        if(ox <= 0 || oy <= 0) continue; // AABBs don't actually overlap
+        if(ox < oy){ // push apart along whichever axis needs less movement to clear
+          const push = (ox/2) * (dx < 0 ? -1 : 1); // dx===0 (same x) ties toward the positive branch
+          a.x -= push; b.x += push;
+        } else {
+          const push = (oy/2) * (dy < 0 ? -1 : 1);
+          a.y -= push; b.y += push;
+        }
+      }
+    }
+  }
+  pts.forEach(({x, y, el})=>{ el.style.left = x+'px'; el.style.top = y+'px'; });
 }
 
 // ---- castle-medallion image marking City/Capital-tier settlements, centered exactly on the
@@ -4754,6 +4809,21 @@ function buildArmyMarkers(){
 // confirmed by rendering that exact version directly over the real raster image. See the two-pass
 // outline-then-fill stroke below for the fix (the same halo trick buildRoads()/rivers already use,
 // for the identical reason).
+//
+// At-war segments get a second, louder style — per the project owner, a border reading identically
+// whether the two sides are at peace or actively fighting undersold a system (see
+// factions-and-territory.md) that's otherwise a big part of this game. Each marching-squares cell
+// already knows which burg is nearest at each of its 4 corners, so alongside the plain Good/Bad
+// sign used for the contour math itself, this also records *which kingdom* is nearest at each
+// corner (kingdomAt) — then for any cell the contour actually crosses, picks one kingdom from the
+// positive-sign corners and one from the negative-sign corners (first found on each side; a single
+// small cell only rarely spans more than one kingdom per side at this grid resolution, so this is
+// a good-enough representative pick, not a precise trace of exactly which two kingdoms meet at
+// that literal point — same caveat the contour itself already carries) and checks getRelation
+// between them. War segments render thicker, solid (no dash — a front line, not an administrative
+// line), and in the same danger-red already used for a captured settlement's `(captured)` tag
+// elsewhere on this map, so "red and solid" reads as one consistent "this is contested" language
+// rather than a border-specific color invented just for this.
 const TERRITORY_CONTOUR_COLS = 160, TERRITORY_CONTOUR_ROWS = 80;
 // Marching-squares edge table for a 2-value (sign-only) field — which pair(s) of a cell's 4 edges
 // the boundary crosses, keyed by a 4-bit corner-sign code (bits: top-left|top-right|bottom-right|
@@ -4774,13 +4844,13 @@ function buildBorderMarkers(){
   const burgs = Object.values(graph.burgs).map(b=>{
     const kingdom = getControllerKingdom(b.id);
     const alliance = kingdom ? ALLIANCE[KINGDOM_RACE[kingdom]] : null;
-    return alliance ? { x:b.x, y:b.y, alliance } : null;
+    return alliance ? { x:b.x, y:b.y, alliance, kingdom } : null;
   }).filter(Boolean);
   if(!burgs.length) return;
   const cols = TERRITORY_CONTOUR_COLS, rows = TERRITORY_CONTOUR_ROWS;
-  const val = [];
+  const val = [], kingdomAt = [];
   for(let gy=0; gy<=rows; gy++){
-    const row = [];
+    const row = [], krow = [];
     const y = gy/rows*LOGICAL_H;
     for(let gx=0; gx<=cols; gx++){
       const x = gx/cols*LOGICAL_W;
@@ -4790,51 +4860,64 @@ function buildBorderMarkers(){
         if(d < bestD){ bestD = d; best = b; }
       }
       row.push(best.alliance === 'Good' ? 1 : -1);
+      krow.push(best.kingdom);
     }
-    val.push(row);
+    val.push(row); kingdomAt.push(krow);
   }
   const interp = (v0, v1)=> v0/(v0-v1); // fraction along an edge where the sign crosses zero
-  const segments = [];
+  const peaceSegments = [], warSegments = [];
   for(let gy=0; gy<rows; gy++){
     for(let gx=0; gx<cols; gx++){
       const tl=val[gy][gx], tr=val[gy][gx+1], bl=val[gy+1][gx], br=val[gy+1][gx+1];
       const idx = (tl>0?8:0)|(tr>0?4:0)|(br>0?2:0)|(bl>0?1:0);
       const cases = CONTOUR_EDGE_TABLE[idx];
       if(!cases) continue;
+      const corners = [[tl,kingdomAt[gy][gx]], [tr,kingdomAt[gy][gx+1]], [bl,kingdomAt[gy+1][gx]], [br,kingdomAt[gy+1][gx+1]]];
+      let posKingdom = null, negKingdom = null;
+      corners.forEach(([sign, kingdom])=>{
+        if(sign > 0 && !posKingdom) posKingdom = kingdom;
+        if(sign < 0 && !negKingdom) negKingdom = kingdom;
+      });
+      const atWar = posKingdom && negKingdom && getRelation(posKingdom, negKingdom) === 'war';
       const x0=gx/cols*LOGICAL_W, x1=(gx+1)/cols*LOGICAL_W, y0=gy/rows*LOGICAL_H, y1=(gy+1)/rows*LOGICAL_H;
       const pt = {
         top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
         bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
       };
-      cases.forEach(([a,c])=> segments.push([pt[a], pt[c]]));
+      cases.forEach(([a,c])=> (atWar ? warSegments : peaceSegments).push([pt[a], pt[c]]));
     }
   }
-  // Two full passes — a dark outline stroke, then a bright dashed fill on top — the same
+  // Two full passes per style — a dark outline stroke, then a bright fill on top — the same
   // halo-then-centerline trick buildRoads()/rivers use, and for the same reason: a single-color
   // line disappears against this map's busy painterly terrain (confirmed by rendering an earlier
   // single-tone version directly over world-raster.jpg — it was nearly invisible even though the
   // contour itself was correct, which is why a player reported seeing no border at all after that
   // version shipped). Two full passes rather than outline-then-fill per segment in turn, so one
-  // segment's outline never paints over a neighboring segment's fill at a shared joint.
-  segments.forEach(([p1,p2])=>{
-    const outline = document.createElementNS(ns, "line");
-    outline.setAttribute("x1", p1[0]); outline.setAttribute("y1", p1[1]);
-    outline.setAttribute("x2", p2[0]); outline.setAttribute("y2", p2[1]);
-    outline.setAttribute("stroke", "#1c150c");
-    outline.setAttribute("stroke-width", "4.2");
-    outline.setAttribute("stroke-linecap", "round");
-    g.appendChild(outline);
-  });
-  segments.forEach(([p1,p2])=>{
-    const line = document.createElementNS(ns, "line");
-    line.setAttribute("x1", p1[0]); line.setAttribute("y1", p1[1]);
-    line.setAttribute("x2", p2[0]); line.setAttribute("y2", p2[1]);
-    line.setAttribute("stroke", "#f4ecd8");
-    line.setAttribute("stroke-width", "1.8");
-    line.setAttribute("stroke-dasharray", "5,4");
-    line.setAttribute("stroke-linecap", "round");
-    g.appendChild(line);
-  });
+  // segment's outline never paints over a neighboring segment's fill at a shared joint — and peace
+  // drawn entirely before war, so an at-war stretch always reads on top where the two meet.
+  const drawPass = (segments, outlineWidth, fill, fillWidth, dash)=>{
+    segments.forEach(([p1,p2])=>{
+      const outline = document.createElementNS(ns, "line");
+      outline.setAttribute("x1", p1[0]); outline.setAttribute("y1", p1[1]);
+      outline.setAttribute("x2", p2[0]); outline.setAttribute("y2", p2[1]);
+      outline.setAttribute("stroke", "#1c150c");
+      outline.setAttribute("stroke-width", outlineWidth);
+      outline.setAttribute("stroke-linecap", "round");
+      g.appendChild(outline);
+    });
+    segments.forEach(([p1,p2])=>{
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", p1[0]); line.setAttribute("y1", p1[1]);
+      line.setAttribute("x2", p2[0]); line.setAttribute("y2", p2[1]);
+      line.setAttribute("stroke", fill);
+      line.setAttribute("stroke-width", fillWidth);
+      if(dash) line.setAttribute("stroke-dasharray", dash);
+      line.setAttribute("stroke-linecap", "round");
+      g.appendChild(line);
+    });
+  };
+  drawPass(peaceSegments, "4.2", "#f4ecd8", "1.8", "5,4");
+  drawPass(warSegments, "5.4", "#e2857f", "2.6", null); // thicker, solid, danger-red — a front line, not an administrative one
 }
 
 // Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable

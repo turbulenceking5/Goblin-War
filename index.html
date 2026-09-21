@@ -1252,6 +1252,9 @@ const CHANGELOG = [
   { id:93, date:"2026-09-21", changes:[
     "Fixed the new political border so it actually reads as a border — it now traces one clean line along the real Good/Bad frontier instead of a tangle of crisscrossing lines."
   ]},
+  { id:94, date:"2026-09-21", changes:[
+    "Fixed the political border being nearly invisible against the map's terrain art — it now draws with a dark outline and a bright fill, so it actually stands out."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4624,6 +4627,14 @@ function buildArmyMarkers(){
 // version. Reflects current territorial control only, not live war state — a political border
 // exists whether or not the two sides are actively fighting. Same-alliance boundaries (Human/
 // Dwarf, Ork/Goblin) never produce a contour crossing at all, since both map to the same sign.
+//
+// The contour geometry was right on the first render, but the player still reported seeing no
+// border after that version shipped — because that check was rendered over a blank background,
+// not the real map. world-raster.jpg is a busy painterly terrain (grain texture, tree sprites,
+// mountain shading, biome color bands), and a single warm-toned line all but disappeared into it —
+// confirmed by rendering that exact version directly over the real raster image. See the two-pass
+// outline-then-fill stroke below for the fix (the same halo trick buildRoads()/rivers already use,
+// for the identical reason).
 const TERRITORY_CONTOUR_COLS = 160, TERRITORY_CONTOUR_ROWS = 80;
 // Marching-squares edge table for a 2-value (sign-only) field — which pair(s) of a cell's 4 edges
 // the boundary crosses, keyed by a 4-bit corner-sign code (bits: top-left|top-right|bottom-right|
@@ -4664,6 +4675,7 @@ function buildBorderMarkers(){
     val.push(row);
   }
   const interp = (v0, v1)=> v0/(v0-v1); // fraction along an edge where the sign crosses zero
+  const segments = [];
   for(let gy=0; gy<rows; gy++){
     for(let gx=0; gx<cols; gx++){
       const tl=val[gy][gx], tr=val[gy][gx+1], bl=val[gy+1][gx], br=val[gy+1][gx+1];
@@ -4675,18 +4687,35 @@ function buildBorderMarkers(){
         top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
         bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
       };
-      cases.forEach(([a,c])=>{
-        const line = document.createElementNS(ns, "line");
-        line.setAttribute("x1", pt[a][0]); line.setAttribute("y1", pt[a][1]);
-        line.setAttribute("x2", pt[c][0]); line.setAttribute("y2", pt[c][1]);
-        line.setAttribute("stroke", "#c9773f");
-        line.setAttribute("stroke-width", "1.6");
-        line.setAttribute("stroke-dasharray", "4,3");
-        line.setAttribute("opacity", "0.7");
-        g.appendChild(line);
-      });
+      cases.forEach(([a,c])=> segments.push([pt[a], pt[c]]));
     }
   }
+  // Two full passes — a dark outline stroke, then a bright dashed fill on top — the same
+  // halo-then-centerline trick buildRoads()/rivers use, and for the same reason: a single-color
+  // line disappears against this map's busy painterly terrain (confirmed by rendering an earlier
+  // single-tone version directly over world-raster.jpg — it was nearly invisible even though the
+  // contour itself was correct, which is why a player reported seeing no border at all after that
+  // version shipped). Two full passes rather than outline-then-fill per segment in turn, so one
+  // segment's outline never paints over a neighboring segment's fill at a shared joint.
+  segments.forEach(([p1,p2])=>{
+    const outline = document.createElementNS(ns, "line");
+    outline.setAttribute("x1", p1[0]); outline.setAttribute("y1", p1[1]);
+    outline.setAttribute("x2", p2[0]); outline.setAttribute("y2", p2[1]);
+    outline.setAttribute("stroke", "#1c150c");
+    outline.setAttribute("stroke-width", "4.2");
+    outline.setAttribute("stroke-linecap", "round");
+    g.appendChild(outline);
+  });
+  segments.forEach(([p1,p2])=>{
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", p1[0]); line.setAttribute("y1", p1[1]);
+    line.setAttribute("x2", p2[0]); line.setAttribute("y2", p2[1]);
+    line.setAttribute("stroke", "#f4ecd8");
+    line.setAttribute("stroke-width", "1.8");
+    line.setAttribute("stroke-dasharray", "5,4");
+    line.setAttribute("stroke-linecap", "round");
+    g.appendChild(line);
+  });
 }
 
 // Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable

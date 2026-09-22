@@ -1298,6 +1298,10 @@ const CHANGELOG = [
   { id:98, date:"2026-09-22", changes:[
     "The political border now traces two parallel lines along a shared frontier, each one kingdom's own consistent color the whole way — instead of alternating colors every time a different neighbor takes over one side of the line."
   ]},
+  { id:99, date:"2026-09-22", changes:[
+    "Every kingdom now gets its own complete border, not just the ones fighting an opposite-alliance neighbor — a border between two same-alliance kingdoms (Human vs Dwarf, or two Human kingdoms) used to be missing entirely.",
+    "Fixed a related bug where the border could shoot out as long straight lines across open ocean toward the edge of the map."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4841,6 +4845,46 @@ const CONTOUR_EDGE_TABLE = {
   10:[['left','top'],['bottom','right']], 11:[['top','right']],
   12:[['left','right']], 13:[['bottom','right']], 14:[['left','bottom']]
 };
+// Rebuilt again, per the project owner: showing a screenshot of the shipped version — a plain
+// black line with no color at all in one place, and colors still changing repeatedly along a
+// single kingdom's own edge in another. Root cause: everything above and before this comment
+// only ever traced the boundary between Good-alliance and Bad-alliance territory (a two-value
+// Good/Bad sign field) — between two kingdoms on the *same* side (Human vs Dwarf, or one Human
+// kingdom vs another) it drew nothing at all, which is exactly the bare black-outline gap in the
+// screenshot (a road or coastline showing through with no border drawn over it) and exactly why
+// the visible line still changed kingdom colors partway (it only ever *was* the Good/Bad line,
+// which can meet several different kingdoms along its own length on either side). "Give each
+// kingdom its own border" means literally that: every kingdom that holds territory gets its own
+// complete outline, regardless of which alliance its neighbor belongs to.
+//
+// A single binary sign field can't represent 24 kingdoms' worth of boundaries at once, so this
+// runs the same marching-squares trace (CONTOUR_EDGE_TABLE, interp — all unchanged) once per
+// kingdom instead of once for the whole map, each time treating just that one kingdom as the
+// "positive" region and everyone else as "negative" against the already-computed kingdomAt grid
+// (the expensive part — nearest-burg-per-grid-point — still runs exactly once, this loop is just
+// cheap table lookups over that same grid 24 times, ~130ms total measured against the real data
+// — still a one-time cost paid on load and after the weekly tick, not a per-frame one).
+// Two adjacent kingdoms' own traces would otherwise land on the *exact* same pixels at a simple
+// two-kingdom edge (marching squares' interpolation is symmetric under sign flip), so each
+// kingdom's own line is still offset BORDER_PARALLEL_OFFSET logical units into its own territory
+// (same technique as the previous version, just now driven by "am I this kingdom" instead of
+// "which side of Good/Bad am I" — the offset direction is tested per segment against the
+// averaged position of that cell's own-kingdom corners, not assumed from point ordering).
+const BORDER_PARALLEL_OFFSET = 1.9; // logical units each kingdom's own line sits off the true math boundary
+// Nearest-burg classification alone covers the *entire* map, open ocean included, all the way to
+// its edges — fine for a Good/Bad field (only ever a couple of huge regions either way), but
+// tracing one contour per kingdom instead turns every stretch of empty sea into real Voronoi-cell
+// boundaries between whichever kingdoms' nearest coastal settlements happen to be closest,
+// radiating out as long straight lines toward the map corners (confirmed by rendering this
+// version against the real data before the fix below — genuinely happened, not a hypothetical).
+// MAX_TERRITORY_DISTANCE caps how far from its own nearest settlement a point can be and still
+// count as anyone's territory (sampled against the real data: worst-case nearest-neighbor gap
+// between two settlements is ~99 logical units, so 140 stays clear of fragmenting real,
+// sparsely-connected territory while still cutting off well short of open ocean) — beyond it a
+// grid point is unclaimed, which reads as "not this kingdom" for every kingdom's own trace alike,
+// so a kingdom's line closes around a real bubble of influence near its own settlements instead
+// of extending indefinitely.
+const MAX_TERRITORY_DISTANCE = 140;
 function buildBorderMarkers(){
   const g = document.getElementById('border-markers');
   if(!g) return;
@@ -4849,14 +4893,15 @@ function buildBorderMarkers(){
   const ns = "http://www.w3.org/2000/svg";
   const burgs = Object.values(graph.burgs).map(b=>{
     const kingdom = getControllerKingdom(b.id);
-    const alliance = kingdom ? ALLIANCE[KINGDOM_RACE[kingdom]] : null;
-    return alliance ? { x:b.x, y:b.y, alliance, kingdom } : null;
+    return kingdom ? { x:b.x, y:b.y, kingdom } : null;
   }).filter(Boolean);
   if(!burgs.length) return;
   const cols = TERRITORY_CONTOUR_COLS, rows = TERRITORY_CONTOUR_ROWS;
-  const val = [], kingdomAt = [];
+  const maxDistSq = MAX_TERRITORY_DISTANCE * MAX_TERRITORY_DISTANCE;
+  const kingdomAt = [];
+  const controlling = new Set();
   for(let gy=0; gy<=rows; gy++){
-    const row = [], krow = [];
+    const krow = [];
     const y = gy/rows*LOGICAL_H;
     for(let gx=0; gx<=cols; gx++){
       const x = gx/cols*LOGICAL_W;
@@ -4865,87 +4910,61 @@ function buildBorderMarkers(){
         const dx=x-b.x, dy=y-b.y, d=dx*dx+dy*dy;
         if(d < bestD){ bestD = d; best = b; }
       }
-      row.push(best.alliance === 'Good' ? 1 : -1);
-      krow.push(best.kingdom);
+      krow.push(bestD <= maxDistSq ? best.kingdom : null);
+      controlling.add(best.kingdom); // unclipped — a kingdom still counts even if this one grid point missed the cutoff
     }
-    val.push(row); kingdomAt.push(krow);
+    kingdomAt.push(krow);
   }
   const interp = (v0, v1)=> v0/(v0-v1); // fraction along an edge where the sign crosses zero
-  const peaceLinesPos = [], peaceLinesNeg = [], warSegments = [];
-  const BORDER_PARALLEL_OFFSET = 1.9; // logical units each kingdom's own line sits off the true math boundary
-  for(let gy=0; gy<rows; gy++){
-    for(let gx=0; gx<cols; gx++){
-      const tl=val[gy][gx], tr=val[gy][gx+1], bl=val[gy+1][gx], br=val[gy+1][gx+1];
-      const idx = (tl>0?8:0)|(tr>0?4:0)|(br>0?2:0)|(bl>0?1:0);
-      const cases = CONTOUR_EDGE_TABLE[idx];
-      if(!cases) continue;
-      const corners = [[tl,kingdomAt[gy][gx]], [tr,kingdomAt[gy][gx+1]], [bl,kingdomAt[gy+1][gx]], [br,kingdomAt[gy+1][gx+1]]];
-      let posKingdom = null, negKingdom = null;
-      corners.forEach(([sign, kingdom])=>{
-        if(sign > 0 && !posKingdom) posKingdom = kingdom;
-        if(sign < 0 && !negKingdom) negKingdom = kingdom;
-      });
-      const atWar = posKingdom && negKingdom && getRelation(posKingdom, negKingdom) === 'war';
-      const x0=gx/cols*LOGICAL_W, x1=(gx+1)/cols*LOGICAL_W, y0=gy/rows*LOGICAL_H, y1=(gy+1)/rows*LOGICAL_H;
-      const pt = {
-        top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
-        bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
-      };
-      if(atWar){ cases.forEach(([a,c])=> warSegments.push([pt[a], pt[c]])); continue; }
-      // Positive/negative corner positions, for orientation below — not just their sign.
-      const corner = [[x0,y0,tl],[x1,y0,tr],[x0,y1,bl],[x1,y1,br]];
-      const posPts = corner.filter(p=>p[2]>0), negPts = corner.filter(p=>p[2]<=0);
-      const avg = pts=> [pts.reduce((s,p)=>s+p[0],0)/pts.length, pts.reduce((s,p)=>s+p[1],0)/pts.length];
-      const posC = avg(posPts), negC = avg(negPts);
-      cases.forEach(([a,c])=>{
-        const p1 = pt[a], p2 = pt[c];
-        const dx = p2[0]-p1[0], dy = p2[1]-p1[1];
-        const len = Math.hypot(dx,dy) || 1;
-        const nx = -dy/len, ny = dx/len; // unit vector perpendicular to the segment
-        const mid = [(p1[0]+p2[0])/2, (p1[1]+p2[1])/2];
-        const testPt = [mid[0]+nx, mid[1]+ny];
-        const distSq = (p,q)=> (p[0]-q[0])**2 + (p[1]-q[1])**2;
-        // Whichever of +n/-n actually points toward the positive corners' side (not assumed from
-        // the edge table's own point ordering, which isn't guaranteed consistent case-to-case).
-        const posSign = distSq(testPt, posC) < distSq(testPt, negC) ? 1 : -1;
-        const off = (dx0,dy0,sign)=> [[p1[0]+dx0*sign, p1[1]+dy0*sign], [p2[0]+dx0*sign, p2[1]+dy0*sign]];
-        const [pp1,pp2] = off(nx*BORDER_PARALLEL_OFFSET, ny*BORDER_PARALLEL_OFFSET, posSign);
-        const [np1,np2] = off(nx*BORDER_PARALLEL_OFFSET, ny*BORDER_PARALLEL_OFFSET, -posSign);
-        peaceLinesPos.push([pp1, pp2, posKingdom]);
-        peaceLinesNeg.push([np1, np2, negKingdom]);
-      });
+  const peaceSegments = [], warSegments = [];
+  controlling.forEach(kingdom=>{
+    for(let gy=0; gy<rows; gy++){
+      for(let gx=0; gx<cols; gx++){
+        const tl = kingdomAt[gy][gx]===kingdom ? 1 : -1;
+        const tr = kingdomAt[gy][gx+1]===kingdom ? 1 : -1;
+        const bl = kingdomAt[gy+1][gx]===kingdom ? 1 : -1;
+        const br = kingdomAt[gy+1][gx+1]===kingdom ? 1 : -1;
+        const idx = (tl>0?8:0)|(tr>0?4:0)|(br>0?2:0)|(bl>0?1:0);
+        const cases = CONTOUR_EDGE_TABLE[idx];
+        if(!cases) continue;
+        const x0=gx/cols*LOGICAL_W, x1=(gx+1)/cols*LOGICAL_W, y0=gy/rows*LOGICAL_H, y1=(gy+1)/rows*LOGICAL_H;
+        const pt = {
+          top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
+          bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
+        };
+        // The specific neighboring kingdom at this cell, for the war check — first corner that
+        // isn't this kingdom (a cell only very rarely touches more than 2 kingdoms total at this
+        // grid resolution, so "first found" is a good-enough representative pick).
+        const cornerKingdoms = [kingdomAt[gy][gx], kingdomAt[gy][gx+1], kingdomAt[gy+1][gx], kingdomAt[gy+1][gx+1]];
+        const otherKingdom = cornerKingdoms.find(k=> k !== kingdom);
+        const atWar = otherKingdom && getRelation(kingdom, otherKingdom) === 'war';
+        const corner = [[x0,y0,tl],[x1,y0,tr],[x0,y1,bl],[x1,y1,br]];
+        const ownPts = corner.filter(p=>p[2]>0);
+        const ownC = [ownPts.reduce((s,p)=>s+p[0],0)/ownPts.length, ownPts.reduce((s,p)=>s+p[1],0)/ownPts.length];
+        cases.forEach(([a,c])=>{
+          const p1 = pt[a], p2 = pt[c];
+          const dx = p2[0]-p1[0], dy = p2[1]-p1[1];
+          const len = Math.hypot(dx,dy) || 1;
+          const nx = -dy/len, ny = dx/len; // unit vector perpendicular to the segment
+          const mid = [(p1[0]+p2[0])/2, (p1[1]+p2[1])/2];
+          const distSq = (p,q)=> (p[0]-q[0])**2 + (p[1]-q[1])**2;
+          // Whichever of +n/-n actually points back toward this kingdom's own corners (not
+          // assumed from the edge table's own point ordering, which isn't guaranteed consistent
+          // case-to-case).
+          const sign = distSq([mid[0]+nx, mid[1]+ny], ownC) < distSq([mid[0]-nx, mid[1]-ny], ownC) ? 1 : -1;
+          const op1 = [p1[0]+nx*BORDER_PARALLEL_OFFSET*sign, p1[1]+ny*BORDER_PARALLEL_OFFSET*sign];
+          const op2 = [p2[0]+nx*BORDER_PARALLEL_OFFSET*sign, p2[1]+ny*BORDER_PARALLEL_OFFSET*sign];
+          (atWar ? warSegments : peaceSegments).push([op1, op2, kingdom]);
+        });
+      }
     }
-  }
-  const peaceSegments = peaceLinesPos.concat(peaceLinesNeg);
+  });
   // Two full passes — a dark outline stroke, then a bright fill on top — the same halo-then-
   // centerline trick buildRoads()/rivers use, and for the same reason: a single flat color
-  // disappears against this map's busy painterly terrain (confirmed by rendering an earlier
-  // single-tone version directly over world-raster.jpg — it was nearly invisible even though the
-  // contour itself was correct, which is why a player reported seeing no border at all after that
-  // version shipped). Two full passes rather than outline-then-fill per segment in turn, so one
-  // segment's outline never paints over a neighboring segment's fill at a shared joint — and peace
-  // drawn entirely before war, so an at-war stretch always reads on top where the two meet.
-  //
-  // Peace segments are colored per kingdom now, not one flat cream for the whole map — per the
-  // project owner, borders should read as *whose* border, matching the same kingdomColor() every
-  // settlement name and territory label already uses, not just where Good ends and Bad begins.
-  // A first version split each segment at its own midpoint, one half per kingdom's color — reads
-  // as a "candy cane" alternating between colors constantly, since a kingdom with several
-  // neighbors gets a different color on the other half every time the neighbor changes. Per the
-  // project owner, a kingdom's *own* line should be one consistent color along its whole border
-  // instead. Since two adjacent kingdoms can't share one line and both be "whole and consistent,"
-  // each original segment is now drawn twice, offset a few logical units to either side of the
-  // true math boundary (BORDER_PARALLEL_OFFSET) — one full-length copy entirely in posKingdom's
-  // color sitting toward its own territory, one entirely in negKingdom's color sitting toward
-  // its. Which offset direction (+n or -n, perpendicular to the segment) actually points toward
-  // which kingdom isn't assumed from the edge table's own point ordering (not guaranteed
-  // consistent case-to-case) — it's tested directly, per segment, against the averaged position
-  // of that cell's actual positive-sign and negative-sign corners. The result reads as two thin
-  // parallel lines hugging either side of the real border, each one kingdom's own consistent
-  // color the whole way along, the way a printed political map sometimes edges each country in
-  // its own color rather than picking one color for a shared line. Also bumped up across the
-  // board (both widths, denser dashes) per the project owner's separate ask to make the border
-  // more apparent generally.
+  // disappears against this map's busy painterly terrain. Two full passes rather than outline-
+  // then-fill per segment in turn, so one segment's outline never paints over a neighboring
+  // segment's fill at a shared joint — and peace drawn entirely before war, so an at-war stretch
+  // always reads on top where the two meet.
   const outlinePass = (segments, width)=>{
     segments.forEach(([p1,p2])=>{
       const outline = document.createElementNS(ns, "line");

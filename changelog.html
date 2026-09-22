@@ -425,6 +425,9 @@ const CHANGELOG = [
   { id:102, date:"2026-09-22", changes:[
     "Fixed a couple of small, pointless border loops showing up around single stray specks of \"territory\" out in open water or hugging a tiny scrap of coastline, with nothing actually on the other side of them."
   ]},
+  { id:103, date:"2026-09-22", changes:[
+    "Political borders should now reliably stay off open water on every device — the coastline check used to be computed on the fly by each player's own phone/browser, which handled it inconsistently depending on device; it's now baked in ahead of time instead, so every player sees the same, correct result."
+  ]},
 ];
 
 function renderChangelog(){

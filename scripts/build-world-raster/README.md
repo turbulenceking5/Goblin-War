@@ -9,6 +9,13 @@ fill, coastline distance transform, river tracing, clouds, and — the latest re
 generated sprite/texture art for forests, mountains, water, and land grain, read from
 `assets/map-sprites/` at a fixed path rather than passed as a flag).
 
+This folder also holds `build-border-water-mask.js`, a second, unrelated offline tool that reuses
+this same `npm install`'s `sharp` dependency — see that script's own header comment and
+[../../context/travel-and-map.md](../../context/travel-and-map.md)'s border section for what it's
+for (precomputing `assets/border-water-mask.json`, the land/water lookup index.html's political
+border overlay uses to keep off open water). Run it whenever `assets/world-raster.jpg` itself
+changes: `node build-border-water-mask.js`.
+
 ## Setup
 
 ```

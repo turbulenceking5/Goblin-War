@@ -1311,6 +1311,9 @@ const CHANGELOG = [
   { id:102, date:"2026-09-22", changes:[
     "Fixed a couple of small, pointless border loops showing up around single stray specks of \"territory\" out in open water or hugging a tiny scrap of coastline, with nothing actually on the other side of them."
   ]},
+  { id:103, date:"2026-09-22", changes:[
+    "Political borders should now reliably stay off open water on every device — the coastline check used to be computed on the fly by each player's own phone/browser, which handled it inconsistently depending on device; it's now baked in ahead of time instead, so every player sees the same, correct result."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4939,55 +4942,36 @@ function removeTinyTerritoryIslands(kingdomAt, cols, rows){
 // a border can bulge from a settlement in any direction, so a coastal settlement's own bubble of
 // "territory" still pushes border line out over open water toward that cap. Fixing that for real
 // needs actual land/water knowledge, and travel-graph.json has no per-cell polygon for it — the
-// only source of truth is the rendered map art itself. ensureBorderWaterMask() draws
-// assets/world-raster.jpg into an offscreen canvas downscaled to this grid's own resolution
-// (161×81) and classifies every pixel water/land from its color — downscaling first matters: a
-// single full-res pixel sample is noisy (the painterly terrain's texture/grain occasionally samples
-// blue even on land), but averaged down to grid resolution the noise washes out. Calibrated
-// directly against the real image with Python/PIL before writing this: isWater = (blue-red) > 5
-// correctly separated all 426 real burgs (including all 76 coastal ports, zero misclassifications)
-// from open-ocean sample points, comfortable margins on both sides (land: red beats blue by 16+;
-// water: blue beats blue by 19-27). Async because image decode can't happen synchronously — grid
-// classification below runs once with distance-only cutoff if the mask isn't ready yet (so the
-// border isn't left completely absent while the image loads), then rebuilds once it resolves.
-let borderWaterMask = null;
+// only source of truth is the rendered map art itself.
+//
+// This used to be computed live in the browser, once per session, via a canvas 2D
+// drawImage()+getImageData() downscale of assets/world-raster.jpg straight down to this grid's own
+// 161×81 resolution. That went through several rounds of live breakage a synthetic/offline test
+// never caught: a downscale ratio this extreme (over 63x in one step) doesn't resample consistently
+// across browser engines, and separately, canvas reads can fail outright on a real device for
+// reasons a Chromium-based Playwright harness never exercises (memory limits, a tainted canvas, an
+// image decode failure) — each producing the exact same symptom (the border falling back to its old
+// pre-mask look, a straight line cutting across open water) on a real player's phone that never
+// reproduced in this project's own verification, however the fallback/timing logic around it was
+// tightened. Precomputing the mask offline instead — `node
+// scripts/build-world-raster/build-border-water-mask.js`, a real high-quality image library
+// (sharp's Lanczos3 downscale kernel) doing the same resample once, checked into
+// `assets/border-water-mask.json` — sidesteps browser-downscale-quality differences and runtime
+// canvas failures entirely: this is now just a second static JSON fetch alongside
+// `travel-graph.json`, no canvas, no image decode, no async race with the first paint. Calibrated
+// against the real image with Python/PIL before either version of this mask shipped: `isWater =
+// (blue - red) > 5` correctly separated all 426 real burgs (including all 76 coastal ports, zero
+// misclassifications) from open-ocean sample points, comfortable margins on both sides (land: red
+// beats blue by 16+; water: blue beats red by 19-27) — same rule, same grid resolution, still true
+// of the precomputed file.
+let borderWaterMask = null; // array of ROWS+1 strings, each COLS+1 chars of '0'/'1' — see loadBorderWaterMask()
 let borderWaterMaskPromise = null;
-let borderWaterMaskFailed = false; // a real, terminal failure (canvas read error, image 404) — distinct
-// from "still loading," which is what borderWaterMask===null alone means before this settles. Only
-// this flag, not a null mask by itself, should ever make buildBorderMarkers() fall back to drawing
-// with the distance-only cutoff — see its own comment for why a *pending* mask draws nothing at all
-// instead.
-function ensureBorderWaterMask(){
+function loadBorderWaterMask(){
   if(borderWaterMaskPromise) return borderWaterMaskPromise;
-  borderWaterMaskPromise = new Promise(resolve=>{
-    const cols = TERRITORY_CONTOUR_COLS, rows = TERRITORY_CONTOUR_ROWS;
-    const img = new Image();
-    img.onload = ()=>{
-      try{
-        const canvas = document.createElement('canvas');
-        canvas.width = cols + 1;
-        canvas.height = rows + 1;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, cols + 1, rows + 1);
-        const data = ctx.getImageData(0, 0, cols + 1, rows + 1).data;
-        const mask = [];
-        for(let gy=0; gy<=rows; gy++){
-          const row = [];
-          for(let gx=0; gx<=cols; gx++){
-            const i = (gy*(cols+1) + gx) * 4;
-            row.push((data[i+2] - data[i]) > 5); // isWater: blue beats red
-          }
-          mask.push(row);
-        }
-        borderWaterMask = mask;
-      }catch(e){
-        borderWaterMaskFailed = true; // canvas read failed (e.g. tainted canvas) — fall back to distance-only cutoff
-      }
-      resolve(borderWaterMask);
-    };
-    img.onerror = ()=>{ borderWaterMaskFailed = true; resolve(null); };
-    img.src = 'assets/world-raster.jpg';
-  });
+  borderWaterMaskPromise = fetch('assets/border-water-mask.json?_=' + Date.now())
+    .then(r => r.json())
+    .then(data => { borderWaterMask = data.rowStrings; })
+    .catch(()=>{}); // leave borderWaterMask null — buildBorderMarkers() falls back to distance-only
   return borderWaterMaskPromise;
 }
 function buildBorderMarkers(){
@@ -4995,24 +4979,12 @@ function buildBorderMarkers(){
   if(!g) return;
   g.innerHTML = '';
   if(!graph || !ALL_KINGDOMS.length) return;
-  // Drawing immediately with the distance-only cutoff while the mask is still loading looked like
-  // a real fix in every offline verification pass (which always awaited the mask first before its
-  // one screenshot) but was never actually exercised live — on a real device the mask genuinely
-  // takes a beat to decode, and that "temporary" distance-only render is the exact old
-  // ocean-crossing look, not some close-enough placeholder (confirmed from a real player
-  // screenshot: dead-straight lines across open water, indistinguishable from the bug this was
-  // supposed to have fixed). Skipping the draw entirely here and letting the pending promise's
-  // own callback do the (only) draw once the real mask is in hand means the border is briefly
-  // absent on a slow connection instead of briefly wrong — since every other call site
-  // (maybeRunFactionAI's weekly-tick rebuild) runs well after the first load, this only ever
-  // affects the very first paint of a session. If the mask load genuinely failed (rather than just
-  // still being in flight), that's different — drawing nothing forever is worse than drawing with
-  // the old distance-only cutoff, so a real failure falls through to the code below instead of
-  // returning early.
-  if(!borderWaterMask && !borderWaterMaskFailed){
-    ensureBorderWaterMask().then(mask=>{ if(mask) buildBorderMarkers(); });
-    return;
-  }
+  // The init load below awaits loadBorderWaterMask() alongside travel-graph.json before this
+  // function is ever first called, so borderWaterMask is normally already in hand here. This
+  // fire-and-forget kickoff (plus the distance-only fallback via `isWater` below, since a null
+  // borderWaterMask just makes every isWater check false) only matters as a defensive fallback if
+  // something ever calls this before that first load finishes.
+  if(!borderWaterMask) loadBorderWaterMask().then(()=>{ if(borderWaterMask) buildBorderMarkers(); });
   const ns = "http://www.w3.org/2000/svg";
   const burgs = Object.values(graph.burgs).map(b=>{
     const kingdom = getControllerKingdom(b.id);
@@ -5033,7 +5005,7 @@ function buildBorderMarkers(){
         const dx=x-b.x, dy=y-b.y, d=dx*dx+dy*dy;
         if(d < bestD){ bestD = d; best = b; }
       }
-      const isWater = borderWaterMask && borderWaterMask[gy][gx];
+      const isWater = borderWaterMask && borderWaterMask[gy][gx] === '1';
       krow.push((bestD <= maxDistSq && !isWater) ? best.kingdom : null);
       controlling.add(best.kingdom); // unclipped — a kingdom still counts even if this one grid point missed the cutoff/is water
     }
@@ -8414,7 +8386,10 @@ document.getElementById('loc-back').addEventListener('click', ()=>{
 });
 
 // ===================== LOAD =====================
-fetch('assets/travel-graph.json').then(r=>r.json()).then(graphData=>{
+Promise.all([
+  fetch('assets/travel-graph.json').then(r=>r.json()),
+  loadBorderWaterMask() // fetched in parallel so buildBorderMarkers() below already has it in hand
+]).then(([graphData])=>{
   graph = graphData;
   buildAdjacency();
   buildFactionData();

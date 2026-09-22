@@ -1305,6 +1305,9 @@ const CHANGELOG = [
   { id:100, date:"2026-09-22", changes:[
     "Political borders now hug the coastline instead of bulging out over open water near a coastal settlement's own territory."
   ]},
+  { id:101, date:"2026-09-22", changes:[
+    "Fixed the coastline fix above actually taking effect: the border used to draw once immediately with the old open-water-crossing look while the coastline data was still loading, then quietly correct itself a moment later — often not fast enough for a player to ever see the corrected version. It now waits for the coastline check to be ready before drawing anything at all."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4905,6 +4908,11 @@ const MAX_TERRITORY_DISTANCE = 140;
 // border isn't left completely absent while the image loads), then rebuilds once it resolves.
 let borderWaterMask = null;
 let borderWaterMaskPromise = null;
+let borderWaterMaskFailed = false; // a real, terminal failure (canvas read error, image 404) — distinct
+// from "still loading," which is what borderWaterMask===null alone means before this settles. Only
+// this flag, not a null mask by itself, should ever make buildBorderMarkers() fall back to drawing
+// with the distance-only cutoff — see its own comment for why a *pending* mask draws nothing at all
+// instead.
 function ensureBorderWaterMask(){
   if(borderWaterMaskPromise) return borderWaterMaskPromise;
   borderWaterMaskPromise = new Promise(resolve=>{
@@ -4929,11 +4937,11 @@ function ensureBorderWaterMask(){
         }
         borderWaterMask = mask;
       }catch(e){
-        borderWaterMask = null; // canvas read failed (e.g. tainted canvas) — fall back to distance-only cutoff
+        borderWaterMaskFailed = true; // canvas read failed (e.g. tainted canvas) — fall back to distance-only cutoff
       }
       resolve(borderWaterMask);
     };
-    img.onerror = ()=> resolve(null);
+    img.onerror = ()=>{ borderWaterMaskFailed = true; resolve(null); };
     img.src = 'assets/world-raster.jpg';
   });
   return borderWaterMaskPromise;
@@ -4943,8 +4951,23 @@ function buildBorderMarkers(){
   if(!g) return;
   g.innerHTML = '';
   if(!graph || !ALL_KINGDOMS.length) return;
-  if(!borderWaterMask){
+  // Drawing immediately with the distance-only cutoff while the mask is still loading looked like
+  // a real fix in every offline verification pass (which always awaited the mask first before its
+  // one screenshot) but was never actually exercised live — on a real device the mask genuinely
+  // takes a beat to decode, and that "temporary" distance-only render is the exact old
+  // ocean-crossing look, not some close-enough placeholder (confirmed from a real player
+  // screenshot: dead-straight lines across open water, indistinguishable from the bug this was
+  // supposed to have fixed). Skipping the draw entirely here and letting the pending promise's
+  // own callback do the (only) draw once the real mask is in hand means the border is briefly
+  // absent on a slow connection instead of briefly wrong — since every other call site
+  // (maybeRunFactionAI's weekly-tick rebuild) runs well after the first load, this only ever
+  // affects the very first paint of a session. If the mask load genuinely failed (rather than just
+  // still being in flight), that's different — drawing nothing forever is worse than drawing with
+  // the old distance-only cutoff, so a real failure falls through to the code below instead of
+  // returning early.
+  if(!borderWaterMask && !borderWaterMaskFailed){
     ensureBorderWaterMask().then(mask=>{ if(mask) buildBorderMarkers(); });
+    return;
   }
   const ns = "http://www.w3.org/2000/svg";
   const burgs = Object.values(graph.burgs).map(b=>{

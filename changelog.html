@@ -419,6 +419,9 @@ const CHANGELOG = [
   { id:100, date:"2026-09-22", changes:[
     "Political borders now hug the coastline instead of bulging out over open water near a coastal settlement's own territory."
   ]},
+  { id:101, date:"2026-09-22", changes:[
+    "Fixed the coastline fix above actually taking effect: the border used to draw once immediately with the old open-water-crossing look while the coastline data was still loading, then quietly correct itself a moment later — often not fast enough for a player to ever see the corrected version. It now waits for the coastline check to be ready before drawing anything at all."
+  ]},
 ];
 
 function renderChangelog(){

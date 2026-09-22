@@ -1302,6 +1302,9 @@ const CHANGELOG = [
     "Every kingdom now gets its own complete border, not just the ones fighting an opposite-alliance neighbor — a border between two same-alliance kingdoms (Human vs Dwarf, or two Human kingdoms) used to be missing entirely.",
     "Fixed a related bug where the border could shoot out as long straight lines across open ocean toward the edge of the map."
   ]},
+  { id:100, date:"2026-09-22", changes:[
+    "Political borders now hug the coastline instead of bulging out over open water near a coastal settlement's own territory."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4885,11 +4888,64 @@ const BORDER_PARALLEL_OFFSET = 1.9; // logical units each kingdom's own line sit
 // so a kingdom's line closes around a real bubble of influence near its own settlements instead
 // of extending indefinitely.
 const MAX_TERRITORY_DISTANCE = 140;
+// MAX_TERRITORY_DISTANCE alone has no idea where the coastline actually is — it just caps how far
+// a border can bulge from a settlement in any direction, so a coastal settlement's own bubble of
+// "territory" still pushes border line out over open water toward that cap. Fixing that for real
+// needs actual land/water knowledge, and travel-graph.json has no per-cell polygon for it — the
+// only source of truth is the rendered map art itself. ensureBorderWaterMask() draws
+// assets/world-raster.jpg into an offscreen canvas downscaled to this grid's own resolution
+// (161×81) and classifies every pixel water/land from its color — downscaling first matters: a
+// single full-res pixel sample is noisy (the painterly terrain's texture/grain occasionally samples
+// blue even on land), but averaged down to grid resolution the noise washes out. Calibrated
+// directly against the real image with Python/PIL before writing this: isWater = (blue-red) > 5
+// correctly separated all 426 real burgs (including all 76 coastal ports, zero misclassifications)
+// from open-ocean sample points, comfortable margins on both sides (land: red beats blue by 16+;
+// water: blue beats blue by 19-27). Async because image decode can't happen synchronously — grid
+// classification below runs once with distance-only cutoff if the mask isn't ready yet (so the
+// border isn't left completely absent while the image loads), then rebuilds once it resolves.
+let borderWaterMask = null;
+let borderWaterMaskPromise = null;
+function ensureBorderWaterMask(){
+  if(borderWaterMaskPromise) return borderWaterMaskPromise;
+  borderWaterMaskPromise = new Promise(resolve=>{
+    const cols = TERRITORY_CONTOUR_COLS, rows = TERRITORY_CONTOUR_ROWS;
+    const img = new Image();
+    img.onload = ()=>{
+      try{
+        const canvas = document.createElement('canvas');
+        canvas.width = cols + 1;
+        canvas.height = rows + 1;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, cols + 1, rows + 1);
+        const data = ctx.getImageData(0, 0, cols + 1, rows + 1).data;
+        const mask = [];
+        for(let gy=0; gy<=rows; gy++){
+          const row = [];
+          for(let gx=0; gx<=cols; gx++){
+            const i = (gy*(cols+1) + gx) * 4;
+            row.push((data[i+2] - data[i]) > 5); // isWater: blue beats red
+          }
+          mask.push(row);
+        }
+        borderWaterMask = mask;
+      }catch(e){
+        borderWaterMask = null; // canvas read failed (e.g. tainted canvas) — fall back to distance-only cutoff
+      }
+      resolve(borderWaterMask);
+    };
+    img.onerror = ()=> resolve(null);
+    img.src = 'assets/world-raster.jpg';
+  });
+  return borderWaterMaskPromise;
+}
 function buildBorderMarkers(){
   const g = document.getElementById('border-markers');
   if(!g) return;
   g.innerHTML = '';
   if(!graph || !ALL_KINGDOMS.length) return;
+  if(!borderWaterMask){
+    ensureBorderWaterMask().then(mask=>{ if(mask) buildBorderMarkers(); });
+  }
   const ns = "http://www.w3.org/2000/svg";
   const burgs = Object.values(graph.burgs).map(b=>{
     const kingdom = getControllerKingdom(b.id);
@@ -4910,8 +4966,9 @@ function buildBorderMarkers(){
         const dx=x-b.x, dy=y-b.y, d=dx*dx+dy*dy;
         if(d < bestD){ bestD = d; best = b; }
       }
-      krow.push(bestD <= maxDistSq ? best.kingdom : null);
-      controlling.add(best.kingdom); // unclipped — a kingdom still counts even if this one grid point missed the cutoff
+      const isWater = borderWaterMask && borderWaterMask[gy][gx];
+      krow.push((bestD <= maxDistSq && !isWater) ? best.kingdom : null);
+      controlling.add(best.kingdom); // unclipped — a kingdom still counts even if this one grid point missed the cutoff/is water
     }
     kingdomAt.push(krow);
   }

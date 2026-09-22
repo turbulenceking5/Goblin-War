@@ -1308,6 +1308,9 @@ const CHANGELOG = [
   { id:101, date:"2026-09-22", changes:[
     "Fixed the coastline fix above actually taking effect: the border used to draw once immediately with the old open-water-crossing look while the coastline data was still loading, then quietly correct itself a moment later — often not fast enough for a player to ever see the corrected version. It now waits for the coastline check to be ready before drawing anything at all."
   ]},
+  { id:102, date:"2026-09-22", changes:[
+    "Fixed a couple of small, pointless border loops showing up around single stray specks of \"territory\" out in open water or hugging a tiny scrap of coastline, with nothing actually on the other side of them."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4891,6 +4894,47 @@ const BORDER_PARALLEL_OFFSET = 1.9; // logical units each kingdom's own line sit
 // so a kingdom's line closes around a real bubble of influence near its own settlements instead
 // of extending indefinitely.
 const MAX_TERRITORY_DISTANCE = 140;
+// A handful of tiny territory "islands" — one or two isolated grid points classified as some
+// kingdom's own territory but disconnected from its main landmass — can appear from pixel-level
+// noise in the water mask (a stray highlight, a small JPEG artifact, or even one browser's own
+// image-downscale rounding landing slightly differently than another's). Each one traces as a
+// small, pointless diamond-shaped loop with nothing really on the other side of it — the same
+// kingdom's own color forms both "sides," since there's no neighboring kingdom there at all —
+// confirmed against a real player screenshot showing exactly this near Sodoy, traced back to a
+// genuine single stray grid point in the real data. removeTinyTerritoryIslands() flood-fills the
+// whole kingdomAt grid once (cheap — ~13,000 points, once per rebuild) and folds any connected
+// blob smaller than MIN_TERRITORY_ISLAND_CELLS back into unclaimed before tracing even starts, so
+// a real landmass keeps its full contour untouched while pixel-noise-sized specks don't get their
+// own little loop. Chosen against the real data: every confirmed noise blob found was 1-2 cells,
+// the smallest legitimate landmass nearby was 7, so 4 sits cleanly between them.
+const MIN_TERRITORY_ISLAND_CELLS = 4;
+function removeTinyTerritoryIslands(kingdomAt, cols, rows){
+  const visited = [];
+  for(let gy=0; gy<=rows; gy++) visited.push(new Array(cols+1).fill(false));
+  for(let gy=0; gy<=rows; gy++){
+    for(let gx=0; gx<=cols; gx++){
+      if(visited[gy][gx] || !kingdomAt[gy][gx]) continue;
+      const kingdom = kingdomAt[gy][gx];
+      const stack = [[gx,gy]];
+      visited[gy][gx] = true;
+      const cells = [[gx,gy]];
+      while(stack.length){
+        const [cx,cy] = stack.pop();
+        const neighbors = [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]];
+        for(const [nx,ny] of neighbors){
+          if(nx<0 || nx>cols || ny<0 || ny>rows) continue;
+          if(visited[ny][nx] || kingdomAt[ny][nx] !== kingdom) continue;
+          visited[ny][nx] = true;
+          cells.push([nx,ny]);
+          stack.push([nx,ny]);
+        }
+      }
+      if(cells.length < MIN_TERRITORY_ISLAND_CELLS){
+        cells.forEach(([cx,cy])=>{ kingdomAt[cy][cx] = null; });
+      }
+    }
+  }
+}
 // MAX_TERRITORY_DISTANCE alone has no idea where the coastline actually is — it just caps how far
 // a border can bulge from a settlement in any direction, so a coastal settlement's own bubble of
 // "territory" still pushes border line out over open water toward that cap. Fixing that for real
@@ -4995,6 +5039,7 @@ function buildBorderMarkers(){
     }
     kingdomAt.push(krow);
   }
+  removeTinyTerritoryIslands(kingdomAt, cols, rows);
   const interp = (v0, v1)=> v0/(v0-v1); // fraction along an edge where the sign crosses zero
   const peaceSegments = [], warSegments = [];
   controlling.forEach(kingdom=>{

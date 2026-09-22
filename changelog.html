@@ -422,6 +422,9 @@ const CHANGELOG = [
   { id:101, date:"2026-09-22", changes:[
     "Fixed the coastline fix above actually taking effect: the border used to draw once immediately with the old open-water-crossing look while the coastline data was still loading, then quietly correct itself a moment later — often not fast enough for a player to ever see the corrected version. It now waits for the coastline check to be ready before drawing anything at all."
   ]},
+  { id:102, date:"2026-09-22", changes:[
+    "Fixed a couple of small, pointless border loops showing up around single stray specks of \"territory\" out in open water or hugging a tiny scrap of coastline, with nothing actually on the other side of them."
+  ]},
 ];
 
 function renderChangelog(){

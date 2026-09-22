@@ -1295,6 +1295,9 @@ const CHANGELOG = [
   { id:97, date:"2026-09-21", changes:[
     "The political border is bolder now and colored to match each kingdom's own name color, so a stretch of border reads as whose it is, not just where Good ends and Bad begins."
   ]},
+  { id:98, date:"2026-09-22", changes:[
+    "The political border now traces two parallel lines along a shared frontier, each one kingdom's own consistent color the whole way — instead of alternating colors every time a different neighbor takes over one side of the line."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4868,7 +4871,8 @@ function buildBorderMarkers(){
     val.push(row); kingdomAt.push(krow);
   }
   const interp = (v0, v1)=> v0/(v0-v1); // fraction along an edge where the sign crosses zero
-  const peaceSegments = [], warSegments = [];
+  const peaceLinesPos = [], peaceLinesNeg = [], warSegments = [];
+  const BORDER_PARALLEL_OFFSET = 1.9; // logical units each kingdom's own line sits off the true math boundary
   for(let gy=0; gy<rows; gy++){
     for(let gx=0; gx<cols; gx++){
       const tl=val[gy][gx], tr=val[gy][gx+1], bl=val[gy+1][gx], br=val[gy+1][gx+1];
@@ -4887,16 +4891,32 @@ function buildBorderMarkers(){
         top:[x0+(x1-x0)*interp(tl,tr), y0], right:[x1, y0+(y1-y0)*interp(tr,br)],
         bottom:[x0+(x1-x0)*interp(bl,br), y1], left:[x0, y0+(y1-y0)*interp(tl,bl)]
       };
+      if(atWar){ cases.forEach(([a,c])=> warSegments.push([pt[a], pt[c]])); continue; }
+      // Positive/negative corner positions, for orientation below — not just their sign.
+      const corner = [[x0,y0,tl],[x1,y0,tr],[x0,y1,bl],[x1,y1,br]];
+      const posPts = corner.filter(p=>p[2]>0), negPts = corner.filter(p=>p[2]<=0);
+      const avg = pts=> [pts.reduce((s,p)=>s+p[0],0)/pts.length, pts.reduce((s,p)=>s+p[1],0)/pts.length];
+      const posC = avg(posPts), negC = avg(negPts);
       cases.forEach(([a,c])=>{
-        if(atWar){ warSegments.push([pt[a], pt[c]]); return; }
-        // Split at the midpoint so each half can carry its own kingdom's color — see the doc
-        // comment above for why a whole segment can't just pick one side's color.
         const p1 = pt[a], p2 = pt[c];
+        const dx = p2[0]-p1[0], dy = p2[1]-p1[1];
+        const len = Math.hypot(dx,dy) || 1;
+        const nx = -dy/len, ny = dx/len; // unit vector perpendicular to the segment
         const mid = [(p1[0]+p2[0])/2, (p1[1]+p2[1])/2];
-        peaceSegments.push([p1, mid, posKingdom], [mid, p2, negKingdom]);
+        const testPt = [mid[0]+nx, mid[1]+ny];
+        const distSq = (p,q)=> (p[0]-q[0])**2 + (p[1]-q[1])**2;
+        // Whichever of +n/-n actually points toward the positive corners' side (not assumed from
+        // the edge table's own point ordering, which isn't guaranteed consistent case-to-case).
+        const posSign = distSq(testPt, posC) < distSq(testPt, negC) ? 1 : -1;
+        const off = (dx0,dy0,sign)=> [[p1[0]+dx0*sign, p1[1]+dy0*sign], [p2[0]+dx0*sign, p2[1]+dy0*sign]];
+        const [pp1,pp2] = off(nx*BORDER_PARALLEL_OFFSET, ny*BORDER_PARALLEL_OFFSET, posSign);
+        const [np1,np2] = off(nx*BORDER_PARALLEL_OFFSET, ny*BORDER_PARALLEL_OFFSET, -posSign);
+        peaceLinesPos.push([pp1, pp2, posKingdom]);
+        peaceLinesNeg.push([np1, np2, negKingdom]);
       });
     }
   }
+  const peaceSegments = peaceLinesPos.concat(peaceLinesNeg);
   // Two full passes — a dark outline stroke, then a bright fill on top — the same halo-then-
   // centerline trick buildRoads()/rivers use, and for the same reason: a single flat color
   // disappears against this map's busy painterly terrain (confirmed by rendering an earlier
@@ -4909,11 +4929,23 @@ function buildBorderMarkers(){
   // Peace segments are colored per kingdom now, not one flat cream for the whole map — per the
   // project owner, borders should read as *whose* border, matching the same kingdomColor() every
   // settlement name and territory label already uses, not just where Good ends and Bad begins.
-  // Each segment already knows the two kingdoms it sits between (posKingdom/negKingdom, needed for
-  // the war check above anyway), split at its midpoint so each half can carry its own color —
-  // there's no single "whose line is this" answer for a segment that's the boundary between two
-  // different kingdoms. Also bumped up across the board (both widths, denser dashes) per the
-  // project owner's separate ask to make the border more apparent generally.
+  // A first version split each segment at its own midpoint, one half per kingdom's color — reads
+  // as a "candy cane" alternating between colors constantly, since a kingdom with several
+  // neighbors gets a different color on the other half every time the neighbor changes. Per the
+  // project owner, a kingdom's *own* line should be one consistent color along its whole border
+  // instead. Since two adjacent kingdoms can't share one line and both be "whole and consistent,"
+  // each original segment is now drawn twice, offset a few logical units to either side of the
+  // true math boundary (BORDER_PARALLEL_OFFSET) — one full-length copy entirely in posKingdom's
+  // color sitting toward its own territory, one entirely in negKingdom's color sitting toward
+  // its. Which offset direction (+n or -n, perpendicular to the segment) actually points toward
+  // which kingdom isn't assumed from the edge table's own point ordering (not guaranteed
+  // consistent case-to-case) — it's tested directly, per segment, against the averaged position
+  // of that cell's actual positive-sign and negative-sign corners. The result reads as two thin
+  // parallel lines hugging either side of the real border, each one kingdom's own consistent
+  // color the whole way along, the way a printed political map sometimes edges each country in
+  // its own color rather than picking one color for a shared line. Also bumped up across the
+  // board (both widths, denser dashes) per the project owner's separate ask to make the border
+  // more apparent generally.
   const outlinePass = (segments, width)=>{
     segments.forEach(([p1,p2])=>{
       const outline = document.createElementNS(ns, "line");

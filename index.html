@@ -1225,14 +1225,45 @@ const RF_BIOME_FLAT_COLOR = {
   beach:'#d9c27c', desert:'#dcc383', plains:'#6ea052', forest:'#3f7a44', swamp:'#8a8d5c',
   desertRock:'#bcac7d', hills:'#93794f', mountains:'#6a6259', snow:'#e9e4d8'
 };
+// Real photo-texture candidates per biome category (see REALM_TEXTURE_KEYS) — one is picked per
+// generated world, same "pick once per world, not per cell" treatment the Realm Forge prototype
+// used. hills/mountains have no dedicated texture (mountains get real sprite art drawn over them
+// below regardless; hills stay flat-colored) so they're deliberately absent from this table and
+// from the boundary-blend pass further down — nothing to blend a hard edge into otherwise.
+const RF_TEXTURE_BUCKETS = {
+  plains: ['grass1','grass2'], desert: ['desertSand1','desertSand2'], desertRock: ['desertRock1'],
+  forest: ['forestFloor1'], swamp: ['swamp1'], snow: ['snow1','snow2'], beach: ['beach1']
+};
 const RF_DEEP_WATER = '#173a5c', RF_SHALLOW_WATER = '#2f6d95';
 const RF_RANGE_SPRITES = [
   { key:'mtrange1', aspect:4.045 }, { key:'mtrange2', aspect:2.609 }, { key:'mtrange3', aspect:2.628 },
   { key:'mtrange4', aspect:4.444 }, { key:'mtrange5', aspect:2.416 }
 ];
 const RF_TREE_SPRITES = ['treeConifer4','treeConifer5','treeConifer6','treeDeciduous2','treeDeciduous3','treeDeciduous4'];
+// How many cells out from a land-biome boundary (grass-to-desert, forest-to-swamp, etc.) the
+// alpha-faded transition band reaches — same technique and tuned value as the Realm Forge
+// prototype's own final version: a straight globalAlpha cross-fade of the neighboring biome's own
+// texture on top, not a stochastic pixel dither (that read as static/noise at this scale).
+const RF_BIOME_BLEND_RADIUS = 4;
 
-function renderWorldRaster(world, sprites, stageW, stageH){
+// Sequential globalAlpha draws (1, 1/2, 1/3 — the standard equal-N-way blend trick, same as the
+// Realm Forge prototype's own getWaterPattern()) into an offscreen canvas the size of the first
+// source image, producing one blended tileable pattern from several source photos instead of
+// picking just one — every generated world's ocean looks the same rather than varying by seed.
+function rfBlendedPattern(ctx, sprites, keys){
+  const imgs = keys.map(k => sprites[k]).filter(Boolean);
+  if(!imgs.length) return null;
+  const off = document.createElement('canvas');
+  off.width = imgs[0].width; off.height = imgs[0].height;
+  const octx = off.getContext('2d');
+  imgs.forEach((img, i) => {
+    octx.globalAlpha = 1 / (i + 1);
+    octx.drawImage(img, 0, 0, off.width, off.height);
+  });
+  return ctx.createPattern(off, 'repeat');
+}
+
+function renderWorldRaster(world, sprites, stageW, stageH, seed){
   const raw = world._raw;
   const { elevation, moisture, VW, VH, RF_COLS: cols, RF_ROWS: rows, shoreDist } = raw;
   const canvas = document.createElement('canvas');
@@ -1242,22 +1273,117 @@ function renderWorldRaster(world, sprites, stageW, stageH){
   const cw = stageW / cols, ch = stageH / rows;
   const isLandAt = (gx,gy) => elevation[gy*VW+gx] >= RF_SEA;
 
+  // Pick this world's own texture variant per multi-option biome bucket (deterministic per seed,
+  // same as every other seed-derived choice this generator makes) and build a canvas pattern for
+  // each picked ground texture, plus the two blended water patterns.
+  const textureRng = rfMulberry32((seed ^ 0xA55E7) >>> 0);
+  const categoryTexture = {};
+  const categoryPattern = {};
+  for(const cat in RF_TEXTURE_BUCKETS){
+    const options = RF_TEXTURE_BUCKETS[cat];
+    const key = options[Math.floor(textureRng() * options.length)];
+    categoryTexture[cat] = key;
+    const img = sprites[key];
+    if(img) categoryPattern[cat] = ctx.createPattern(img, 'repeat');
+  }
+  const waterPattern = rfBlendedPattern(ctx, sprites, ['water1','water2','water3']);
+  const shallowPattern = rfBlendedPattern(ctx, sprites, ['waterShallow1','waterShallow2','waterShallow3']);
+  const WATER_SHALLOW_RADIUS = 6; // matches this port's own already-tuned shallow-water cutoff
+
+  // Land-biome boundary blend field — multi-source BFS seeded from every land cell that touches a
+  // DIFFERENT textured biome (grass next to desert, forest next to swamp, etc.), same technique
+  // realm-forge.html's own biomeBlendDist/biomeBlendTarget used. Indexed by gy*cols+gx (this
+  // grid's own natural size) rather than the VW-strided elevation/moisture arrays, since this is a
+  // fresh array built just for this pass.
+  const blendDist = new Float32Array(rows * cols).fill(Infinity);
+  const blendTarget = new Array(rows * cols).fill(null);
+  {
+    const catAt = (gx, gy) => {
+      if(!isLandAt(gx, gy)) return null;
+      const cat = rfTerrainColor(elevation[gy*VW+gx], moisture[gy*VW+gx]);
+      return RF_TEXTURE_BUCKETS[cat] ? cat : null; // hills/mountains excluded — no texture to blend
+    };
+    const queue = [];
+    for(let gy = 0; gy < rows; gy++){
+      for(let gx = 0; gx < cols; gx++){
+        const cat = catAt(gx, gy);
+        if(!cat) continue;
+        const bIdx = gy*cols+gx;
+        let neighborCat = null;
+        for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+          const nx = gx+dx, ny = gy+dy;
+          if(nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+          const nCat = catAt(nx, ny);
+          if(nCat && nCat !== cat){ neighborCat = nCat; break; }
+        }
+        if(neighborCat){
+          blendDist[bIdx] = 0;
+          blendTarget[bIdx] = neighborCat;
+          queue.push(bIdx);
+        }
+      }
+    }
+    let head = 0;
+    while(head < queue.length){
+      const bIdx = queue[head++];
+      const d = blendDist[bIdx];
+      if(d >= RF_BIOME_BLEND_RADIUS) continue;
+      const gx = bIdx % cols, gy = (bIdx / cols) | 0;
+      const target = blendTarget[bIdx];
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx = gx+dx, ny = gy+dy;
+        if(nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+        const nCat = catAt(nx, ny);
+        if(!nCat || nCat === target) continue;
+        const nIdx = ny*cols+nx;
+        if(blendDist[nIdx] <= d+1) continue;
+        blendDist[nIdx] = d+1;
+        blendTarget[nIdx] = target;
+        queue.push(nIdx);
+      }
+    }
+  }
+
   for(let gy = 0; gy < rows; gy++){
     for(let gx = 0; gx < cols; gx++){
       const idx = gy*VW+gx;
       const px = gx*cw, py = gy*ch;
       if(!isLandAt(gx,gy)){
         const sd = shoreDist[idx];
-        ctx.fillStyle = sd <= 6 ? RF_SHALLOW_WATER : RF_DEEP_WATER;
+        ctx.fillStyle = waterPattern || RF_DEEP_WATER;
+        ctx.fillRect(px, py, cw+0.6, ch+0.6);
+        if(sd <= WATER_SHALLOW_RADIUS){
+          // 1 right at the coast, fading smoothly to 0 at the outer edge of the shallow band —
+          // real distance-to-shore blending, same technique/precedent as Realm Forge's own
+          // water-texture/water-shallow split.
+          const fade = 1 - sd / WATER_SHALLOW_RADIUS;
+          ctx.globalAlpha = shallowPattern ? fade : fade * 0.4;
+          ctx.fillStyle = shallowPattern || RF_SHALLOW_WATER;
+          ctx.fillRect(px, py, cw+0.6, ch+0.6);
+          ctx.globalAlpha = 1;
+        }
       } else {
         const cat = rfTerrainColor(elevation[idx], moisture[idx]);
-        ctx.fillStyle = RF_BIOME_FLAT_COLOR[cat];
+        ctx.fillStyle = categoryPattern[cat] || RF_BIOME_FLAT_COLOR[cat];
+        ctx.fillRect(px, py, cw+0.6, ch+0.6); // slight overdraw to avoid seams between cells
+        const bIdx = gy*cols+gx;
+        const bd = blendDist[bIdx];
+        if(bd <= RF_BIOME_BLEND_RADIUS){
+          const targetPattern = categoryPattern[blendTarget[bIdx]];
+          if(targetPattern){
+            const alpha = (RF_BIOME_BLEND_RADIUS + 1 - bd) / (RF_BIOME_BLEND_RADIUS + 1) * 0.55;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = targetPattern;
+            ctx.fillRect(px, py, cw+0.6, ch+0.6);
+            ctx.globalAlpha = 1;
+          }
+        }
       }
-      ctx.fillRect(px, py, cw+0.6, ch+0.6); // slight overdraw to avoid seams between cells
     }
   }
 
-  // Parchment grain overlay — cheap texture so the fill doesn't read as flat/banded.
+  // Parchment grain overlay — cheap texture so any flat-color fallback (hills, or a missing
+  // texture image) doesn't read as flat/banded; barely visible over the real photo textures.
   const rng = rfMulberry32(0xC0FFEE);
   ctx.save();
   for(let i = 0; i < 60000; i++){
@@ -1329,16 +1455,22 @@ function computeWaterMask(world, contourCols, contourRows){
   return { cols: contourCols, rows: contourRows, rowStrings };
 }
 
-// The mountain-range/tree sprites renderWorldRaster() composites onto the generated terrain —
-// see assets/realm-sprites/ (extracted from the "Realm Forge" prototype artifact this whole
-// system is ported from). Preloaded once at boot, in parallel with world generation itself.
+// The mountain-range/tree sprites (PNG, real alpha transparency) and the ground/water photo
+// textures (JPEG — grass/desert/desert-rock/forest-floor/swamp/snow/beach ground tiles, plus
+// open-water and shallow-water) renderWorldRaster() composites onto the generated terrain — see
+// assets/realm-sprites/ (extracted from the "Realm Forge" prototype artifact this whole system is
+// ported from). Preloaded once at boot, in parallel with world generation itself. The initial port
+// (see CHANGELOG) copied these texture files in but never actually loaded or drew them — ground
+// and water rendered as flat per-biome colors, same as the old fixed map. This fixes that.
 const REALM_SPRITE_KEYS = ['mtrange1','mtrange2','mtrange3','mtrange4','mtrange5','treeConifer4','treeConifer5','treeConifer6','treeDeciduous2','treeDeciduous3','treeDeciduous4'];
+const REALM_TEXTURE_KEYS = ['grass1','grass2','desertSand1','desertSand2','desertRock1','forestFloor1','swamp1','snow1','snow2','beach1','water1','water2','water3','waterShallow1','waterShallow2','waterShallow3'];
 function loadRealmSprites(){
-  return Promise.all(REALM_SPRITE_KEYS.map(key => new Promise(resolve=>{
+  const entries = REALM_SPRITE_KEYS.map(key => [key, 'png']).concat(REALM_TEXTURE_KEYS.map(key => [key, 'jpg']));
+  return Promise.all(entries.map(([key, ext]) => new Promise(resolve=>{
     const img = new Image();
     img.onload = ()=> resolve([key,img]);
-    img.onerror = ()=> resolve([key,null]); // a missing sprite just doesn't get drawn — never blocks load
-    img.src = 'assets/realm-sprites/' + key + '.png';
+    img.onerror = ()=> resolve([key,null]); // a missing sprite/texture just doesn't get drawn — never blocks load
+    img.src = 'assets/realm-sprites/' + key + '.' + ext;
   }))).then(pairs => Object.fromEntries(pairs));
 }
 
@@ -2019,6 +2151,10 @@ const CHANGELOG = [
   { id:105, date:"2026-09-25", changes:[
     "The overworld map is now a whole new continent for every character — generated fresh the moment you create them (its own kingdoms, settlements, roads, and mountains), then permanent for that save from then on. Different characters now explore genuinely different worlds.",
     "Notable Figures and recruitable companions now turn up in real settlements picked fresh for your world, instead of a handful of fixed cities."
+  ]},
+  { id:106, date:"2026-09-25", changes:[
+    "Real ground textures on the map — grass, desert sand, dry rocky ground, forest floor, swamp, snow, and beach sand now paint the terrain instead of flat colors, with a soft blend where two kinds of ground meet instead of a hard edge.",
+    "The ocean is real water art too now, with a lighter shallow-water band along every coastline."
   ]},
 ];
 
@@ -9138,7 +9274,7 @@ Promise.all([
   refreshReachability();
 
   const img = document.getElementById('map-img');
-  const raster = renderWorldRaster(world, sprites, STAGE_W, STAGE_H);
+  const raster = renderWorldRaster(world, sprites, STAGE_W, STAGE_H, seed);
   const finishLoad = ()=>{
     // A ?viewBurg=<id> param (quests.html's View Location button — see viewLocation below)
     // overrides the normal "recenter on where you actually are" behavior, so a quest's

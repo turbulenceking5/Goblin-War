@@ -20,7 +20,7 @@ unused legacy prototype map (see root [CLAUDE.md](../CLAUDE.md)'s file table), s
 | `border-water-mask.json` | ~13KB | No longer — the generator computes its own water mask directly from elevation data, see below |
 | `game-map.json` | ~9.5MB | No |
 | `map` | 2 bytes | No — stray/placeholder file, not referenced anywhere |
-| `assets/realm-sprites/` | ~1.5MB | Yes — index.html's `renderWorldRaster()`; mountain-range and tree PNGs the generator composites onto the terrain it paints, extracted from the "Realm Forge" prototype artifact |
+| `assets/realm-sprites/` | ~1.5MB | Yes — index.html's `renderWorldRaster()`; mountain-range/tree PNGs plus real ground and water JPEG textures the generator composites onto the terrain it paints, extracted from the "Realm Forge" prototype artifact |
 
 ## The procedural world generator (`generateWorld(seed)`)
 
@@ -44,12 +44,23 @@ it) that the other four pages ignore.
 
 Two things the old fetched files did are now computed instead, both only in index.html:
 - **The terrain backdrop** (`renderWorldRaster()`) paints a `STAGE_W`×`STAGE_H` canvas directly
-  from the generator's own elevation/moisture grid — flat per-biome fill colors plus composited
-  mountain-range and tree sprites from `assets/realm-sprites/` — then that canvas is converted to
-  a blob URL and set as `#map-img`'s `src`. Everything else the map draws (roads, political
-  borders, settlement dots/labels/city icons, hitzones) is the same existing SVG-overlay code as
-  before, completely unchanged — it already worked generically off `graph.burgs`/`graph.edges`,
-  so it needed no changes at all to work against generated data instead of fetched data.
+  from the generator's own elevation/moisture grid. Ground is real photo texture, not flat color:
+  each biome category (`RF_TEXTURE_BUCKETS`) picks one of its real JPEG variants once per world
+  (grass has 2, desert sand has 2, snow has 2, desert-rock/forest-floor/swamp/beach have 1 each —
+  only hills and mountains stay flat-colored, mountains because real sprite art draws over them
+  regardless), tiled via `ctx.createPattern`. Land-biome boundaries get a soft `globalAlpha`
+  cross-fade into the neighboring texture (`RF_BIOME_BLEND_RADIUS`, a multi-source BFS over the
+  grid) instead of a hard per-cell edge. Water is a 3-way blended pattern from `water1-3`, with a
+  lighter `waterShallow1-3` blend fading in by real distance-to-shore (`shoreDist`, already
+  computed for the border trace below) — same techniques as the "Realm Forge" prototype's own
+  final version, ported over after an initial pass that copied the texture files in but never
+  actually loaded or drew them (worth checking for this class of gap — files present but unused —
+  whenever a future port lands sprites/textures from that prototype). Mountain-range and tree
+  sprites composite on top as before. That canvas is then converted to a blob URL and set as
+  `#map-img`'s `src`. Everything else the map draws (roads, political borders, settlement
+  dots/labels/city icons, hitzones) is the same existing SVG-overlay code as before, completely
+  unchanged — it already worked generically off `graph.burgs`/`graph.edges`, so it needed no
+  changes at all to work against generated data instead of fetched data.
 - **The border water mask** (`computeWaterMask()`) replaces the old fetched
   `border-water-mask.json` — instead of downsampling `world-raster.jpg`'s actual pixels offline,
   it samples the generator's own land/water field directly at the same grid resolution, which is

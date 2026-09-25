@@ -1328,17 +1328,20 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
   const WATER_SHALLOW_RADIUS = 6; // matches this port's own already-tuned shallow-water cutoff
 
   // Land-biome boundary blend field — multi-source BFS seeded from every land cell that touches a
-  // DIFFERENT textured biome (grass next to desert, forest next to swamp, etc.), same technique
-  // realm-forge.html's own biomeBlendDist/biomeBlendTarget used. Indexed by gy*cols+gx (this
-  // grid's own natural size) rather than the VW-strided elevation/moisture arrays, since this is a
-  // fresh array built just for this pass.
+  // DIFFERENT biome (grass next to desert, forest next to swamp, snow next to bare mountain rock,
+  // etc.), same technique realm-forge.html's own biomeBlendDist/biomeBlendTarget used. Indexed by
+  // gy*cols+gx (this grid's own natural size) rather than the VW-strided elevation/moisture arrays,
+  // since this is a fresh array built just for this pass. hills/mountains have no dedicated texture
+  // (RF_TEXTURE_BUCKETS), but they still take part as flat-colored source/target categories — snow
+  // sits almost entirely against one or the other by elevation, so excluding them here used to mean
+  // snow's own blend never actually fired, leaving a hard cell-grid cutout at its edge. The paint
+  // loop below falls back to RF_BIOME_FLAT_COLOR for any target without a texture pattern.
   const blendDist = new Float32Array(rows * cols).fill(Infinity);
   const blendTarget = new Array(rows * cols).fill(null);
   {
     const catAt = (gx, gy) => {
       if(!isLandAt(gx, gy)) return null;
-      const cat = rfTerrainColor(elevation[gy*VW+gx], moisture[gy*VW+gx]);
-      return RF_TEXTURE_BUCKETS[cat] ? cat : null; // hills/mountains excluded — no texture to blend
+      return rfTerrainColor(elevation[gy*VW+gx], moisture[gy*VW+gx]);
     };
     const queue = [];
     for(let gy = 0; gy < rows; gy++){
@@ -1406,11 +1409,15 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
         const bIdx = gy*cols+gx;
         const bd = blendDist[bIdx];
         if(bd <= RF_BIOME_BLEND_RADIUS){
-          const targetPattern = categoryPattern[blendTarget[bIdx]];
-          if(targetPattern){
+          // Prefer the neighboring biome's own photo texture; fall back to its flat color (hills,
+          // mountains) so a blend into an untextured category still softens the edge instead of
+          // silently doing nothing.
+          const targetCat = blendTarget[bIdx];
+          const targetFill = categoryPattern[targetCat] || RF_BIOME_FLAT_COLOR[targetCat];
+          if(targetFill){
             const alpha = (RF_BIOME_BLEND_RADIUS + 1 - bd) / (RF_BIOME_BLEND_RADIUS + 1) * 0.55;
             ctx.globalAlpha = alpha;
-            ctx.fillStyle = targetPattern;
+            ctx.fillStyle = targetFill;
             ctx.fillRect(px, py, cw+0.6, ch+0.6);
             ctx.globalAlpha = 1;
           }
@@ -2200,6 +2207,9 @@ const CHANGELOG = [
   ]},
   { id:108, date:"2026-09-25", changes:[
     "Mountain ranges now fade smoothly into the surrounding ground at their base instead of showing a hard cutout edge."
+  ]},
+  { id:109, date:"2026-09-25", changes:[
+    "Fixed snow patches (and other ground near mountains/hills) showing a hard, blocky cutout instead of a soft blend where they meet."
   ]},
 ];
 

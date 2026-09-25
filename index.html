@@ -1261,6 +1261,45 @@ function rfBlendedPattern(ctx, sprites, keys){
   return ctx.createPattern(off, 'repeat');
 }
 
+// Fades each mountain-range sprite's own bottom edge to transparent so it visually dissolves into
+// the ground rather than showing a hard silhouette cutout at its base — same per-column base-line
+// pixel-alpha-fade technique the Realm Forge prototype settled on (NOT globalCompositeOperation:
+// 'destination-in', which was tried first and cleared the whole canvas outside the drawn shape
+// rather than just fading alpha where the sprite actually painted). Computed once per unique sprite
+// image and cached, since every placement of the same range art reuses the identical faded canvas.
+const rfGroundedSpriteCache = {};
+function rfGroundFadeSprite(img, cacheKey){
+  if(rfGroundedSpriteCache[cacheKey]) return rfGroundedSpriteCache[cacheKey];
+  const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const octx = off.getContext('2d');
+  octx.drawImage(img, 0, 0, w, h);
+  const imgData = octx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+  const ALPHA_THRESHOLD = 10;
+  const FADE_HEIGHT = Math.max(4, Math.round(h * 0.25));
+  for(let x = 0; x < w; x++){
+    // Walk this column from the bottom up to find its own lowest opaque pixel — sprites are
+    // irregular ridge silhouettes, so the ground line isn't a single flat y for the whole image.
+    let baseY = -1;
+    for(let y = h - 1; y >= 0; y--){
+      if(data[(y*w+x)*4 + 3] > ALPHA_THRESHOLD){ baseY = y; break; }
+    }
+    if(baseY < 0) continue; // fully transparent column, nothing to fade
+    const fadeStart = Math.max(0, baseY - FADE_HEIGHT);
+    const span = baseY - fadeStart || 1;
+    for(let y = fadeStart; y <= baseY; y++){
+      const i = (y*w+x)*4 + 3;
+      const t = (y - fadeStart) / span; // 0 at fadeStart, 1 at baseY
+      data[i] = Math.round(data[i] * (1 - t));
+    }
+  }
+  octx.putImageData(imgData, 0, 0);
+  rfGroundedSpriteCache[cacheKey] = off;
+  return off;
+}
+
 function renderWorldRaster(world, sprites, stageW, stageH, seed){
   const raw = world._raw;
   const { elevation, moisture, VW, VH, RF_COLS: cols, RF_ROWS: rows, shoreDist } = raw;
@@ -1410,8 +1449,9 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
     const spec = RF_RANGE_SPRITES[i % RF_RANGE_SPRITES.length];
     const img = sprites[spec.key];
     if(!img) return;
+    const grounded = rfGroundFadeSprite(img, spec.key);
     const w = 85 * cw, h = w / spec.aspect;
-    ctx.drawImage(img, p.x - w/2, p.y - h*0.8, w, h);
+    ctx.drawImage(grounded, p.x - w/2, p.y - h*0.8, w, h);
   });
 
   // Trees — scattered in forest-biome cells only, well short of every cell so it reads as
@@ -2157,6 +2197,9 @@ const CHANGELOG = [
   { id:107, date:"2026-09-25", changes:[
     "Mountain ranges on the map are bigger and more prominent now.",
     "Villages and Towns get a real settlement icon on the map, same as Cities and Capitals always have — just smaller, instead of a plain dot."
+  ]},
+  { id:108, date:"2026-09-25", changes:[
+    "Mountain ranges now fade smoothly into the surrounding ground at their base instead of showing a hard cutout edge."
   ]},
 ];
 

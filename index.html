@@ -1231,7 +1231,7 @@ const RF_BIOME_FLAT_COLOR = {
 // below regardless; hills stay flat-colored) so they're deliberately absent from this table and
 // from the boundary-blend pass further down — nothing to blend a hard edge into otherwise.
 const RF_TEXTURE_BUCKETS = {
-  plains: ['grass1','grass2'], desert: ['desertSand1','desertSand2'], desertRock: ['desertRock1'],
+  plains: ['grass1','grass2','grass3'], desert: ['desertSand1','desertSand2'], desertRock: ['desertRock1'],
   forest: ['forestFloor1'], swamp: ['swamp1'], snow: ['snow1','snow2'], beach: ['beach1']
 };
 const RF_DEEP_WATER = '#173a5c', RF_SHALLOW_WATER = '#2f6d95';
@@ -1463,7 +1463,7 @@ function computeWaterMask(world, contourCols, contourRows){
 // (see CHANGELOG) copied these texture files in but never actually loaded or drew them — ground
 // and water rendered as flat per-biome colors, same as the old fixed map. This fixes that.
 const REALM_SPRITE_KEYS = ['mtrange1','mtrange2','mtrange3','mtrange4','mtrange5','treeConifer4','treeConifer5','treeConifer6','treeDeciduous2','treeDeciduous3','treeDeciduous4'];
-const REALM_TEXTURE_KEYS = ['grass1','grass2','desertSand1','desertSand2','desertRock1','forestFloor1','swamp1','snow1','snow2','beach1','water1','water2','water3','waterShallow1','waterShallow2','waterShallow3'];
+const REALM_TEXTURE_KEYS = ['grass1','grass2','grass3','desertSand1','desertSand2','desertRock1','forestFloor1','swamp1','snow1','snow2','beach1','water1','water2','water3','waterShallow1','waterShallow2','waterShallow3'];
 function loadRealmSprites(){
   const entries = REALM_SPRITE_KEYS.map(key => [key, 'png']).concat(REALM_TEXTURE_KEYS.map(key => [key, 'jpg']));
   return Promise.all(entries.map(([key, ext]) => new Promise(resolve=>{

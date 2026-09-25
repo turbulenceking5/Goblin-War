@@ -1,12 +1,70 @@
 # Data Files (assets/)
 
+**The world is procedurally generated per character now — this file mostly describes legacy
+data.** As of the "Realm Forge" swap (see [travel-and-map.md](travel-and-map.md)'s own note at
+its top), index.html/character.html/settings.html/characters.html/achievements.html no longer
+fetch `travel-graph.json` or `border-water-mask.json` at all, and index.html no longer fetches
+`world-raster.jpg` either — every one of those now calls `generateWorld(seed)` (a big block of
+code duplicated into all five pages, same no-modules convention as everything else) and, in
+index.html's case, renders its own raster canvas from that same call's output. The three files
+are kept in the repo (nothing was deleted) as the last snapshot of the original hand-authored
+world, and `git tag legacy-map-fixed-world` (local only — pushing tag refs isn't permitted in
+this project's CI environment) marks the commit they were last live at. `game-map.html`, the
+unused legacy prototype map (see root [CLAUDE.md](../CLAUDE.md)'s file table), still references
+`world-raster.jpg` directly — it was never touched by this swap, being dead code nothing links to.
+
 | File | Size | Fetched at runtime? |
 |---|---|---|
-| `travel-graph.json` | ~400KB | Yes — index.html, character.html, settings.html |
-| `world-raster.jpg` | ~6.5MB | Yes — `<img id="map-img">` in index.html and game-map.html |
-| `border-water-mask.json` | ~13KB | Yes — index.html's `loadBorderWaterMask()` |
+| `travel-graph.json` | ~400KB | No longer — kept as a legacy snapshot, see above |
+| `world-raster.jpg` | ~6.5MB | Only by the unused `game-map.html` prototype |
+| `border-water-mask.json` | ~13KB | No longer — the generator computes its own water mask directly from elevation data, see below |
 | `game-map.json` | ~9.5MB | No |
 | `map` | 2 bytes | No — stray/placeholder file, not referenced anywhere |
+| `assets/realm-sprites/` | ~1.5MB | Yes — index.html's `renderWorldRaster()`; mountain-range and tree PNGs the generator composites onto the terrain it paints, extracted from the "Realm Forge" prototype artifact |
+
+## The procedural world generator (`generateWorld(seed)`)
+
+Every character gets its own continent, generated once at character creation from a random
+`mapSeed` (stored in the character snapshot — see [characters.md](characters.md)) and regenerated
+identically from that same seed every time that character's save loads afterward — a new
+character is a new world, but a given save's world never changes underneath it. Ported from a
+prototype artifact ("Realm Forge"): Perlin-ish fbm noise for elevation/moisture, a mountain-edge
+flood-fill for Dwarf hold placement, nearest-capital Voronoi for kingdom territory, and an
+MST-plus-A* road network. Duplicated verbatim (per the no-modules convention) into index.html,
+character.html, settings.html, characters.html, and achievements.html — every page that used to
+fetch `travel-graph.json` calls this instead, with the identical function body pasted into each.
+
+Its return value is shaped exactly like the old `travel-graph.json` (`burgs`/`edges`/`states`, see
+below for the field-by-field shape, unchanged) plus `startBurgId` (the guaranteed-Human starting
+capital, always assigned burg id `"0"` — every "fall back to a known-safe settlement" spot in the
+codebase, e.g. a stranded saved location, uses `"0"` now instead of the old hardcoded `"5"`/Bary)
+and `kingdomCount`. index.html additionally reads a `_raw` field (elevation/moisture/land grids —
+not travel-graph.json-shaped, only `renderWorldRaster()` and the water-mask replacement below use
+it) that the other four pages ignore.
+
+Two things the old fetched files did are now computed instead, both only in index.html:
+- **The terrain backdrop** (`renderWorldRaster()`) paints a `STAGE_W`×`STAGE_H` canvas directly
+  from the generator's own elevation/moisture grid — flat per-biome fill colors plus composited
+  mountain-range and tree sprites from `assets/realm-sprites/` — then that canvas is converted to
+  a blob URL and set as `#map-img`'s `src`. Everything else the map draws (roads, political
+  borders, settlement dots/labels/city icons, hitzones) is the same existing SVG-overlay code as
+  before, completely unchanged — it already worked generically off `graph.burgs`/`graph.edges`,
+  so it needed no changes at all to work against generated data instead of fetched data.
+- **The border water mask** (`computeWaterMask()`) replaces the old fetched
+  `border-water-mask.json` — instead of downsampling `world-raster.jpg`'s actual pixels offline,
+  it samples the generator's own land/water field directly at the same grid resolution, which is
+  both simpler and exactly accurate rather than an approximation.
+
+**Known simplifications**, in the same spirit as this codebase's other "known simplifications"
+write-ups: the generated world is much smaller than the original hand-authored one (roughly
+45-65 settlements/15-18 kingdoms per world, vs. the original's 426 settlements/24 kingdoms) —
+Realm Forge's own settlement-spacing constants cap how dense a world its grid size can produce;
+raising `RF_SETTLEMENT_TARGET` further hits that spacing ceiling rather than actually adding more
+settlements. Tier (village/town/city/capital) and population are synthesized (seeded, roughly
+matching the original's tier-mix proportions) since Realm Forge itself only ever distinguished
+capital-or-not. `NOTABLE_FIGURES`/`COMPANIONS` no longer have fixed `homeBurgId` literals —
+`assignDynamicHomes()` (index.html) picks fresh, distinct Good-alliance settlements for all eight
+of them each load, deterministically from the map seed.
 
 ## travel-graph.json
 

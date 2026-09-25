@@ -187,6 +187,542 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
 <script>
+// ===================== PROCEDURAL WORLD GENERATOR (Realm Forge) =====================
+// Per-character procedurally generated world, seeded once at character creation and regenerated
+// identically from that seed every time this character's save loads. Adapted from the "Realm
+// Forge" prototype artifact. Duplicated verbatim across index.html/character.html/settings.html/
+// characters.html/achievements.html per the no-modules convention (see CLAUDE.md) — every page
+// that needs burg/kingdom data calls generateWorld(seed) instead of fetching travel-graph.json.
+// Returns data shaped like the old travel-graph.json (burgs/edges/states) so every existing
+// consumer (pathfinding, quests, factions, achievements) works unchanged — plus a few raw grids
+// (only index.html's renderWorldRaster() uses these) for painting the terrain backdrop and
+// deriving the political-border water mask, both of which used to be separate fetched files.
+const RF_COLS = 640, RF_ROWS = 320;
+const RF_GRID_SCALE = RF_COLS / 140;
+const RF_SEA = 0.44;
+const RF_LOGICAL_SCALE_X = 2560 / RF_COLS; // == 4, matches STAGE_W/LOGICAL_W exactly
+const RF_LOGICAL_SCALE_Y = 1277 / RF_ROWS; // ~3.99, close enough to not matter
+
+function rfMulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function rfPick(arr, rng){ return arr[Math.floor(rng() * arr.length)]; }
+
+function rfMakeGradientNoise(rng){
+  const p = new Uint8Array(256);
+  for(let i = 0; i < 256; i++) p[i] = i;
+  for(let i = 255; i > 0; i--){
+    const j = Math.floor(rng() * (i+1));
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  const perm = new Uint8Array(512);
+  for(let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  function fade(t){ return t*t*t*(t*(t*6-15)+10); }
+  function lerp(a,b,t){ return a+t*(b-a); }
+  function grad(hash,x,y){
+    const h = hash & 7;
+    const u = h < 4 ? x : y, v = h < 4 ? y : x;
+    return ((h&1)?-u:u) + ((h&2)?-2*v:2*v);
+  }
+  return function(x,y){
+    const X = Math.floor(x)&255, Y = Math.floor(y)&255;
+    x -= Math.floor(x); y -= Math.floor(y);
+    const u = fade(x), v = fade(y);
+    const aa = perm[X+perm[Y]], ab = perm[X+perm[Y+1]], ba = perm[X+1+perm[Y]], bb = perm[X+1+perm[Y+1]];
+    return lerp(lerp(grad(aa,x,y), grad(ba,x-1,y), u), lerp(grad(ab,x,y-1), grad(bb,x-1,y-1), u), v);
+  };
+}
+function rfFbm(noise2d, x, y, octaves){
+  let total = 0, amp = 1, freq = 1, maxAmp = 0;
+  for(let i = 0; i < octaves; i++){
+    total += noise2d(x*freq, y*freq) * amp;
+    maxAmp += amp;
+    amp *= 0.5; freq *= 2;
+  }
+  return total / maxAmp;
+}
+
+const RF_TERRAIN = {
+  beach:'beach', desert:'desert', plains:'plains', forest:'forest', swamp:'swamp',
+  desertRock:'desertRock', hills:'hills', mountains:'mountains', snow:'snow'
+};
+function rfTerrainColor(e, m){
+  if(e < 0.48) return RF_TERRAIN.beach;
+  if(e < 0.60){
+    if(m < 0.35) return RF_TERRAIN.desert;
+    if(m < 0.55) return RF_TERRAIN.plains;
+    if(m < 0.78) return RF_TERRAIN.forest;
+    return RF_TERRAIN.swamp;
+  }
+  if(e < 0.70) return m < 0.30 ? RF_TERRAIN.desert : RF_TERRAIN.forest;
+  if(e < 0.80) return m < 0.30 ? RF_TERRAIN.desertRock : RF_TERRAIN.hills;
+  if(e < 0.90) return RF_TERRAIN.mountains;
+  return RF_TERRAIN.snow;
+}
+// Maps Realm Forge's 9 terrain buckets down to the 7 combat-backdrop categories
+// context/combat.md's BIOME_ART/getBiomeBackdrop expects (coast is handled separately via the
+// burg's own `port` flag, same as the original travel-graph.json convention).
+const RF_BIOME_TO_GAME = {
+  beach:'plains', desert:'desert', plains:'plains', forest:'forest', swamp:'swamp',
+  desertRock:'desert', hills:'hills', mountains:'mountains', snow:'snow'
+};
+
+const RF_MOUNTAIN_CORE = 0.80;
+const RF_MOUNTAIN_EDGE_LO = 0.62;
+const RF_SETTLEMENT_TARGET = 160;
+const RF_MIN_EDGE_CLUSTER = 480;
+const RF_DWARF_MAX_RANGES = 3;
+const RF_DWARF_RANGE_SEPARATION = Math.round(32 * RF_GRID_SCALE);
+
+const RF_NAME_PRE = ["Bal","Kar","Thal","Or","Vin","Sil","Mor","Bre","Gal","Hex","Dun","Fen","Wyn","Sor","Vael","Rax","Nor","Ith","Cael","Bryn"];
+const RF_NAME_MID = ["a","o","i","e","","ae","or","an"];
+const RF_NAME_SUF = ["dor","mere","gard","heim","wick","shire","hold","reach","fall","moor","stead","crag"];
+const RF_DWARF_PRE = ["Karn","Thor","Dun","Grun","Brak","Fjor","Skorn","Dorn","Hrag","Vark","Bram","Korg","Stoun","Marn","Uldor","Barg","Torn","Krund","Hafn","Grimm"];
+const RF_DWARF_SUF = ["hold","gard","peak","forge","deep","stone","crag","hammer","vault","spire","reach","anvil","mount","cairn","delve"];
+const RF_ORK_PRE = ['Grim','Thok','Uzg','Mog','Krag','Gor','Rakh','Dug','Skarn','Vrag','Bogh','Nakh','Zug','Drok','Gruth','Karg','Mokh','Urz','Grosh','Throg','Bruk','Ghaz','Hrag','Snarl','Rugg','Kroz','Ombar','Uzhak','Grash','Dolg'];
+const RF_ORK_SUF = ['gash','dun','mok','grim','krul','thak','gor','zug','nak','maw','skar','grod','thruk','zog','ruk','grath','mog','dug','karn','harg','vok','drum','nash','ur','gul','zar','thok','vash','grum','durk'];
+const RF_GOBLIN_PRE = ['Snik','Grub','Ratch','Fen','Miz','Skab','Nit','Grot','Pik','Snag','Grix','Fret','Skiv','Nib','Crum','Slop','Wik','Muck','Scrit','Gnash','Sump','Ilk','Rask','Twitch','Drib','Yik','Splik','Noz','Grum','Skitter'];
+const RF_GOBLIN_SUF = ['wick','hole','ditch','scum','nabble','tooth','snatch','burrow','fen','grot','mire','warren','hollow','muck','rot','gnaw','nook','crawl','pit','scrag','nub','wallow','sniff','grub','tangle','snarl','hovel','drip','runt','wick'];
+
+const RF_RACE_NAMEGEN = {
+  human:  { style:'prefix', titles:["Kingdom of","Duchy of","Barony of","Dominion of","Realm of","March of"],
+            gen:(rng)=> rfPick(RF_NAME_PRE,rng) + rfPick(RF_NAME_MID,rng) + rfPick(RF_NAME_SUF,rng) },
+  dwarf:  { style:'prefix', titles:["Hold of","Stonehold of","Deep of","Bulwark of","Vault of","Clanhold of"],
+            gen:(rng)=> rfPick(RF_DWARF_PRE,rng) + rfPick(RF_DWARF_SUF,rng).toLowerCase() },
+  ork:    { style:'suffix', titles:["Horde","Warband","Warcamp","Stronghold","Legion","Warhost"],
+            gen:(rng)=> rfPick(RF_ORK_PRE,rng) + rfPick(RF_ORK_SUF,rng).toLowerCase() },
+  goblin: { style:'suffix', titles:["Warren","Swarm","Nest","Burrow","Pack"],
+            gen:(rng)=> rfPick(RF_GOBLIN_PRE,rng) + rfPick(RF_GOBLIN_SUF,rng).toLowerCase() }
+};
+function rfGenKingdomName(race, rng){
+  const cfg = RF_RACE_NAMEGEN[race];
+  const name = cfg.gen(rng);
+  const title = rfPick(cfg.titles, rng);
+  return cfg.style === 'prefix' ? `${title} ${name}` : `${name} ${title}`;
+}
+
+// ---- The main entry point ----
+// Deterministic: the same seed always produces the same burgs/edges/states/startBurgId. Returns
+// a travel-graph.json-shaped object plus `_raw` (only used by index.html's renderWorldRaster()
+// and its border-water-mask replacement — every other page ignores it).
+function generateWorld(seed){
+  const rng = rfMulberry32(seed >>> 0);
+  const noise = rfMakeGradientNoise(rng);
+  const VW = RF_COLS + 1, VH = RF_ROWS + 1;
+  const elevation = new Float32Array(VW * VH);
+  const cx = RF_COLS/2, cy = RF_ROWS/2;
+  const maxD = Math.hypot(cx, cy);
+  for(let gy = 0; gy < VH; gy++){
+    for(let gx = 0; gx < VW; gx++){
+      const nx = gx / (14 * RF_GRID_SCALE), ny = gy / (14 * RF_GRID_SCALE);
+      let e = rfFbm(noise, nx, ny, 5);
+      e = (e + 1) / 2;
+      const d = Math.hypot(gx - cx, gy - cy) / maxD;
+      e -= Math.pow(d, 2.1) * 0.85;
+      elevation[gy*VW + gx] = e;
+    }
+  }
+  let lo = Infinity, hi = -Infinity;
+  for(let i = 0; i < elevation.length; i++){ if(elevation[i]<lo) lo=elevation[i]; if(elevation[i]>hi) hi=elevation[i]; }
+  for(let i = 0; i < elevation.length; i++) elevation[i] = (elevation[i]-lo)/(hi-lo);
+
+  const EDGE_MARGIN = Math.round(Math.min(RF_COLS, RF_ROWS) * 0.08);
+  const EDGE_WATER_CAP = 0.16;
+  const marginNoiseScale = 1 / (18 * RF_GRID_SCALE);
+  for(let gy = 0; gy < VH; gy++){
+    for(let gx = 0; gx < VW; gx++){
+      const edgeDist = Math.min(gx, (VW-1)-gx);
+      const wobble = rfFbm(noise, gx*marginNoiseScale + 900, gy*marginNoiseScale + 900, 3);
+      const localMargin = EDGE_MARGIN * (1 + wobble * 0.45);
+      if(edgeDist < localMargin){
+        const t = edgeDist / localMargin;
+        const cap = EDGE_WATER_CAP + t * (1 - EDGE_WATER_CAP);
+        const idx = gy*VW + gx;
+        if(elevation[idx] > cap) elevation[idx] = cap;
+      }
+    }
+  }
+
+  const moistureNoise = rfMakeGradientNoise(rfMulberry32((seed ^ 0x9E3779B9) >>> 0));
+  const moisture = new Float32Array(VW * VH);
+  for(let gy = 0; gy < VH; gy++){
+    for(let gx = 0; gx < VW; gx++){
+      const nx = gx / (22 * RF_GRID_SCALE), ny = gy / (22 * RF_GRID_SCALE);
+      const m = rfFbm(moistureNoise, nx, ny, 4);
+      moisture[gy*VW + gx] = (m + 1) / 2;
+    }
+  }
+
+  const isLand = (gx, gy) => elevation[gy*VW + gx] >= RF_SEA;
+
+  const SHALLOW_RADIUS = 21;
+  const shoreDist = new Float32Array(VW * VH).fill(Infinity);
+  {
+    const queue = [];
+    for(let gy = 0; gy < VH; gy++){
+      for(let gx = 0; gx < VW; gx++){
+        if(isLand(gx, gy)){ const idx = gy*VW+gx; shoreDist[idx] = 0; queue.push(idx); }
+      }
+    }
+    let head = 0;
+    while(head < queue.length){
+      const idx = queue[head++];
+      const d = shoreDist[idx];
+      if(d >= SHALLOW_RADIUS) continue;
+      const cx2 = idx % VW, cy2 = (idx / VW) | 0;
+      [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+        const nx = cx2+dx, ny = cy2+dy;
+        if(nx < 0 || nx >= VW || ny < 0 || ny >= VH) return;
+        const nIdx = ny*VW+nx;
+        if(shoreDist[nIdx] <= d+1) return;
+        shoreDist[nIdx] = d+1;
+        queue.push(nIdx);
+      });
+    }
+  }
+
+  const isMountainCore = (gx, gy) => gx>=0 && gx<VW && gy>=0 && gy<VH && elevation[gy*VW+gx] >= RF_MOUNTAIN_CORE;
+  function isMountainEdge(gx, gy){
+    const e = elevation[gy*VW+gx];
+    if(!isLand(gx,gy) || e >= RF_MOUNTAIN_CORE || e < RF_MOUNTAIN_EDGE_LO) return false;
+    for(let dy=-1; dy<=1; dy++){
+      for(let dx=-1; dx<=1; dx++){
+        if(!dx && !dy) continue;
+        if(isMountainCore(gx+dx, gy+dy)) return true;
+      }
+    }
+    return false;
+  }
+
+  const visited = new Uint8Array(VW*VH);
+  const edgeClusters = [];
+  for(let gy=0; gy<VH; gy++){
+    for(let gx=0; gx<VW; gx++){
+      const idx = gy*VW+gx;
+      if(visited[idx]) continue;
+      visited[idx] = 1;
+      if(!isMountainEdge(gx,gy)) continue;
+      const cluster = [[gx,gy]];
+      const stack = [[gx,gy]];
+      while(stack.length){
+        const [cx2,cy2] = stack.pop();
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=cx2+dx, ny=cy2+dy;
+          if(nx<0||nx>=VW||ny<0||ny>=VH) continue;
+          const nidx = ny*VW+nx;
+          if(visited[nidx]) continue;
+          visited[nidx] = 1;
+          if(isMountainEdge(nx,ny)){ cluster.push([nx,ny]); stack.push([nx,ny]); }
+        }
+      }
+      edgeClusters.push(cluster);
+    }
+  }
+  edgeClusters.sort((a,b)=> b.length - a.length);
+
+  const chosenRanges = [];
+  for(const cluster of edgeClusters){
+    if(cluster.length < RF_MIN_EDGE_CLUSTER) break;
+    if(chosenRanges.length >= RF_DWARF_MAX_RANGES) break;
+    const rcx = cluster.reduce((s,p)=>s+p[0],0)/cluster.length;
+    const rcy = cluster.reduce((s,p)=>s+p[1],0)/cluster.length;
+    if(chosenRanges.some(r => Math.hypot(r.cx-rcx, r.cy-rcy) < RF_DWARF_RANGE_SEPARATION)) continue;
+    chosenRanges.push({ cluster, cx: rcx, cy: rcy });
+  }
+
+  const dwarfSettlements = [];
+  chosenRanges.forEach(range => {
+    const targetCount = Math.max(1, Math.min(3, Math.round(range.cluster.length / (12 * RF_GRID_SCALE * RF_GRID_SCALE))));
+    const shuffled = range.cluster.slice().sort(()=> rng()-0.5);
+    const placed = [];
+    for(const [gx,gy] of shuffled){
+      if(placed.length >= targetCount) break;
+      if(placed.some(p => Math.hypot(p.x-gx,p.y-gy) < 5*RF_GRID_SCALE)) continue;
+      placed.push({ x: gx, y: gy });
+    }
+    if(!placed.length) return;
+    let capIdx = 0, capD = Infinity;
+    placed.forEach((p,i)=>{ const d = Math.hypot(p.x-range.cx, p.y-range.cy); if(d<capD){ capD=d; capIdx=i; } });
+    placed.forEach((p,i)=> dwarfSettlements.push({ x:p.x, y:p.y, isCapital: i===capIdx }));
+  });
+  const dwarfCapitals = dwarfSettlements.filter(s => s.isCapital);
+
+  const settlements = [];
+  let attempts = 0;
+  while(settlements.length < RF_SETTLEMENT_TARGET && attempts < 8000){
+    attempts++;
+    const gx = 2 + rng() * (RF_COLS - 4);
+    const gy = 2 + rng() * (RF_ROWS - 4);
+    const vx = Math.round(gx), vy = Math.round(gy);
+    if(!isLand(vx, vy)) continue;
+    if(elevation[vy*VW+vx] >= RF_MOUNTAIN_EDGE_LO) continue;
+    if(settlements.some(s => Math.hypot(s.x-gx, s.y-gy) < 9*RF_GRID_SCALE)) continue;
+    if(dwarfSettlements.some(s => Math.hypot(s.x-gx, s.y-gy) < 9*RF_GRID_SCALE)) continue;
+    settlements.push({ x: gx, y: gy });
+  }
+
+  const totalTarget = Math.max(4, Math.min(18, Math.round((settlements.length + dwarfSettlements.length) / 3)));
+  const otherKingdomCount = Math.max(2, Math.min(settlements.length, totalTarget - dwarfCapitals.length));
+  const otherCapitals = [];
+  if(settlements.length){
+    otherCapitals.push(settlements[Math.floor(rng()*settlements.length)]);
+    while(otherCapitals.length < otherKingdomCount){
+      let best = null, bestD = -1;
+      for(const s of settlements){
+        let d = Infinity;
+        for(const c of otherCapitals) d = Math.min(d, Math.hypot(s.x-c.x, s.y-c.y));
+        if(d > bestD){ bestD = d; best = s; }
+      }
+      otherCapitals.push(best);
+    }
+  }
+  // Realm Forge's own raceCycle could omit Human entirely on an unlucky shuffle — the real game
+  // requires a fresh character to always start in Human territory (see characters.html's own
+  // populateStartCitySelect comment), so otherCapitals[0] is forced Human and the rest are drawn
+  // from a full shuffled pool instead of a short one that might not include it.
+  if(otherCapitals.length){
+    otherCapitals[0]._race = 'human';
+    const restCycle = ['human','ork','goblin'].sort(()=> rng()-0.5);
+    for(let i = 1; i < otherCapitals.length; i++) otherCapitals[i]._race = restCycle[(i-1) % restCycle.length];
+  }
+  dwarfCapitals.forEach(c => { c._race = 'dwarf'; });
+
+  const capitals = dwarfCapitals.concat(otherCapitals);
+  const allSettlements = settlements.concat(dwarfSettlements);
+
+  dwarfSettlements.forEach(s => {
+    let best = 0, bestD = Infinity;
+    capitals.forEach((c,i) => {
+      if(c._race !== 'dwarf') return;
+      const d = Math.hypot(s.x-c.x, s.y-c.y);
+      if(d < bestD){ bestD = d; best = i; }
+    });
+    s.kingdom = best; s.race = 'dwarf'; s.isCapital = capitals[best] === s;
+    s.name = RF_RACE_NAMEGEN[s.race].gen(rng);
+  });
+  settlements.forEach(s => {
+    let best = 0, bestD = Infinity;
+    capitals.forEach((c,i) => {
+      const d = Math.hypot(s.x-c.x, s.y-c.y);
+      if(d < bestD){ bestD = d; best = i; }
+    });
+    s.kingdom = best; s.race = capitals[best]._race; s.isCapital = capitals[best] === s;
+    s.name = RF_RACE_NAMEGEN[s.race].gen(rng);
+  });
+
+  const names = capitals.map(c => rfGenKingdomName(c._race, rng));
+  const races = capitals.map(c => c._race);
+
+  // ---- Roads: MST + nearest-neighbor extra edges, each pathed with A* (mountains cost extra
+  // unless either endpoint is a Dwarf settlement) ----
+  function terrainStepCost(x, y, allowMountain){
+    if(x < 0 || x > RF_COLS || y < 0 || y > RF_ROWS) return Infinity;
+    const e = elevation[y*VW+x];
+    if(e < RF_SEA) return 60;
+    if(e >= RF_MOUNTAIN_CORE) return allowMountain ? 45 : 4000;
+    return 1;
+  }
+  function simplifyPath(path){
+    if(path.length <= 2) return path;
+    const out = [path[0]];
+    for(let i=1; i<path.length-1; i++){
+      const a=out[out.length-1], b=path[i], c=path[i+1];
+      const cross = (b.x-a.x)*(c.y-b.y) - (b.y-a.y)*(c.x-b.x);
+      if(Math.abs(cross) > 0.001) out.push(b);
+    }
+    out.push(path[path.length-1]);
+    return out;
+  }
+  class RFMinHeap{
+    constructor(){ this.a = []; }
+    push(item){
+      const a = this.a; a.push(item);
+      let i = a.length-1;
+      while(i>0){ const p=(i-1)>>1; if(a[p].f<=a[i].f) break; [a[p],a[i]]=[a[i],a[p]]; i=p; }
+    }
+    pop(){
+      const a = this.a; const top = a[0]; const last = a.pop();
+      if(a.length){ a[0]=last; let i=0;
+        while(true){ let l=2*i+1,r=2*i+2,sm=i;
+          if(l<a.length && a[l].f<a[sm].f) sm=l;
+          if(r<a.length && a[r].f<a[sm].f) sm=r;
+          if(sm===i) break; [a[sm],a[i]]=[a[i],a[sm]]; i=sm;
+        }
+      }
+      return top;
+    }
+    isEmpty(){ return this.a.length===0; }
+  }
+  function findRoadPath(p1, p2){
+    const allowMountain = p1.race === 'dwarf' || p2.race === 'dwarf';
+    const sx = Math.round(p1.x), sy = Math.round(p1.y);
+    const gx = Math.round(p2.x), gy = Math.round(p2.y);
+    const W = RF_COLS+1;
+    const key = (x,y) => y*W+x;
+    const h = (x,y) => Math.hypot(x-gx, y-gy);
+    const gScore = new Map([[key(sx,sy), 0]]);
+    const cameFrom = new Map();
+    const closed = new Set();
+    const open = new RFMinHeap();
+    open.push({ f:h(sx,sy), x:sx, y:sy });
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    let found = false, iterations = 0;
+    while(!open.isEmpty() && iterations < 200000){
+      iterations++;
+      const cur = open.pop();
+      const ck = key(cur.x, cur.y);
+      if(closed.has(ck)) continue;
+      closed.add(ck);
+      if(cur.x===gx && cur.y===gy){ found = true; break; }
+      for(const [dx,dy] of dirs){
+        const nx = cur.x+dx, ny = cur.y+dy;
+        if(nx<0||nx>RF_COLS||ny<0||ny>RF_ROWS) continue;
+        const nk = key(nx,ny);
+        if(closed.has(nk)) continue;
+        const stepCost = terrainStepCost(nx,ny,allowMountain) * (dx!==0 && dy!==0 ? Math.SQRT2 : 1);
+        if(!isFinite(stepCost)) continue;
+        const tentativeG = gScore.get(ck) + stepCost;
+        if(tentativeG < (gScore.has(nk) ? gScore.get(nk) : Infinity)){
+          gScore.set(nk, tentativeG);
+          cameFrom.set(nk, ck);
+          open.push({ f: tentativeG+h(nx,ny), x:nx, y:ny });
+        }
+      }
+    }
+    if(!found) return [{x:p1.x,y:p1.y}, {x:p2.x,y:p2.y}];
+    const cells = [];
+    let ck = key(gx,gy);
+    while(cameFrom.has(ck)){ cells.push({ x: ck % W, y: Math.floor(ck / W) }); ck = cameFrom.get(ck); }
+    cells.reverse();
+    const full = [{x:p1.x,y:p1.y}, ...cells.slice(0, -1), {x:p2.x,y:p2.y}];
+    return simplifyPath(full);
+  }
+  function buildRoads(){
+    const n = allSettlements.length;
+    if(n < 2) return [];
+    const inTree = new Array(n).fill(false);
+    inTree[0] = true;
+    let count = 1;
+    const mstEdges = [];
+    while(count < n){
+      let bi=-1, bj=-1, bd=Infinity;
+      for(let i=0;i<n;i++){
+        if(!inTree[i]) continue;
+        for(let j=0;j<n;j++){
+          if(inTree[j]) continue;
+          const d = Math.hypot(allSettlements[i].x-allSettlements[j].x, allSettlements[i].y-allSettlements[j].y);
+          if(d<bd){ bd=d; bi=i; bj=j; }
+        }
+      }
+      if(bi<0) break;
+      inTree[bj]=true; count++;
+      mstEdges.push([bi,bj]);
+    }
+    const edgeKeys = new Set(mstEdges.map(([i,j])=> [Math.min(i,j),Math.max(i,j)].join(',')));
+    for(let i=0;i<n;i++){
+      let nb=-1, nd=Infinity;
+      for(let j=0;j<n;j++){
+        if(i===j) continue;
+        const d = Math.hypot(allSettlements[i].x-allSettlements[j].x, allSettlements[i].y-allSettlements[j].y);
+        if(d<nd){ nd=d; nb=j; }
+      }
+      if(nb<0) continue;
+      const edgeKey = [Math.min(i,nb),Math.max(i,nb)].join(',');
+      if(!edgeKeys.has(edgeKey)){ edgeKeys.add(edgeKey); mstEdges.push([i,nb]); }
+    }
+    return mstEdges.map(([i,j]) => findRoadPath(allSettlements[i], allSettlements[j]));
+  }
+  const roads = buildRoads();
+
+  // ================= Convert to travel-graph.json shape =================
+  const burgs = {};
+  const states = {};
+  capitals.forEach((c,i) => { states[i] = { name: names[i], race: races[i] }; });
+
+  // Deterministic tier assignment for non-capitals (Realm Forge only knows capital-or-not) —
+  // roughly mirrors the original hand-authored world's tier mix (data-files.md: ~14% city,
+  // ~67% town, ~19% village of the non-capital settlements).
+  function rfPickTier(r){
+    if(r < 0.15) return 'city';
+    if(r < 0.82) return 'town';
+    return 'village';
+  }
+  // Population, in the same "thousands of people" unit the original data used.
+  function rfPopFor(tier, r){
+    if(tier === 'capital') return +(8 + r*32).toFixed(2);
+    if(tier === 'city') return +(2 + r*8).toFixed(2);
+    if(tier === 'town') return +(0.5 + r*2.5).toFixed(2);
+    return +(0.1 + r*0.9).toFixed(2);
+  }
+
+  let nextCell = 0;
+  const pointCellId = new Map(); // "x,y" (rounded to 2dp) -> cell id, so shared road endpoints reuse the same cell
+  function cellIdFor(x, y){
+    const k = Math.round(x*100)+','+Math.round(y*100);
+    if(pointCellId.has(k)) return pointCellId.get(k);
+    const id = String(nextCell++);
+    pointCellId.set(k, id);
+    return id;
+  }
+
+  // allSettlements is [...settlements, ...dwarfSettlements] — capitals.forEach above/below relies
+  // on object identity (capitals[i] === s) so build burgs by walking this same array once, in
+  // order, assigning ids "0","1",2,... Settlement 0 is deliberately the guaranteed-Human starting
+  // capital (see startBurgId below) by construction: otherCapitals[0] is always first in
+  // allSettlements-equivalent ordering below.
+  const orderedSettlements = [];
+  // otherCapitals[0] (guaranteed Human) goes first so it becomes burg "0" — every fallback
+  // location in the game (a stranded save, a fresh character, etc.) can safely use "0".
+  if(otherCapitals.length) orderedSettlements.push(otherCapitals[0]);
+  allSettlements.forEach(s => { if(s !== orderedSettlements[0]) orderedSettlements.push(s); });
+
+  let startBurgId = null;
+  orderedSettlements.forEach((s, idx) => {
+    const id = String(idx);
+    if(idx === 0) startBurgId = id;
+    const x = s.x * RF_LOGICAL_SCALE_X, y = s.y * RF_LOGICAL_SCALE_Y;
+    const cell = cellIdFor(s.x, s.y);
+    const tier = s.isCapital ? 'capital' : rfPickTier(rfMulberry32((seed ^ (idx*2654435761)) >>> 0)());
+    const popRng = rfMulberry32((seed ^ (idx*40503 + 7)) >>> 0)();
+    const gx = Math.round(s.x), gy = Math.round(s.y);
+    const gi = Math.min(VH-1, Math.max(0, gy)) * VW + Math.min(VW-1, Math.max(0, gx));
+    const biome = RF_BIOME_TO_GAME[rfTerrainColor(elevation[gi], moisture[gi])] || 'plains';
+    const port = shoreDist[gi] <= 2;
+    burgs[id] = {
+      id, name: s.name, tier, x, y, cell,
+      stateId: s.kingdom, state: names[s.kingdom],
+      race: s.race, population: rfPopFor(tier, popRng), port, biome
+    };
+  });
+
+  const edges = [];
+  roads.forEach(path => {
+    for(let i = 0; i < path.length-1; i++){
+      const a = path[i], b = path[i+1];
+      const ax = a.x*RF_LOGICAL_SCALE_X, ay = a.y*RF_LOGICAL_SCALE_Y;
+      const bx = b.x*RF_LOGICAL_SCALE_X, by = b.y*RF_LOGICAL_SCALE_Y;
+      const dist = Math.hypot(ax-bx, ay-by);
+      if(dist < 0.01) continue; // degenerate — same point twice in a row
+      edges.push({
+        a: cellIdFor(a.x, a.y), b: cellIdFor(b.x, b.y),
+        mi: dist, kind: 'road', pts: [[ax,ay],[bx,by]]
+      });
+    }
+  });
+
+  return {
+    burgs, edges, states, startBurgId,
+    kingdomCount: capitals.length,
+    _raw: { elevation, moisture, VW, VH, RF_COLS, RF_ROWS, isLand, shoreDist, RF_LOGICAL_SCALE_X, RF_LOGICAL_SCALE_Y }
+  };
+}
+
+
 const NAME_KEY = "goblinwar_characterName";
 const HEALTH_KEY = "goblinwar_health";
 const MAXHEALTH_KEY = "goblinwar_maxHealth";
@@ -198,6 +734,7 @@ const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const DURABILITY_KEY = "goblinwar_durability";
 const LOC_KEY = "goblinwar_currentBurg";
+const MAPSEED_KEY = "goblinwar_mapSeed";
 const CAL_KEY = "goblinwar_gameDay";
 const HOUR_KEY = "goblinwar_gameHour";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
@@ -392,12 +929,15 @@ document.getElementById('current-date').textContent = `${dateStr(day)} · ${time
 document.getElementById('food-value').textContent = food ? food.qty : 0;
 document.getElementById('weight-value').textContent = `${carriedWeight} / ${getCarryCapacity()}`;
 
-fetch('assets/travel-graph.json').then(r=>r.json()).then(data=>{
+try{
+  const seed = parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10);
+  const data = generateWorld(seed);
   const b = data.burgs[burgId];
   document.getElementById('current-loc').textContent = b ? b.name : `Location #${burgId}`;
-}).catch(()=>{
+}catch(e){
+  console.error(e);
   document.getElementById('current-loc').textContent = `Location #${burgId}`;
-});
+}
 </script>
 </body>
 </html>

@@ -1,5 +1,15 @@
 # Travel & Map (index.html)
 
+**The world itself is procedurally generated per character now** — see
+[data-files.md](data-files.md)'s "The procedural world generator" section for `generateWorld(seed)`,
+what replaced the old fetched `travel-graph.json`/`world-raster.jpg`/`border-water-mask.json`, and
+what stayed exactly the same. Everything below this point — the two coordinate spaces, the camera,
+the road/sea graph, travel animation, the calendar, and the whole "Roads, settlement dots, labels,
+and city icons" section — describes the SVG-overlay/pathfinding code that reads whatever `graph`
+currently holds, and needed **zero changes** for the swap: it already worked generically off
+`graph.burgs`/`graph.edges`, fetched or generated alike. Read it as still fully accurate; only
+where that data comes from changed.
+
 The overworld screen. This is the largest and most complex system in the game — everything else (combat, resting, save state) hangs off of it.
 
 ## Two coordinate spaces

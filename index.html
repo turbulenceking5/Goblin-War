@@ -567,7 +567,7 @@
 
   <div id="map-viewport">
     <div id="map-stage">
-      <img id="map-img" src="assets/world-raster.jpg" alt="World map" draggable="false">
+      <img id="map-img" alt="World map" draggable="false">
       <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
         <g id="roads" style="pointer-events:none"></g>
         <g id="border-markers" style="pointer-events:none"></g>
@@ -680,6 +680,705 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
 <script>
+// ===================== PROCEDURAL WORLD GENERATOR (Realm Forge) =====================
+// Per-character procedurally generated world, seeded once at character creation and regenerated
+// identically from that seed every time this character's save loads. Adapted from the "Realm
+// Forge" prototype artifact. Duplicated verbatim across index.html/character.html/settings.html/
+// characters.html/achievements.html per the no-modules convention (see CLAUDE.md) — every page
+// that needs burg/kingdom data calls generateWorld(seed) instead of fetching travel-graph.json.
+// Returns data shaped like the old travel-graph.json (burgs/edges/states) so every existing
+// consumer (pathfinding, quests, factions, achievements) works unchanged — plus a few raw grids
+// (only index.html's renderWorldRaster() uses these) for painting the terrain backdrop and
+// deriving the political-border water mask, both of which used to be separate fetched files.
+const RF_COLS = 640, RF_ROWS = 320;
+const RF_GRID_SCALE = RF_COLS / 140;
+const RF_SEA = 0.44;
+const RF_LOGICAL_SCALE_X = 2560 / RF_COLS; // == 4, matches STAGE_W/LOGICAL_W exactly
+const RF_LOGICAL_SCALE_Y = 1277 / RF_ROWS; // ~3.99, close enough to not matter
+
+function rfMulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function rfPick(arr, rng){ return arr[Math.floor(rng() * arr.length)]; }
+
+function rfMakeGradientNoise(rng){
+  const p = new Uint8Array(256);
+  for(let i = 0; i < 256; i++) p[i] = i;
+  for(let i = 255; i > 0; i--){
+    const j = Math.floor(rng() * (i+1));
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  const perm = new Uint8Array(512);
+  for(let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  function fade(t){ return t*t*t*(t*(t*6-15)+10); }
+  function lerp(a,b,t){ return a+t*(b-a); }
+  function grad(hash,x,y){
+    const h = hash & 7;
+    const u = h < 4 ? x : y, v = h < 4 ? y : x;
+    return ((h&1)?-u:u) + ((h&2)?-2*v:2*v);
+  }
+  return function(x,y){
+    const X = Math.floor(x)&255, Y = Math.floor(y)&255;
+    x -= Math.floor(x); y -= Math.floor(y);
+    const u = fade(x), v = fade(y);
+    const aa = perm[X+perm[Y]], ab = perm[X+perm[Y+1]], ba = perm[X+1+perm[Y]], bb = perm[X+1+perm[Y+1]];
+    return lerp(lerp(grad(aa,x,y), grad(ba,x-1,y), u), lerp(grad(ab,x,y-1), grad(bb,x-1,y-1), u), v);
+  };
+}
+function rfFbm(noise2d, x, y, octaves){
+  let total = 0, amp = 1, freq = 1, maxAmp = 0;
+  for(let i = 0; i < octaves; i++){
+    total += noise2d(x*freq, y*freq) * amp;
+    maxAmp += amp;
+    amp *= 0.5; freq *= 2;
+  }
+  return total / maxAmp;
+}
+
+const RF_TERRAIN = {
+  beach:'beach', desert:'desert', plains:'plains', forest:'forest', swamp:'swamp',
+  desertRock:'desertRock', hills:'hills', mountains:'mountains', snow:'snow'
+};
+function rfTerrainColor(e, m){
+  if(e < 0.48) return RF_TERRAIN.beach;
+  if(e < 0.60){
+    if(m < 0.35) return RF_TERRAIN.desert;
+    if(m < 0.55) return RF_TERRAIN.plains;
+    if(m < 0.78) return RF_TERRAIN.forest;
+    return RF_TERRAIN.swamp;
+  }
+  if(e < 0.70) return m < 0.30 ? RF_TERRAIN.desert : RF_TERRAIN.forest;
+  if(e < 0.80) return m < 0.30 ? RF_TERRAIN.desertRock : RF_TERRAIN.hills;
+  if(e < 0.90) return RF_TERRAIN.mountains;
+  return RF_TERRAIN.snow;
+}
+// Maps Realm Forge's 9 terrain buckets down to the 7 combat-backdrop categories
+// context/combat.md's BIOME_ART/getBiomeBackdrop expects (coast is handled separately via the
+// burg's own `port` flag, same as the original travel-graph.json convention).
+const RF_BIOME_TO_GAME = {
+  beach:'plains', desert:'desert', plains:'plains', forest:'forest', swamp:'swamp',
+  desertRock:'desert', hills:'hills', mountains:'mountains', snow:'snow'
+};
+
+const RF_MOUNTAIN_CORE = 0.80;
+const RF_MOUNTAIN_EDGE_LO = 0.62;
+const RF_SETTLEMENT_TARGET = 160;
+const RF_MIN_EDGE_CLUSTER = 480;
+const RF_DWARF_MAX_RANGES = 3;
+const RF_DWARF_RANGE_SEPARATION = Math.round(32 * RF_GRID_SCALE);
+
+const RF_NAME_PRE = ["Bal","Kar","Thal","Or","Vin","Sil","Mor","Bre","Gal","Hex","Dun","Fen","Wyn","Sor","Vael","Rax","Nor","Ith","Cael","Bryn"];
+const RF_NAME_MID = ["a","o","i","e","","ae","or","an"];
+const RF_NAME_SUF = ["dor","mere","gard","heim","wick","shire","hold","reach","fall","moor","stead","crag"];
+const RF_DWARF_PRE = ["Karn","Thor","Dun","Grun","Brak","Fjor","Skorn","Dorn","Hrag","Vark","Bram","Korg","Stoun","Marn","Uldor","Barg","Torn","Krund","Hafn","Grimm"];
+const RF_DWARF_SUF = ["hold","gard","peak","forge","deep","stone","crag","hammer","vault","spire","reach","anvil","mount","cairn","delve"];
+const RF_ORK_PRE = ['Grim','Thok','Uzg','Mog','Krag','Gor','Rakh','Dug','Skarn','Vrag','Bogh','Nakh','Zug','Drok','Gruth','Karg','Mokh','Urz','Grosh','Throg','Bruk','Ghaz','Hrag','Snarl','Rugg','Kroz','Ombar','Uzhak','Grash','Dolg'];
+const RF_ORK_SUF = ['gash','dun','mok','grim','krul','thak','gor','zug','nak','maw','skar','grod','thruk','zog','ruk','grath','mog','dug','karn','harg','vok','drum','nash','ur','gul','zar','thok','vash','grum','durk'];
+const RF_GOBLIN_PRE = ['Snik','Grub','Ratch','Fen','Miz','Skab','Nit','Grot','Pik','Snag','Grix','Fret','Skiv','Nib','Crum','Slop','Wik','Muck','Scrit','Gnash','Sump','Ilk','Rask','Twitch','Drib','Yik','Splik','Noz','Grum','Skitter'];
+const RF_GOBLIN_SUF = ['wick','hole','ditch','scum','nabble','tooth','snatch','burrow','fen','grot','mire','warren','hollow','muck','rot','gnaw','nook','crawl','pit','scrag','nub','wallow','sniff','grub','tangle','snarl','hovel','drip','runt','wick'];
+
+const RF_RACE_NAMEGEN = {
+  human:  { style:'prefix', titles:["Kingdom of","Duchy of","Barony of","Dominion of","Realm of","March of"],
+            gen:(rng)=> rfPick(RF_NAME_PRE,rng) + rfPick(RF_NAME_MID,rng) + rfPick(RF_NAME_SUF,rng) },
+  dwarf:  { style:'prefix', titles:["Hold of","Stonehold of","Deep of","Bulwark of","Vault of","Clanhold of"],
+            gen:(rng)=> rfPick(RF_DWARF_PRE,rng) + rfPick(RF_DWARF_SUF,rng).toLowerCase() },
+  ork:    { style:'suffix', titles:["Horde","Warband","Warcamp","Stronghold","Legion","Warhost"],
+            gen:(rng)=> rfPick(RF_ORK_PRE,rng) + rfPick(RF_ORK_SUF,rng).toLowerCase() },
+  goblin: { style:'suffix', titles:["Warren","Swarm","Nest","Burrow","Pack"],
+            gen:(rng)=> rfPick(RF_GOBLIN_PRE,rng) + rfPick(RF_GOBLIN_SUF,rng).toLowerCase() }
+};
+function rfGenKingdomName(race, rng){
+  const cfg = RF_RACE_NAMEGEN[race];
+  const name = cfg.gen(rng);
+  const title = rfPick(cfg.titles, rng);
+  return cfg.style === 'prefix' ? `${title} ${name}` : `${name} ${title}`;
+}
+
+// ---- The main entry point ----
+// Deterministic: the same seed always produces the same burgs/edges/states/startBurgId. Returns
+// a travel-graph.json-shaped object plus `_raw` (only used by index.html's renderWorldRaster()
+// and its border-water-mask replacement — every other page ignores it).
+function generateWorld(seed){
+  const rng = rfMulberry32(seed >>> 0);
+  const noise = rfMakeGradientNoise(rng);
+  const VW = RF_COLS + 1, VH = RF_ROWS + 1;
+  const elevation = new Float32Array(VW * VH);
+  const cx = RF_COLS/2, cy = RF_ROWS/2;
+  const maxD = Math.hypot(cx, cy);
+  for(let gy = 0; gy < VH; gy++){
+    for(let gx = 0; gx < VW; gx++){
+      const nx = gx / (14 * RF_GRID_SCALE), ny = gy / (14 * RF_GRID_SCALE);
+      let e = rfFbm(noise, nx, ny, 5);
+      e = (e + 1) / 2;
+      const d = Math.hypot(gx - cx, gy - cy) / maxD;
+      e -= Math.pow(d, 2.1) * 0.85;
+      elevation[gy*VW + gx] = e;
+    }
+  }
+  let lo = Infinity, hi = -Infinity;
+  for(let i = 0; i < elevation.length; i++){ if(elevation[i]<lo) lo=elevation[i]; if(elevation[i]>hi) hi=elevation[i]; }
+  for(let i = 0; i < elevation.length; i++) elevation[i] = (elevation[i]-lo)/(hi-lo);
+
+  const EDGE_MARGIN = Math.round(Math.min(RF_COLS, RF_ROWS) * 0.08);
+  const EDGE_WATER_CAP = 0.16;
+  const marginNoiseScale = 1 / (18 * RF_GRID_SCALE);
+  for(let gy = 0; gy < VH; gy++){
+    for(let gx = 0; gx < VW; gx++){
+      const edgeDist = Math.min(gx, (VW-1)-gx);
+      const wobble = rfFbm(noise, gx*marginNoiseScale + 900, gy*marginNoiseScale + 900, 3);
+      const localMargin = EDGE_MARGIN * (1 + wobble * 0.45);
+      if(edgeDist < localMargin){
+        const t = edgeDist / localMargin;
+        const cap = EDGE_WATER_CAP + t * (1 - EDGE_WATER_CAP);
+        const idx = gy*VW + gx;
+        if(elevation[idx] > cap) elevation[idx] = cap;
+      }
+    }
+  }
+
+  const moistureNoise = rfMakeGradientNoise(rfMulberry32((seed ^ 0x9E3779B9) >>> 0));
+  const moisture = new Float32Array(VW * VH);
+  for(let gy = 0; gy < VH; gy++){
+    for(let gx = 0; gx < VW; gx++){
+      const nx = gx / (22 * RF_GRID_SCALE), ny = gy / (22 * RF_GRID_SCALE);
+      const m = rfFbm(moistureNoise, nx, ny, 4);
+      moisture[gy*VW + gx] = (m + 1) / 2;
+    }
+  }
+
+  const isLand = (gx, gy) => elevation[gy*VW + gx] >= RF_SEA;
+
+  const SHALLOW_RADIUS = 21;
+  const shoreDist = new Float32Array(VW * VH).fill(Infinity);
+  {
+    const queue = [];
+    for(let gy = 0; gy < VH; gy++){
+      for(let gx = 0; gx < VW; gx++){
+        if(isLand(gx, gy)){ const idx = gy*VW+gx; shoreDist[idx] = 0; queue.push(idx); }
+      }
+    }
+    let head = 0;
+    while(head < queue.length){
+      const idx = queue[head++];
+      const d = shoreDist[idx];
+      if(d >= SHALLOW_RADIUS) continue;
+      const cx2 = idx % VW, cy2 = (idx / VW) | 0;
+      [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+        const nx = cx2+dx, ny = cy2+dy;
+        if(nx < 0 || nx >= VW || ny < 0 || ny >= VH) return;
+        const nIdx = ny*VW+nx;
+        if(shoreDist[nIdx] <= d+1) return;
+        shoreDist[nIdx] = d+1;
+        queue.push(nIdx);
+      });
+    }
+  }
+
+  const isMountainCore = (gx, gy) => gx>=0 && gx<VW && gy>=0 && gy<VH && elevation[gy*VW+gx] >= RF_MOUNTAIN_CORE;
+  function isMountainEdge(gx, gy){
+    const e = elevation[gy*VW+gx];
+    if(!isLand(gx,gy) || e >= RF_MOUNTAIN_CORE || e < RF_MOUNTAIN_EDGE_LO) return false;
+    for(let dy=-1; dy<=1; dy++){
+      for(let dx=-1; dx<=1; dx++){
+        if(!dx && !dy) continue;
+        if(isMountainCore(gx+dx, gy+dy)) return true;
+      }
+    }
+    return false;
+  }
+
+  const visited = new Uint8Array(VW*VH);
+  const edgeClusters = [];
+  for(let gy=0; gy<VH; gy++){
+    for(let gx=0; gx<VW; gx++){
+      const idx = gy*VW+gx;
+      if(visited[idx]) continue;
+      visited[idx] = 1;
+      if(!isMountainEdge(gx,gy)) continue;
+      const cluster = [[gx,gy]];
+      const stack = [[gx,gy]];
+      while(stack.length){
+        const [cx2,cy2] = stack.pop();
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=cx2+dx, ny=cy2+dy;
+          if(nx<0||nx>=VW||ny<0||ny>=VH) continue;
+          const nidx = ny*VW+nx;
+          if(visited[nidx]) continue;
+          visited[nidx] = 1;
+          if(isMountainEdge(nx,ny)){ cluster.push([nx,ny]); stack.push([nx,ny]); }
+        }
+      }
+      edgeClusters.push(cluster);
+    }
+  }
+  edgeClusters.sort((a,b)=> b.length - a.length);
+
+  const chosenRanges = [];
+  for(const cluster of edgeClusters){
+    if(cluster.length < RF_MIN_EDGE_CLUSTER) break;
+    if(chosenRanges.length >= RF_DWARF_MAX_RANGES) break;
+    const rcx = cluster.reduce((s,p)=>s+p[0],0)/cluster.length;
+    const rcy = cluster.reduce((s,p)=>s+p[1],0)/cluster.length;
+    if(chosenRanges.some(r => Math.hypot(r.cx-rcx, r.cy-rcy) < RF_DWARF_RANGE_SEPARATION)) continue;
+    chosenRanges.push({ cluster, cx: rcx, cy: rcy });
+  }
+
+  const dwarfSettlements = [];
+  chosenRanges.forEach(range => {
+    const targetCount = Math.max(1, Math.min(3, Math.round(range.cluster.length / (12 * RF_GRID_SCALE * RF_GRID_SCALE))));
+    const shuffled = range.cluster.slice().sort(()=> rng()-0.5);
+    const placed = [];
+    for(const [gx,gy] of shuffled){
+      if(placed.length >= targetCount) break;
+      if(placed.some(p => Math.hypot(p.x-gx,p.y-gy) < 5*RF_GRID_SCALE)) continue;
+      placed.push({ x: gx, y: gy });
+    }
+    if(!placed.length) return;
+    let capIdx = 0, capD = Infinity;
+    placed.forEach((p,i)=>{ const d = Math.hypot(p.x-range.cx, p.y-range.cy); if(d<capD){ capD=d; capIdx=i; } });
+    placed.forEach((p,i)=> dwarfSettlements.push({ x:p.x, y:p.y, isCapital: i===capIdx }));
+  });
+  const dwarfCapitals = dwarfSettlements.filter(s => s.isCapital);
+
+  const settlements = [];
+  let attempts = 0;
+  while(settlements.length < RF_SETTLEMENT_TARGET && attempts < 8000){
+    attempts++;
+    const gx = 2 + rng() * (RF_COLS - 4);
+    const gy = 2 + rng() * (RF_ROWS - 4);
+    const vx = Math.round(gx), vy = Math.round(gy);
+    if(!isLand(vx, vy)) continue;
+    if(elevation[vy*VW+vx] >= RF_MOUNTAIN_EDGE_LO) continue;
+    if(settlements.some(s => Math.hypot(s.x-gx, s.y-gy) < 9*RF_GRID_SCALE)) continue;
+    if(dwarfSettlements.some(s => Math.hypot(s.x-gx, s.y-gy) < 9*RF_GRID_SCALE)) continue;
+    settlements.push({ x: gx, y: gy });
+  }
+
+  const totalTarget = Math.max(4, Math.min(18, Math.round((settlements.length + dwarfSettlements.length) / 3)));
+  const otherKingdomCount = Math.max(2, Math.min(settlements.length, totalTarget - dwarfCapitals.length));
+  const otherCapitals = [];
+  if(settlements.length){
+    otherCapitals.push(settlements[Math.floor(rng()*settlements.length)]);
+    while(otherCapitals.length < otherKingdomCount){
+      let best = null, bestD = -1;
+      for(const s of settlements){
+        let d = Infinity;
+        for(const c of otherCapitals) d = Math.min(d, Math.hypot(s.x-c.x, s.y-c.y));
+        if(d > bestD){ bestD = d; best = s; }
+      }
+      otherCapitals.push(best);
+    }
+  }
+  // Realm Forge's own raceCycle could omit Human entirely on an unlucky shuffle — the real game
+  // requires a fresh character to always start in Human territory (see characters.html's own
+  // populateStartCitySelect comment), so otherCapitals[0] is forced Human and the rest are drawn
+  // from a full shuffled pool instead of a short one that might not include it.
+  if(otherCapitals.length){
+    otherCapitals[0]._race = 'human';
+    const restCycle = ['human','ork','goblin'].sort(()=> rng()-0.5);
+    for(let i = 1; i < otherCapitals.length; i++) otherCapitals[i]._race = restCycle[(i-1) % restCycle.length];
+  }
+  dwarfCapitals.forEach(c => { c._race = 'dwarf'; });
+
+  const capitals = dwarfCapitals.concat(otherCapitals);
+  const allSettlements = settlements.concat(dwarfSettlements);
+
+  dwarfSettlements.forEach(s => {
+    let best = 0, bestD = Infinity;
+    capitals.forEach((c,i) => {
+      if(c._race !== 'dwarf') return;
+      const d = Math.hypot(s.x-c.x, s.y-c.y);
+      if(d < bestD){ bestD = d; best = i; }
+    });
+    s.kingdom = best; s.race = 'dwarf'; s.isCapital = capitals[best] === s;
+    s.name = RF_RACE_NAMEGEN[s.race].gen(rng);
+  });
+  settlements.forEach(s => {
+    let best = 0, bestD = Infinity;
+    capitals.forEach((c,i) => {
+      const d = Math.hypot(s.x-c.x, s.y-c.y);
+      if(d < bestD){ bestD = d; best = i; }
+    });
+    s.kingdom = best; s.race = capitals[best]._race; s.isCapital = capitals[best] === s;
+    s.name = RF_RACE_NAMEGEN[s.race].gen(rng);
+  });
+
+  const names = capitals.map(c => rfGenKingdomName(c._race, rng));
+  const races = capitals.map(c => c._race);
+
+  // ---- Roads: MST + nearest-neighbor extra edges, each pathed with A* (mountains cost extra
+  // unless either endpoint is a Dwarf settlement) ----
+  function terrainStepCost(x, y, allowMountain){
+    if(x < 0 || x > RF_COLS || y < 0 || y > RF_ROWS) return Infinity;
+    const e = elevation[y*VW+x];
+    if(e < RF_SEA) return 60;
+    if(e >= RF_MOUNTAIN_CORE) return allowMountain ? 45 : 4000;
+    return 1;
+  }
+  function simplifyPath(path){
+    if(path.length <= 2) return path;
+    const out = [path[0]];
+    for(let i=1; i<path.length-1; i++){
+      const a=out[out.length-1], b=path[i], c=path[i+1];
+      const cross = (b.x-a.x)*(c.y-b.y) - (b.y-a.y)*(c.x-b.x);
+      if(Math.abs(cross) > 0.001) out.push(b);
+    }
+    out.push(path[path.length-1]);
+    return out;
+  }
+  class RFMinHeap{
+    constructor(){ this.a = []; }
+    push(item){
+      const a = this.a; a.push(item);
+      let i = a.length-1;
+      while(i>0){ const p=(i-1)>>1; if(a[p].f<=a[i].f) break; [a[p],a[i]]=[a[i],a[p]]; i=p; }
+    }
+    pop(){
+      const a = this.a; const top = a[0]; const last = a.pop();
+      if(a.length){ a[0]=last; let i=0;
+        while(true){ let l=2*i+1,r=2*i+2,sm=i;
+          if(l<a.length && a[l].f<a[sm].f) sm=l;
+          if(r<a.length && a[r].f<a[sm].f) sm=r;
+          if(sm===i) break; [a[sm],a[i]]=[a[i],a[sm]]; i=sm;
+        }
+      }
+      return top;
+    }
+    isEmpty(){ return this.a.length===0; }
+  }
+  function findRoadPath(p1, p2){
+    const allowMountain = p1.race === 'dwarf' || p2.race === 'dwarf';
+    const sx = Math.round(p1.x), sy = Math.round(p1.y);
+    const gx = Math.round(p2.x), gy = Math.round(p2.y);
+    const W = RF_COLS+1;
+    const key = (x,y) => y*W+x;
+    const h = (x,y) => Math.hypot(x-gx, y-gy);
+    const gScore = new Map([[key(sx,sy), 0]]);
+    const cameFrom = new Map();
+    const closed = new Set();
+    const open = new RFMinHeap();
+    open.push({ f:h(sx,sy), x:sx, y:sy });
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    let found = false, iterations = 0;
+    while(!open.isEmpty() && iterations < 200000){
+      iterations++;
+      const cur = open.pop();
+      const ck = key(cur.x, cur.y);
+      if(closed.has(ck)) continue;
+      closed.add(ck);
+      if(cur.x===gx && cur.y===gy){ found = true; break; }
+      for(const [dx,dy] of dirs){
+        const nx = cur.x+dx, ny = cur.y+dy;
+        if(nx<0||nx>RF_COLS||ny<0||ny>RF_ROWS) continue;
+        const nk = key(nx,ny);
+        if(closed.has(nk)) continue;
+        const stepCost = terrainStepCost(nx,ny,allowMountain) * (dx!==0 && dy!==0 ? Math.SQRT2 : 1);
+        if(!isFinite(stepCost)) continue;
+        const tentativeG = gScore.get(ck) + stepCost;
+        if(tentativeG < (gScore.has(nk) ? gScore.get(nk) : Infinity)){
+          gScore.set(nk, tentativeG);
+          cameFrom.set(nk, ck);
+          open.push({ f: tentativeG+h(nx,ny), x:nx, y:ny });
+        }
+      }
+    }
+    if(!found) return [{x:p1.x,y:p1.y}, {x:p2.x,y:p2.y}];
+    const cells = [];
+    let ck = key(gx,gy);
+    while(cameFrom.has(ck)){ cells.push({ x: ck % W, y: Math.floor(ck / W) }); ck = cameFrom.get(ck); }
+    cells.reverse();
+    const full = [{x:p1.x,y:p1.y}, ...cells.slice(0, -1), {x:p2.x,y:p2.y}];
+    return simplifyPath(full);
+  }
+  function buildRoads(){
+    const n = allSettlements.length;
+    if(n < 2) return [];
+    const inTree = new Array(n).fill(false);
+    inTree[0] = true;
+    let count = 1;
+    const mstEdges = [];
+    while(count < n){
+      let bi=-1, bj=-1, bd=Infinity;
+      for(let i=0;i<n;i++){
+        if(!inTree[i]) continue;
+        for(let j=0;j<n;j++){
+          if(inTree[j]) continue;
+          const d = Math.hypot(allSettlements[i].x-allSettlements[j].x, allSettlements[i].y-allSettlements[j].y);
+          if(d<bd){ bd=d; bi=i; bj=j; }
+        }
+      }
+      if(bi<0) break;
+      inTree[bj]=true; count++;
+      mstEdges.push([bi,bj]);
+    }
+    const edgeKeys = new Set(mstEdges.map(([i,j])=> [Math.min(i,j),Math.max(i,j)].join(',')));
+    for(let i=0;i<n;i++){
+      let nb=-1, nd=Infinity;
+      for(let j=0;j<n;j++){
+        if(i===j) continue;
+        const d = Math.hypot(allSettlements[i].x-allSettlements[j].x, allSettlements[i].y-allSettlements[j].y);
+        if(d<nd){ nd=d; nb=j; }
+      }
+      if(nb<0) continue;
+      const edgeKey = [Math.min(i,nb),Math.max(i,nb)].join(',');
+      if(!edgeKeys.has(edgeKey)){ edgeKeys.add(edgeKey); mstEdges.push([i,nb]); }
+    }
+    return mstEdges.map(([i,j]) => findRoadPath(allSettlements[i], allSettlements[j]));
+  }
+  const roads = buildRoads();
+
+  // ================= Convert to travel-graph.json shape =================
+  const burgs = {};
+  const states = {};
+  capitals.forEach((c,i) => { states[i] = { name: names[i], race: races[i] }; });
+
+  // Deterministic tier assignment for non-capitals (Realm Forge only knows capital-or-not) —
+  // roughly mirrors the original hand-authored world's tier mix (data-files.md: ~14% city,
+  // ~67% town, ~19% village of the non-capital settlements).
+  function rfPickTier(r){
+    if(r < 0.15) return 'city';
+    if(r < 0.82) return 'town';
+    return 'village';
+  }
+  // Population, in the same "thousands of people" unit the original data used.
+  function rfPopFor(tier, r){
+    if(tier === 'capital') return +(8 + r*32).toFixed(2);
+    if(tier === 'city') return +(2 + r*8).toFixed(2);
+    if(tier === 'town') return +(0.5 + r*2.5).toFixed(2);
+    return +(0.1 + r*0.9).toFixed(2);
+  }
+
+  let nextCell = 0;
+  const pointCellId = new Map(); // "x,y" (rounded to 2dp) -> cell id, so shared road endpoints reuse the same cell
+  function cellIdFor(x, y){
+    const k = Math.round(x*100)+','+Math.round(y*100);
+    if(pointCellId.has(k)) return pointCellId.get(k);
+    const id = String(nextCell++);
+    pointCellId.set(k, id);
+    return id;
+  }
+
+  // allSettlements is [...settlements, ...dwarfSettlements] — capitals.forEach above/below relies
+  // on object identity (capitals[i] === s) so build burgs by walking this same array once, in
+  // order, assigning ids "0","1",2,... Settlement 0 is deliberately the guaranteed-Human starting
+  // capital (see startBurgId below) by construction: otherCapitals[0] is always first in
+  // allSettlements-equivalent ordering below.
+  const orderedSettlements = [];
+  // otherCapitals[0] (guaranteed Human) goes first so it becomes burg "0" — every fallback
+  // location in the game (a stranded save, a fresh character, etc.) can safely use "0".
+  if(otherCapitals.length) orderedSettlements.push(otherCapitals[0]);
+  allSettlements.forEach(s => { if(s !== orderedSettlements[0]) orderedSettlements.push(s); });
+
+  let startBurgId = null;
+  orderedSettlements.forEach((s, idx) => {
+    const id = String(idx);
+    if(idx === 0) startBurgId = id;
+    const x = s.x * RF_LOGICAL_SCALE_X, y = s.y * RF_LOGICAL_SCALE_Y;
+    const cell = cellIdFor(s.x, s.y);
+    const tier = s.isCapital ? 'capital' : rfPickTier(rfMulberry32((seed ^ (idx*2654435761)) >>> 0)());
+    const popRng = rfMulberry32((seed ^ (idx*40503 + 7)) >>> 0)();
+    const gx = Math.round(s.x), gy = Math.round(s.y);
+    const gi = Math.min(VH-1, Math.max(0, gy)) * VW + Math.min(VW-1, Math.max(0, gx));
+    const biome = RF_BIOME_TO_GAME[rfTerrainColor(elevation[gi], moisture[gi])] || 'plains';
+    const port = shoreDist[gi] <= 2;
+    burgs[id] = {
+      id, name: s.name, tier, x, y, cell,
+      stateId: s.kingdom, state: names[s.kingdom],
+      race: s.race, population: rfPopFor(tier, popRng), port, biome
+    };
+  });
+
+  const edges = [];
+  roads.forEach(path => {
+    for(let i = 0; i < path.length-1; i++){
+      const a = path[i], b = path[i+1];
+      const ax = a.x*RF_LOGICAL_SCALE_X, ay = a.y*RF_LOGICAL_SCALE_Y;
+      const bx = b.x*RF_LOGICAL_SCALE_X, by = b.y*RF_LOGICAL_SCALE_Y;
+      const dist = Math.hypot(ax-bx, ay-by);
+      if(dist < 0.01) continue; // degenerate — same point twice in a row
+      edges.push({
+        a: cellIdFor(a.x, a.y), b: cellIdFor(b.x, b.y),
+        mi: dist, kind: 'road', pts: [[ax,ay],[bx,by]]
+      });
+    }
+  });
+
+  return {
+    burgs, edges, states, startBurgId,
+    kingdomCount: capitals.length,
+    _raw: { elevation, moisture, VW, VH, RF_COLS, RF_ROWS, isLand, shoreDist, RF_LOGICAL_SCALE_X, RF_LOGICAL_SCALE_Y }
+  };
+}
+
+
+// ===================== RASTER + WATER MASK (index.html only) =====================
+// Paints world._raw's elevation/moisture grid into a STAGE_W x STAGE_H canvas — the procedurally
+// generated replacement for the old fetched world-raster.jpg. Everything else the map draws
+// (roads, borders, settlement dots/labels/city icons) is the existing SVG overlay code, already
+// generic over `graph` data — untouched, no rendering logic duplicated here for any of that.
+const RF_BIOME_FLAT_COLOR = {
+  beach:'#d9c27c', desert:'#dcc383', plains:'#6ea052', forest:'#3f7a44', swamp:'#8a8d5c',
+  desertRock:'#bcac7d', hills:'#93794f', mountains:'#6a6259', snow:'#e9e4d8'
+};
+const RF_DEEP_WATER = '#173a5c', RF_SHALLOW_WATER = '#2f6d95';
+const RF_RANGE_SPRITES = [
+  { key:'mtrange1', aspect:4.045 }, { key:'mtrange2', aspect:2.609 }, { key:'mtrange3', aspect:2.628 },
+  { key:'mtrange4', aspect:4.444 }, { key:'mtrange5', aspect:2.416 }
+];
+const RF_TREE_SPRITES = ['treeConifer4','treeConifer5','treeConifer6','treeDeciduous2','treeDeciduous3','treeDeciduous4'];
+
+function renderWorldRaster(world, sprites, stageW, stageH){
+  const raw = world._raw;
+  const { elevation, moisture, VW, VH, RF_COLS: cols, RF_ROWS: rows, shoreDist } = raw;
+  const canvas = document.createElement('canvas');
+  canvas.width = stageW; canvas.height = stageH;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const cw = stageW / cols, ch = stageH / rows;
+  const isLandAt = (gx,gy) => elevation[gy*VW+gx] >= RF_SEA;
+
+  for(let gy = 0; gy < rows; gy++){
+    for(let gx = 0; gx < cols; gx++){
+      const idx = gy*VW+gx;
+      const px = gx*cw, py = gy*ch;
+      if(!isLandAt(gx,gy)){
+        const sd = shoreDist[idx];
+        ctx.fillStyle = sd <= 6 ? RF_SHALLOW_WATER : RF_DEEP_WATER;
+      } else {
+        const cat = rfTerrainColor(elevation[idx], moisture[idx]);
+        ctx.fillStyle = RF_BIOME_FLAT_COLOR[cat];
+      }
+      ctx.fillRect(px, py, cw+0.6, ch+0.6); // slight overdraw to avoid seams between cells
+    }
+  }
+
+  // Parchment grain overlay — cheap texture so the fill doesn't read as flat/banded.
+  const rng = rfMulberry32(0xC0FFEE);
+  ctx.save();
+  for(let i = 0; i < 60000; i++){
+    const x = rng()*stageW, y = rng()*stageH;
+    const v = rng();
+    ctx.fillStyle = v < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+    ctx.fillRect(x, y, 3, 3);
+  }
+  ctx.restore();
+
+  // Mountain ranges — one wide-ridge sprite per placement, scattered where terrain crosses the
+  // mountain-core threshold, spaced apart so placements don't stack on the same ridge.
+  const placedRanges = [];
+  const rangeRng = rfMulberry32(0xBEEF ^ (stageW|0));
+  const MIN_RANGE_SPACING_PX = 55 * cw;
+  for(let gy = 4; gy < rows-4; gy += 3){
+    for(let gx = 4; gx < cols-4; gx += 3){
+      if(elevation[gy*VW+gx] < RF_MOUNTAIN_EDGE_LO) continue;
+      const px = gx*cw, py = gy*ch;
+      if(placedRanges.some(p => Math.hypot(p.x-px, p.y-py) < MIN_RANGE_SPACING_PX)) continue;
+      if(rangeRng() > 0.12) continue;
+      placedRanges.push({ x:px, y:py });
+    }
+  }
+  placedRanges.forEach((p, i) => {
+    const spec = RF_RANGE_SPRITES[i % RF_RANGE_SPRITES.length];
+    const img = sprites[spec.key];
+    if(!img) return;
+    const w = 42 * cw, h = w / spec.aspect;
+    ctx.drawImage(img, p.x - w/2, p.y - h*0.8, w, h);
+  });
+
+  // Trees — scattered in forest-biome cells only, well short of every cell so it reads as
+  // clumps of woodland rather than a solid green mat.
+  const treeRng = rfMulberry32(0x7EE5 ^ (stageH|0));
+  for(let gy = 1; gy < rows-1; gy += 2){
+    for(let gx = 1; gx < cols-1; gx += 2){
+      const idx = gy*VW+gx;
+      if(!isLandAt(gx,gy)) continue;
+      if(rfTerrainColor(elevation[idx], moisture[idx]) !== 'forest') continue;
+      if(treeRng() > 0.35) continue;
+      const spec = RF_TREE_SPRITES[Math.floor(treeRng()*RF_TREE_SPRITES.length)];
+      const img = sprites[spec];
+      if(!img) continue;
+      const w = 5 * cw, h = w;
+      ctx.drawImage(img, gx*cw - w/2 + (treeRng()-0.5)*cw, gy*ch - h*0.75 + (treeRng()-0.5)*ch, w, h);
+    }
+  }
+
+  return canvas;
+}
+
+// Same {cols, rows, rowStrings} shape as the old fetched border-water-mask.json, but computed
+// directly from the generator's own land/water field instead of sampling raster pixels — more
+// accurate than the old image-sampling approach, and no fetch/decode needed at all.
+function computeWaterMask(world, contourCols, contourRows){
+  const raw = world._raw;
+  const { elevation, VW, VH, RF_COLS: cols, RF_ROWS: rows } = raw;
+  const rowStrings = [];
+  for(let gy = 0; gy <= contourRows; gy++){
+    let row = '';
+    const sy = Math.min(rows, Math.max(0, Math.round((gy/contourRows) * rows)));
+    for(let gx = 0; gx <= contourCols; gx++){
+      const sx = Math.min(cols, Math.max(0, Math.round((gx/contourCols) * cols)));
+      row += elevation[sy*VW+sx] >= RF_SEA ? '0' : '1';
+    }
+    rowStrings.push(row);
+  }
+  return { cols: contourCols, rows: contourRows, rowStrings };
+}
+
+// The mountain-range/tree sprites renderWorldRaster() composites onto the generated terrain —
+// see assets/realm-sprites/ (extracted from the "Realm Forge" prototype artifact this whole
+// system is ported from). Preloaded once at boot, in parallel with world generation itself.
+const REALM_SPRITE_KEYS = ['mtrange1','mtrange2','mtrange3','mtrange4','mtrange5','treeConifer4','treeConifer5','treeConifer6','treeDeciduous2','treeDeciduous3','treeDeciduous4'];
+function loadRealmSprites(){
+  return Promise.all(REALM_SPRITE_KEYS.map(key => new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=> resolve([key,img]);
+    img.onerror = ()=> resolve([key,null]); // a missing sprite just doesn't get drawn — never blocks load
+    img.src = 'assets/realm-sprites/' + key + '.png';
+  }))).then(pairs => Object.fromEntries(pairs));
+}
+
+// NOTABLE_FIGURES/COMPANIONS used to be pinned to fixed, hand-picked settlement ids from the old
+// hardcoded world — every world is different now, so their homes are assigned fresh each load,
+// deterministically from this character's own map seed (a different, independent RNG stream from
+// generateWorld's own, so it doesn't perturb world generation itself). Both stay in Good-alliance
+// (human/dwarf) territory, same as the original hand-placement; Thrain Emberforge specifically
+// gets a real Dwarf settlement, matching his own race, same as the original placement did.
+function assignDynamicHomes(seed, world){
+  const rng = rfMulberry32((seed ^ 0x51ED270B) >>> 0);
+  const burgIds = Object.keys(world.burgs);
+  const goodBurgs = burgIds.filter(id => world.burgs[id].race === 'human' || world.burgs[id].race === 'dwarf');
+  const dwarfBurgs = goodBurgs.filter(id => world.burgs[id].race === 'dwarf');
+  const humanBurgs = goodBurgs.filter(id => world.burgs[id].race === 'human');
+  const used = new Set();
+  function pickDistinct(pool, n){
+    const shuffled = pool.filter(id => !used.has(id)).sort(()=> rng()-0.5);
+    const chosen = shuffled.slice(0, n);
+    chosen.forEach(id => used.add(id));
+    return chosen;
+  }
+  const fallbackPool = goodBurgs.length ? goodBurgs : burgIds;
+  const figureHomes = pickDistinct(fallbackPool, NOTABLE_FIGURES.length);
+  NOTABLE_FIGURES.forEach((f,i)=>{ f.homeBurgId = figureHomes[i] || world.startBurgId; });
+
+  const thrain = COMPANIONS.find(c=>c.id==='thrain-emberforge');
+  if(thrain){
+    thrain.homeBurgId = pickDistinct(dwarfBurgs.length ? dwarfBurgs : fallbackPool, 1)[0] || world.startBurgId;
+  }
+  const otherCompanions = COMPANIONS.filter(c=>c.id!=='thrain-emberforge');
+  const otherHomes = pickDistinct(humanBurgs.length ? humanBurgs : fallbackPool, otherCompanions.length);
+  otherCompanions.forEach((c,i)=>{ c.homeBurgId = otherHomes[i] || world.startBurgId; });
+
+  // Wren Sable's own companion_deliver quest carries a targetBurgId separately from her
+  // homeBurgId above — keep them in sync now that her home isn't a fixed literal.
+  const wren = COMPANIONS.find(c=>c.id==='wren-sable');
+  if(wren && COMPANION_QUESTS['wren-sable']) COMPANION_QUESTS['wren-sable'].targetBurgId = wren.homeBurgId;
+}
+
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital" };
 const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
 const ALLIANCE = { human:"Good", dwarf:"Good", ork:"Bad", goblin:"Bad" };
@@ -687,7 +1386,7 @@ const ALLIANCE = { human:"Good", dwarf:"Good", ork:"Bad", goblin:"Bad" };
 // ===================== MAP CANVAS / VIEW (raster + CSS transform pan/zoom) =====================
 const STAGE_W = 10240, STAGE_H = 5108;      // native raster pixel size
 const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1 unit = 2 raster px)
-const START_X = 705, START_Y = 448;         // Bary — human starting kingdom
+const START_X = 705, START_Y = 448;         // placeholder pre-recenter position — immediately overridden once this character's own generated world/currentBurg resolves, see the LOAD init block
 const REGION_W = 260;                        // default zoom shows this many logical units wide
 
 let view = { scale: 1, tx: 0, ty: 0 };
@@ -1316,6 +2015,10 @@ const CHANGELOG = [
   ]},
   { id:104, date:"2026-09-22", changes:[
     "Every Ork and Goblin village, town, and city now has a race-flavored name instead of a generic one — Ork settlements read harsh and guttural (Grimgash, Uzgardun), Goblin ones scrappy and small (Snikwick, Grubditch). Human and Dwarf settlement names are unchanged."
+  ]},
+  { id:105, date:"2026-09-25", changes:[
+    "The overworld map is now a whole new continent for every character — generated fresh the moment you create them (its own kingdoms, settlements, roads, and mountains), then permanent for that save from then on. Different characters now explore genuinely different worlds.",
+    "Notable Figures and recruitable companions now turn up in real settlements picked fresh for your world, instead of a handful of fixed cities."
   ]},
 ];
 
@@ -3770,6 +4473,7 @@ function triggerAmbushFight(burgId, onEnd, context){
 // road/trail/sea route is a node, so junctions are handled naturally instead
 // of only counting direct burg-to-burg route matches.
 const LOC_KEY = "goblinwar_currentBurg";
+const MAPSEED_KEY = "goblinwar_mapSeed";
 // Per the project owner: trips were eating too much of the calendar — a typical cross-map
 // journey landed around a full in-game day (sampled against the real travel-graph data), enough
 // that a normal session of settlement-hopping could burn several days without the player really
@@ -3797,9 +4501,10 @@ const FERRY_MIN_FARE = 5; // even the shortest sea hop costs a token fare once a
 // down to a friendlier, more game-like length without changing the map or pace numbers.
 const DISTANCE_SCALE = 5;
 
-let graph = null;      // { burgs, states, burgByCell, edges:[{a,b,mi,kind,pts}] }
+let graph = null;      // { burgs, states, burgByCell, edges:[{a,b,mi,kind,pts}] } — this character's generateWorld(seed) output
+let world = null;       // same object as graph, kept under its own name too for the extra fields (_raw/startBurgId) only index.html itself reads
 let adjacency = {};     // cellId -> [{to, mi, edge, forward}]
-let currentBurg = localStorage.getItem(LOC_KEY) || "5"; // Bary
+let currentBurg = localStorage.getItem(LOC_KEY) || "0"; // the guaranteed-Human starting capital every generated world assigns burg id "0"
 let selectedBurg = null;
 let selectedBattleId = null; // the info-card's other selection target — see onBattleMarkerTap
 let playerMarkerEl = null;
@@ -4967,15 +5672,14 @@ function removeTinyTerritoryIslands(kingdomAt, cols, rows){
 // misclassifications) from open-ocean sample points, comfortable margins on both sides (land: red
 // beats blue by 16+; water: blue beats red by 19-27) — same rule, same grid resolution, still true
 // of the precomputed file.
-let borderWaterMask = null; // array of ROWS+1 strings, each COLS+1 chars of '0'/'1' — see loadBorderWaterMask()
-let borderWaterMaskPromise = null;
+// Computed directly from this character's own generated world (world._raw's elevation grid)
+// instead of fetched/sampled from a rendered image — the generator already knows land from water
+// exactly, so this is both simpler and more accurate than the old pixel-sampling approach.
+let borderWaterMask = null; // array of ROWS+1 strings, each COLS+1 chars of '0'/'1'
 function loadBorderWaterMask(){
-  if(borderWaterMaskPromise) return borderWaterMaskPromise;
-  borderWaterMaskPromise = fetch('assets/border-water-mask.json?_=' + Date.now())
-    .then(r => r.json())
-    .then(data => { borderWaterMask = data.rowStrings; })
-    .catch(()=>{}); // leave borderWaterMask null — buildBorderMarkers() falls back to distance-only
-  return borderWaterMaskPromise;
+  if(borderWaterMask || !world) return Promise.resolve();
+  borderWaterMask = computeWaterMask(world, TERRITORY_CONTOUR_COLS, TERRITORY_CONTOUR_ROWS).rowStrings;
+  return Promise.resolve();
 }
 function buildBorderMarkers(){
   const g = document.getElementById('border-markers');
@@ -5992,18 +6696,19 @@ function generateBoardOffers(burgId){
 // A recurring cast for the important, character-given quest — no portraits or dialogue yet,
 // just a name and a line, same spirit as the Inn's RUMOURS/Guard House's flavor lines. Each is
 // pinned to one real settlement (`homeBurgId`) rather than being randomly assigned per day —
-// they stay put, they don't roam between cities. All five sit in Good-alliance (human/dwarf)
-// territory to match their names/flavor: Bary and Yeone (human, Kingdom of Bary/Duchy of
-// Pendalbor) plus Stothers (human, Duchy of Skipia), Mosver and Sodoy (dwarf, Grand Duchy of
-// Mevia/Republic of Fjeland).
+// they stay put, they don't roam between cities. `homeBurgId` is no longer a fixed literal:
+// every world is procedurally generated per character now, so assignDynamicHomes() (see above,
+// called once from the LOAD init block) fills these in fresh each load, deterministically from
+// this character's own map seed — always somewhere in Good-alliance (human/dwarf) territory,
+// same as the original hand-placement.
 // `portrait` shows up overlaid on the settlement banner while showNotableFigurePanel is open
 // — see #loc-banner-portrait. All five now have one.
 const NOTABLE_FIGURES = [
-  { id:"aldric-vane", name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:"5", portrait:"assets/figures/captain-aldric-vane.png" },
-  { id:"yselle-thorn", name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:"3", portrait:"assets/figures/yselle-thorn.png" },
-  { id:"bram-oswick", name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:"1", portrait:"assets/figures/elder-bram-oswick.png" },
-  { id:"priska-ren", name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:"24", portrait:"assets/figures/scoutmaster-priska-ren.png" },
-  { id:"corwin-hale", name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:"11", portrait:"assets/figures/sir-corwin-hale.png" },
+  { id:"aldric-vane", name:"Captain Aldric Vane", title:"a hard-eyed watch captain", homeBurgId:null, portrait:"assets/figures/captain-aldric-vane.png" },
+  { id:"yselle-thorn", name:"Yselle Thorn", title:"a sharp-tongued merchant-lady", homeBurgId:null, portrait:"assets/figures/yselle-thorn.png" },
+  { id:"bram-oswick", name:"Elder Bram Oswick", title:"a weathered elder", homeBurgId:null, portrait:"assets/figures/elder-bram-oswick.png" },
+  { id:"priska-ren", name:"Scoutmaster Priska Ren", title:"a restless border scout", homeBurgId:null, portrait:"assets/figures/scoutmaster-priska-ren.png" },
+  { id:"corwin-hale", name:"Sir Corwin Hale", title:"a knight between postings", homeBurgId:null, portrait:"assets/figures/sir-corwin-hale.png" },
 ];
 // Returns the figure whose home this is, or null if there's no figure here at all, or their
 // home has been captured by another race since — the "they disappear if their city falls"
@@ -7009,9 +7714,10 @@ const MERCENARY_TYPES = [
 // Recruitable companions — see party.html's own COMPANIONS copy (duplicated per the no-modules
 // convention; that copy doesn't need homeBurgId since it only ever displays already-recruited
 // companions, never triggers a recruit). Each is pinned to one real settlement, same pattern as
-// NOTABLE_FIGURES — but per the project owner, spread across different cities ("random cities")
-// rather than sharing any of theirs (5, 3, 1, 24, 11), and Thrain (a dwarf) sits in Dwarf
-// territory rather than Human, matching his own race. Recruiting is a conversation, not a cash
+// NOTABLE_FIGURES — homeBurgId is filled in fresh by assignDynamicHomes() each load (see above),
+// deliberately never overlapping a NOTABLE_FIGURES home or another companion's, and Thrain (a
+// dwarf) always lands in real Dwarf territory rather than Human, matching his own race.
+// Recruiting is a conversation, not a cash
 // transaction like hiring a mercenary — the player hears their story (`blurb`, reused verbatim
 // as what the companion actually says) and chooses whether to accept, no upkeep either way.
 // combatHp/combatDmgRange feed startCombat's ally roster (see "Party in combat" in
@@ -7021,9 +7727,9 @@ const MERCENARY_TYPES = [
 // of the three. party.html's own COMPANIONS copy skips these fields, same reasoning as its
 // MERCENARY_TYPES copy — that page never runs combat, only displays the roster.
 const COMPANIONS = [
-  { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png", homeBurgId:"19", combatHp:65, combatDmgRange:[9,15] },
-  { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png", homeBurgId:"346", combatHp:40, combatDmgRange:[10,18] },
-  { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png", homeBurgId:"7", combatHp:70, combatDmgRange:[8,14] },
+  { id:"brannoc-ward", name:"Ser Brannoc Ward", title:"a sellsword knight, more scars than shine", blurb:"Fights for coin now, but still remembers what it felt like to fight for something else.", portrait:"assets/party/brannoc-ward.png", homeBurgId:null, combatHp:65, combatDmgRange:[9,15] },
+  { id:"wren-sable", name:"Wren Sable", title:"a hedge-mage chasing rumors of old magic", blurb:"Half the spells in her head came from books she was never supposed to read.", portrait:"assets/party/wren-sable.png", homeBurgId:null, combatHp:40, combatDmgRange:[10,18] },
+  { id:"thrain-emberforge", name:"Thrain Emberforge", title:"a dwarf smith who traded the forge for the road", blurb:"Says he's just here for the good steel. Nobody quite believes him.", portrait:"assets/party/thrain-emberforge.png", homeBurgId:null, combatHp:70, combatDmgRange:[8,14] },
 ];
 // One small personal quest per recruited companion, per the project owner's roadmap note —
 // reuses the existing Deliver/Kill quest turn-in architecture verbatim (see context/quests.md's
@@ -7045,7 +7751,7 @@ const COMPANION_QUESTS = {
     gold: 40, xp: 35
   },
   "wren-sable": {
-    type: "companion_deliver", targetBurgId: "346",
+    type: "companion_deliver", targetBurgId: null, // kept in sync with her homeBurgId by assignDynamicHomes()
     title: "Word Home",
     ask: "asks you to carry a letter back to her family, to let them know she's still alive.",
     gold: 35, xp: 30
@@ -8389,24 +9095,31 @@ document.getElementById('loc-back').addEventListener('click', ()=>{
 });
 
 // ===================== LOAD =====================
+// The old fetch('assets/travel-graph.json') is gone — this character's world is procedurally
+// generated from its own stored mapSeed (see context/travel-and-map.md and
+// context/characters.md), deterministically, every load. The only real network fetch left here
+// is the real-art mountain/tree sprites the raster renderer composites in.
 Promise.all([
-  fetch('assets/travel-graph.json').then(r=>r.json()),
-  loadBorderWaterMask() // fetched in parallel so buildBorderMarkers() below already has it in hand
-]).then(([graphData])=>{
-  graph = graphData;
+  loadRealmSprites()
+]).then(([sprites])=>{
+  const seed = parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10);
+  world = generateWorld(seed);
+  graph = world;
   buildAdjacency();
   buildFactionData();
   buildBurgAdjacency();
+  assignDynamicHomes(seed, world); // NOTABLE_FIGURES/COMPANIONS homes — no fixed burg ids anymore
   if(!graph.burgs[currentBurg]){
-    currentBurg = "5"; // Bary — fallback if a stale/invalid location was saved
+    currentBurg = world.startBurgId || "0";
     localStorage.setItem(LOC_KEY, currentBurg);
   } else if(!(adjacency[graph.burgs[currentBurg].cell] && adjacency[graph.burgs[currentBurg].cell].length)){
-    // Saved location exists but has no road connections at all (extremely
-    // rare — only 1 of 796 settlements is fully isolated) — fall back
-    // to Bary rather than stranding the player somewhere with no way out.
-    currentBurg = "5";
+    // Saved location exists but has no road connections at all — fall back to this world's own
+    // guaranteed-connected starting capital rather than stranding the player somewhere with no
+    // way out.
+    currentBurg = world.startBurgId || "0";
     localStorage.setItem(LOC_KEY, currentBurg);
   }
+  loadBorderWaterMask(); // synchronous now (computed from world._raw) — see its own comment
 
   buildRoads();
   buildBorderMarkers();
@@ -8425,6 +9138,7 @@ Promise.all([
   refreshReachability();
 
   const img = document.getElementById('map-img');
+  const raster = renderWorldRaster(world, sprites, STAGE_W, STAGE_H);
   const finishLoad = ()=>{
     // A ?viewBurg=<id> param (quests.html's View Location button — see viewLocation below)
     // overrides the normal "recenter on where you actually are" behavior, so a quest's
@@ -8455,8 +9169,8 @@ Promise.all([
       checkForWhatsNew();
     });
   };
-  if(img.complete) finishLoad();
-  else img.addEventListener('load', finishLoad);
+  img.addEventListener('load', finishLoad);
+  raster.toBlob(blob=>{ img.src = URL.createObjectURL(blob); });
 }).catch(err=>{
   document.getElementById('loading').textContent = 'Could not load the map.';
   console.error(err);
@@ -8478,7 +9192,8 @@ window.addEventListener('resize', applyView);
 function collectCharacterSnapshot(){
   return {
     name: localStorage.getItem(NAME_KEY) || "Unnamed Hero",
-    burgId: localStorage.getItem(LOC_KEY) || "5",
+    mapSeed: parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10),
+    burgId: localStorage.getItem(LOC_KEY) || "0",
     day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
     hour: parseFloat(localStorage.getItem(HOUR_KEY) || "8"),
     heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),

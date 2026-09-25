@@ -122,7 +122,6 @@
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
   .road-line.road-road-fill{ stroke:#c9a66b; stroke-width:1.1; opacity:.75; }
-  .settlement-dot{ fill:var(--parchment); stroke:#0d1220; stroke-width:.5; }
   #highlight-ring{
     fill:none; stroke:var(--gold-lt); stroke-width:3;
     opacity:0; transition:opacity .15s;
@@ -571,7 +570,6 @@
       <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
         <g id="roads" style="pointer-events:none"></g>
         <g id="border-markers" style="pointer-events:none"></g>
-        <g id="settlement-dots" style="pointer-events:none"></g>
         <path id="route-preview"/>
         <g id="hitzones"></g>
         <g id="labels" style="pointer-events:none"></g>
@@ -1398,7 +1396,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
   // mountain-core threshold, spaced apart so placements don't stack on the same ridge.
   const placedRanges = [];
   const rangeRng = rfMulberry32(0xBEEF ^ (stageW|0));
-  const MIN_RANGE_SPACING_PX = 55 * cw;
+  const MIN_RANGE_SPACING_PX = 75 * cw;
   for(let gy = 4; gy < rows-4; gy += 3){
     for(let gx = 4; gx < cols-4; gx += 3){
       if(elevation[gy*VW+gx] < RF_MOUNTAIN_EDGE_LO) continue;
@@ -1412,7 +1410,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
     const spec = RF_RANGE_SPRITES[i % RF_RANGE_SPRITES.length];
     const img = sprites[spec.key];
     if(!img) return;
-    const w = 42 * cw, h = w / spec.aspect;
+    const w = 85 * cw, h = w / spec.aspect;
     ctx.drawImage(img, p.x - w/2, p.y - h*0.8, w, h);
   });
 
@@ -2155,6 +2153,10 @@ const CHANGELOG = [
   { id:106, date:"2026-09-25", changes:[
     "Real ground textures on the map — grass, desert sand, dry rocky ground, forest floor, swamp, snow, and beach sand now paint the terrain instead of flat colors, with a soft blend where two kinds of ground meet instead of a hard edge.",
     "The ocean is real water art too now, with a lighter shallow-water band along every coastline."
+  ]},
+  { id:107, date:"2026-09-25", changes:[
+    "Mountain ranges on the map are bigger and more prominent now.",
+    "Villages and Towns get a real settlement icon on the map, same as Cities and Capitals always have — just smaller, instead of a plain dot."
   ]},
 ];
 
@@ -5363,29 +5365,6 @@ function buildRoads(){
   }
 }
 
-// ---- a small dot at every Village/Town's exact point — world-raster.jpg used to have
-// Azgaar's own settlement pips baked into its pixels; the new painterly render (see
-// roadmap.md) has none, so without this there was no visual marker at all for anything below
-// City tier. City/Capital settlements get the castle icon instead (buildCityIcons, below) —
-// drawn exactly at the point rather than floating above a separate dot, so the icon *is*
-// their marker, not an addition to one.
-const DOT_R = { village:2, town:2.6 };
-function buildSettlementDots(){
-  const g = document.getElementById('settlement-dots');
-  g.innerHTML = '';
-  const ns = "http://www.w3.org/2000/svg";
-  for(const id in graph.burgs){
-    const b = graph.burgs[id];
-    if(b.tier === 'city' || b.tier === 'capital') continue;
-    const c = document.createElementNS(ns, "circle");
-    c.setAttribute("cx", b.x);
-    c.setAttribute("cy", b.y);
-    c.setAttribute("r", DOT_R[b.tier] || 2);
-    c.setAttribute("class", `settlement-dot tier-${b.tier}`);
-    g.appendChild(c);
-  }
-}
-
 // ---- build one invisible tap-zone circle per settlement, sized by tier ----
 const HIT_R = { village:9, town:12, city:15, capital:18 };
 function buildHitzones(){
@@ -5566,22 +5545,30 @@ function positionKingdomLabels(){
   pts.forEach(({x, y, el})=>{ el.style.left = x+'px'; el.style.top = y+'px'; });
 }
 
-// ---- castle-medallion image marking City/Capital-tier settlements, centered exactly on the
-// settlement's own point — it *is* their marker now, per the project owner, rather than a
-// separate dot (buildSettlementDots skips City/Capital tier entirely) plus an icon floating
-// above it. Two earlier offsets (-11, then -6) existed only to clear label text that used to
-// sit at or near the point; now that buildLabels() offsets its text well clear on its own
-// (see LABEL_OFFSET_Y above) and the icon needs no dot to hover over, there's nothing left to
-// dodge, so the icon just sits at 0 offset.
+// ---- castle-medallion image marking every settlement tier now, centered exactly on the
+// settlement's own point — it *is* their marker, rather than a separate dot plus an icon
+// floating above it. Two earlier offsets (-11, then -6) existed only to clear label text that
+// used to sit at or near the point; now that buildLabels() offsets its text well clear on its
+// own (see LABEL_OFFSET_Y above) and the icon needs no dot to hover over, there's nothing left
+// to dodge, so the icon just sits at 0 offset.
+// Originally City/Capital only, with Village/Town drawn as plain SVG dots instead (no real icon
+// art existed for those two tiers) — extended to use this same real icon at a smaller size once
+// asked for icons everywhere, rather than commissioning two more pieces of art. All four tiers
+// share one image, just scaled differently, the same way City/Capital already did.
 // Dense clusters can still put two settlements close enough that one's icon overlaps a
 // *different* settlement's own point. Rather than chase that per-pair, buildCityIcons() checks
-// each candidate icon position against every settlement's point (not just City/Capital ones)
-// and simply skips drawing it if it would land within MIN_CLEARANCE of one — better to omit
-// an icon in a crowded area than to cover a neighboring settlement's marker.
+// each candidate icon position against every settlement's point and simply skips drawing it if
+// it would land within that tier's own clearance of one — better to omit an icon in a crowded
+// area than to cover a neighboring settlement's marker. Clearance scales down with icon size
+// (Village/Town are much more numerous in the real settlement data than Realm Forge's own sparser
+// generated worlds ever were — keeping the original City/Capital clearance for every tier would
+// have skipped most small-tier icons in any normal-density area) rather than reusing one fixed
+// value for every tier.
 const CITY_ICON_HREF = "assets/icons/Map/Cities.png"; // 1024x848, transparent outside the coin
 const CITY_ICON_ASPECT = 848/1024;
 const CITY_ICON_OFFSET_Y = 0; // logical units above the point — the icon *is* the marker now
-const CITY_ICON_MIN_CLEARANCE = 7; // logical units — skip if this close to any settlement's point
+const SETTLEMENT_ICON_W = { village:7, town:10, city:14, capital:20 };
+const SETTLEMENT_ICON_CLEARANCE = { village:4, town:5, city:7, capital:7 };
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
   g.innerHTML = '';
@@ -5589,11 +5576,12 @@ function buildCityIcons(){
   const allBurgs = Object.values(graph.burgs);
   for(const id in graph.burgs){
     const b = graph.burgs[id];
-    if(b.tier !== 'city' && b.tier !== 'capital') continue;
+    const w = SETTLEMENT_ICON_W[b.tier];
+    if(!w) continue;
     const iconY = b.y + CITY_ICON_OFFSET_Y;
-    const tooClose = allBurgs.some(other => other !== b && Math.hypot(other.x-b.x, other.y-iconY) < CITY_ICON_MIN_CLEARANCE);
+    const clearance = SETTLEMENT_ICON_CLEARANCE[b.tier];
+    const tooClose = allBurgs.some(other => other !== b && Math.hypot(other.x-b.x, other.y-iconY) < clearance);
     if(tooClose) continue;
-    const w = b.tier === 'capital' ? 20 : 14;
     const h = w * CITY_ICON_ASPECT;
     const icon = document.createElementNS(ns, "image");
     icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", CITY_ICON_HREF);
@@ -5602,6 +5590,7 @@ function buildCityIcons(){
     icon.setAttribute("y", iconY - h/2);
     icon.setAttribute("width", w);
     icon.setAttribute("height", h);
+    icon.setAttribute("class", `settlement-icon tier-${b.tier}`);
     g.appendChild(icon);
   }
 }
@@ -9259,7 +9248,6 @@ Promise.all([
 
   buildRoads();
   buildBorderMarkers();
-  buildSettlementDots();
   buildHitzones();
   buildLabels();
   buildKingdomTerritoryLabels();

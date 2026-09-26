@@ -1443,7 +1443,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
   // mountain-core threshold, spaced apart so placements don't stack on the same ridge.
   const placedRanges = [];
   const rangeRng = rfMulberry32(0xBEEF ^ (stageW|0));
-  const MIN_RANGE_SPACING_PX = 90 * cw;
+  const MIN_RANGE_SPACING_PX = 120 * cw;
   for(let gy = 4; gy < rows-4; gy += 3){
     for(let gx = 4; gx < cols-4; gx += 3){
       if(elevation[gy*VW+gx] < RF_MOUNTAIN_EDGE_LO) continue;
@@ -1458,7 +1458,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
     const img = sprites[spec.key];
     if(!img) return;
     const grounded = rfGroundFadeSprite(img, spec.key);
-    const w = 115 * cw, h = w / spec.aspect;
+    const w = 155 * cw, h = w / spec.aspect;
     ctx.drawImage(grounded, p.x - w/2, p.y - h*0.8, w, h);
   });
 
@@ -2219,7 +2219,7 @@ const CHANGELOG = [
     "Bare mountainside ground now uses real generated rock art instead of a placeholder pattern."
   ]},
   { id:112, date:"2026-09-26", changes:[
-    "Mountain ranges are bigger and more prominent again.",
+    "Mountain ranges are considerably bigger and more prominent now.",
     "Fixed the map dragging with noticeable lag on some phones — the political border overlay was drawing thousands of tiny individual line pieces instead of a few combined ones."
   ]},
 ];

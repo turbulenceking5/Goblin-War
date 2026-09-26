@@ -1227,12 +1227,10 @@ const RF_BIOME_FLAT_COLOR = {
 // generated world, same "pick once per world, not per cell" treatment the Realm Forge prototype
 // used. hills reuses the same dry-rock photo as desertRock (its own designated stand-in per the
 // Terrain Prompt Forge tracker, just never wired into this port until now) rather than getting its
-// own dedicated art. mountains has no photo texture of its own — see the procedural
-// rfBuildMountainRockTexture() below, wired into categoryPattern.mountains separately since it
-// isn't a sprites[] image lookup like everything else in this table.
+// own dedicated art.
 const RF_TEXTURE_BUCKETS = {
   plains: ['grass1','grass2','grass3'], desert: ['desertSand1','desertSand2'], desertRock: ['desertRock1'],
-  hills: ['desertRock1'],
+  hills: ['desertRock1'], mountains: ['mountainRock1'],
   forest: ['forestFloor1'], swamp: ['swamp1'], snow: ['snow1','snow2'], beach: ['beach1']
 };
 const RF_DEEP_WATER = '#173a5c', RF_SHALLOW_WATER = '#2f6d95';
@@ -1303,49 +1301,6 @@ function rfGroundFadeSprite(img, cacheKey){
   return off;
 }
 
-// Bare mountain-rock ground — no photo texture exists for this band yet (see the Terrain Prompt
-// Forge tracker's "Bare Mountain Rock" card, added alongside this fix), so this paints a small
-// tileable rocky pattern procedurally instead of leaving it a single flat fill: scattered dark/light
-// rock-shade pixel blocks in the same palette as RF_BIOME_FLAT_COLOR.mountains, each one also drawn
-// at its wrapped position across the tile edges so the result repeats with no visible seam (the same
-// requirement every generated photo texture in this file already has to meet). Drawn on a small grid
-// with square blocks, then scaled up with smoothing off, to read as crisp pixel art rather than soft
-// anti-aliased blobs — matching this file's other textures rather than a generic noise fill. Built
-// once and cached — swap in real generated art here later without touching any other rendering logic.
-let rfMountainRockTextureCache = null;
-function rfBuildMountainRockTexture(){
-  if(rfMountainRockTextureCache) return rfMountainRockTextureCache;
-  const GS = 40, SCALE = 4, TS = GS * SCALE;
-  const grid = document.createElement('canvas');
-  grid.width = GS; grid.height = GS;
-  const gctx = grid.getContext('2d');
-  gctx.fillStyle = RF_BIOME_FLAT_COLOR.mountains;
-  gctx.fillRect(0, 0, GS, GS);
-  const rng = rfMulberry32(0xA17E01);
-  const drawWrapped = (x, y, s, fill) => {
-    gctx.fillStyle = fill;
-    for(const dx of [-GS, 0, GS]){
-      for(const dy of [-GS, 0, GS]){
-        const wx = x + dx, wy = y + dy;
-        if(wx + s < 0 || wx > GS || wy + s < 0 || wy > GS) continue;
-        gctx.fillRect(wx, wy, s, s);
-      }
-    }
-  };
-  for(let i = 0; i < 90; i++){
-    const x = Math.floor(rng() * GS), y = Math.floor(rng() * GS), s = 1 + Math.floor(rng() * 2);
-    const alpha = 0.10 + rng() * 0.16;
-    drawWrapped(x, y, s, rng() < 0.55 ? `rgba(20,18,16,${alpha})` : `rgba(255,255,255,${alpha})`);
-  }
-  const off = document.createElement('canvas');
-  off.width = TS; off.height = TS;
-  const octx = off.getContext('2d');
-  octx.imageSmoothingEnabled = false;
-  octx.drawImage(grid, 0, 0, TS, TS);
-  rfMountainRockTextureCache = off;
-  return off;
-}
-
 function renderWorldRaster(world, sprites, stageW, stageH, seed){
   const raw = world._raw;
   const { elevation, moisture, VW, VH, RF_COLS: cols, RF_ROWS: rows, shoreDist } = raw;
@@ -1369,7 +1324,6 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
     const img = sprites[key];
     if(img) categoryPattern[cat] = ctx.createPattern(img, 'repeat');
   }
-  categoryPattern.mountains = ctx.createPattern(rfBuildMountainRockTexture(), 'repeat');
   const waterPattern = rfBlendedPattern(ctx, sprites, ['water1','water2','water3']);
   const shallowPattern = rfBlendedPattern(ctx, sprites, ['waterShallow1','waterShallow2','waterShallow3']);
   const WATER_SHALLOW_RADIUS = 6; // matches this port's own already-tuned shallow-water cutoff
@@ -1555,7 +1509,7 @@ function computeWaterMask(world, contourCols, contourRows){
 // (see CHANGELOG) copied these texture files in but never actually loaded or drew them — ground
 // and water rendered as flat per-biome colors, same as the old fixed map. This fixes that.
 const REALM_SPRITE_KEYS = ['mtrange1','mtrange2','mtrange3','mtrange4','mtrange5','treeConifer4','treeConifer5','treeConifer6','treeDeciduous2','treeDeciduous3','treeDeciduous4'];
-const REALM_TEXTURE_KEYS = ['grass1','grass2','grass3','desertSand1','desertSand2','desertRock1','forestFloor1','swamp1','snow1','snow2','beach1','water1','water2','water3','waterShallow1','waterShallow2','waterShallow3'];
+const REALM_TEXTURE_KEYS = ['grass1','grass2','grass3','desertSand1','desertSand2','desertRock1','mountainRock1','forestFloor1','swamp1','snow1','snow2','beach1','water1','water2','water3','waterShallow1','waterShallow2','waterShallow3'];
 function loadRealmSprites(){
   const entries = REALM_SPRITE_KEYS.map(key => [key, 'png']).concat(REALM_TEXTURE_KEYS.map(key => [key, 'jpg']));
   return Promise.all(entries.map(([key, ext]) => new Promise(resolve=>{
@@ -2260,6 +2214,9 @@ const CHANGELOG = [
   ]},
   { id:110, date:"2026-09-26", changes:[
     "Bare mountainside and hillside ground now has real texture instead of a flat gray/brown wash."
+  ]},
+  { id:111, date:"2026-09-26", changes:[
+    "Bare mountainside ground now uses real generated rock art instead of a placeholder pattern."
   ]},
 ];
 

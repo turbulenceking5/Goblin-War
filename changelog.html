@@ -459,6 +459,12 @@ const CHANGELOG = [
     "Mountain ranges are considerably bigger and more prominent now.",
     "Fixed the map dragging with noticeable lag on some phones — the political border overlay was drawing thousands of tiny individual line pieces instead of a few combined ones."
   ]},
+  { id:113, date:"2026-09-26", changes:[
+    "Biomes now form real contiguous regions on the map — one real desert, one real forest, and so on — instead of being scattered in small patches by local moisture.",
+    "Snow now claims its own lowland region too, instead of only ever capping the highest mountain peaks.",
+    "Lakes sitting inside a snow region now freeze over with their own icy look.",
+    "Fixed a repeating pattern in ground textures that became visible now that biomes span much larger areas."
+  ]},
 ];
 
 function renderChangelog(){

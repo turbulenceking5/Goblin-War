@@ -28,11 +28,44 @@ Every character gets its own continent, generated once at character creation fro
 `mapSeed` (stored in the character snapshot — see [characters.md](characters.md)) and regenerated
 identically from that same seed every time that character's save loads afterward — a new
 character is a new world, but a given save's world never changes underneath it. Ported from a
-prototype artifact ("Realm Forge"): Perlin-ish fbm noise for elevation/moisture, a mountain-edge
-flood-fill for Dwarf hold placement, nearest-capital Voronoi for kingdom territory, and an
-MST-plus-A* road network. Duplicated verbatim (per the no-modules convention) into index.html,
-character.html, settings.html, characters.html, and achievements.html — every page that used to
-fetch `travel-graph.json` calls this instead, with the identical function body pasted into each.
+prototype artifact ("Realm Forge"): Perlin-ish fbm noise for elevation, a mountain-edge flood-fill
+for Dwarf hold placement, nearest-capital Voronoi for kingdom territory, and an MST-plus-A* road
+network. Duplicated verbatim (per the no-modules convention) into index.html, character.html,
+settings.html, characters.html, and achievements.html — every page that used to fetch
+`travel-graph.json` calls this instead, with the identical function body pasted into each.
+
+**Biomes sit in their own contiguous regions, not scattered by local moisture noise.** `moisture`
+used to be its own independent fbm noise field, same technique as elevation — every generated world
+came out a patchwork of small, oddly-shaped grass/desert/forest/swamp patches wherever the noise
+happened to land. Per the project owner, one real desert region, one real forest region, and so on
+reads better than that patchwork. `moisture` is now a blocky field instead: a handful of seed points
+sit on a jittered grid (`REGION_GRID_COLS × REGION_GRID_ROWS`, guaranteed spread so no single region
+can dominate the map by clustering luck — a real failure mode an earlier pure-random-scatter version
+hit), each assigned a fixed value covering one of `rfTerrainColor`'s moisture bands (desert/plains/
+forest/swamp), and every cell blends between its two *nearest* seeds (smoothstep, widening near the
+boundary) rather than hard-snapping to whichever is closest — the same nearest-seed-Voronoi
+technique this file already uses for kingdom territory (`buildBorderMarkers`'s `kingdomAt` grid),
+just applied to biome placement instead of political control, and blended rather than hard-cut so
+the boundary between two regions shows real intermediate ground (a plains or sandy strip) instead of
+an unnaturally straight cutout. **Snow gets its own region too**, via a `-1` moisture sentinel
+`rfTerrainColor` checks before anything else — without this, snow (elevation ≥ 0.90) still only
+ever caps whatever happens to be the highest ground inside another region, same as before; the
+sentinel forces it regardless of elevation within its own region, so it can claim a real lowland
+tundra/ice-field section like every other biome does. **Water inside a snow region freezes over** —
+`renderWorldRaster()`'s own water-rendering branch checks the same `-1` sentinel and paints frozen
+lakes with a dedicated blended ice texture (both real snow photos plus both real shallow-water
+photos, via the same layering `rfBlendedCanvas`/`rfBlendedPattern` already use for open/shallow
+water) instead of the normal water/shallow fill — a genuinely new composite, not a tinted copy of
+either source. **A large contiguous region also exposed a real texture-tiling limitation**: a photo
+tiled across many small, disconnected patches never repeats often enough in one contiguous run for
+the eye to catch a pattern, but a big unified region tiles the same small source image dozens of
+times in a row, and a distinctive fleck/rock in it lands at the same relative spot on every repeat —
+an obvious stamped grid once a region gets big enough. `rfVariedPattern()` fixes this the same way
+this project's own roadmap.md already documents for the (now-legacy) painterly map renderer: every
+biome texture (and the new ice texture) tiles as an `N×N` "supertile" built from the source image
+with each cell given an independent random flip, rather than the single raw image — a flipped copy
+of an edge-to-edge-seamless texture is still seamless against an unflipped neighbor, so tile
+boundaries stay invisible, only the "same rock always in the same place" giveaway goes away.
 
 Its return value is shaped exactly like the old `travel-graph.json` (`burgs`/`edges`/`states`, see
 below for the field-by-field shape, unchanged) plus `startBurgId` (the guaranteed-Human starting
@@ -47,7 +80,9 @@ Two things the old fetched files did are now computed instead, both only in inde
   from the generator's own elevation/moisture grid. Ground is real photo texture, not flat color:
   each biome category (`RF_TEXTURE_BUCKETS`) picks one of its real JPEG variants once per world
   (grass has 2, desert sand has 2, snow has 2; desert-rock/forest-floor/swamp/beach/hills/mountains
-  have 1 each), tiled via `ctx.createPattern`. Every category has real art now — hills reuses the
+  have 1 each), tiled via `rfVariedPattern()` (see the biome-region paragraph above for why a plain
+  `ctx.createPattern` alone isn't enough once a single texture has to repeat across a much larger
+  contiguous area). Every category has real art now — hills reuses the
   same dry-rock photo as desert-rock (`desertRock1`, its designated stand-in per the Terrain Prompt
   Forge tracker) rather than getting dedicated art of its own, and mountains has its own dedicated
   `mountainRock1` texture (added after ground textures first shipped with mountains left flat —
@@ -67,8 +102,8 @@ Two things the old fetched files did are now computed instead, both only in inde
   the texture files in but never actually loaded or drew them (worth checking for this class of
   gap — files present but unused — whenever a future port lands sprites/textures from that
   prototype). Mountain-range and tree sprites composite on top (`RF_RANGE_SPRITES`, 5 real variants
-  scaled to `85 × cw` wide — bumped up from an original `42 × cw` per the project owner wanting
-  bigger, more prominent ranges); each range sprite is also run through `rfGroundFadeSprite()`
+  scaled to `155 × cw` wide — bumped up in stages from an original `42 × cw` per the project owner
+  repeatedly wanting them bigger and more prominent); each range sprite is also run through `rfGroundFadeSprite()`
   once (cached per sprite key, not per placement) before drawing, which walks every column of the
   sprite from the bottom to find its own lowest opaque pixel and fades alpha to 0 over the last
   quarter of its height above that point — a real per-pixel `getImageData`/`putImageData` pass, not

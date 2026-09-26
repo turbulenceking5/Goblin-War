@@ -163,6 +163,7 @@ const RF_TERRAIN = {
   desertRock:'desertRock', hills:'hills', mountains:'mountains', snow:'snow'
 };
 function rfTerrainColor(e, m){
+  if(m < 0) return RF_TERRAIN.snow; // region-override sentinel — see generateWorld()'s biome-region blend
   if(e < 0.48) return RF_TERRAIN.beach;
   if(e < 0.60){
     if(m < 0.35) return RF_TERRAIN.desert;
@@ -259,13 +260,53 @@ function generateWorld(seed){
     }
   }
 
-  const moistureNoise = rfMakeGradientNoise(rfMulberry32((seed ^ 0x9E3779B9) >>> 0));
+  // Biomes sit in their own contiguous sections now, rather than scattered wherever local moisture
+  // noise happened to land — per the project owner, one real desert region, one real forest region,
+  // etc., reads better than a patchwork of many small same-biome patches. Same nearest-seed-Voronoi
+  // technique this file already uses for kingdom territory (buildBorderMarkers's kingdomAt grid),
+  // just applied to biome placement instead of political control. A handful of seed points sit on a
+  // jittered grid — guaranteed spread, so no single region can dominate the map by clustering luck,
+  // an early version's real failure mode when seeds were placed with pure uniform random scatter —
+  // each assigned a fixed moisture value covering one of rfTerrainColor's bands. Snow gets its own
+  // region too via a -1 sentinel rfTerrainColor checks first, so it claims a real lowland section
+  // instead of only ever capping the highest mountain peaks. Every cell then blends between its two
+  // NEAREST seeds (smoothstep, widening near the boundary) rather than hard-snapping to whichever is
+  // closest — a hard Voronoi-cell edge read as an unnaturally straight cutout between, say, snow and
+  // desert; blending lets real intermediate ground (a plains or sandy strip) show through instead,
+  // the same role RF_BIOME_BLEND_RADIUS's texture cross-fade below already plays at a finer scale.
+  const moistureRng = rfMulberry32((seed ^ 0x9E3779B9) >>> 0);
+  const REGION_MOISTURE = { desert:0.15, plains:0.45, forest:0.68, swamp:0.92, snow:-1 };
+  const REGION_GRID_COLS = 3, REGION_GRID_ROWS = 2;
+  const regionTypeOrder = ['desert','plains','forest','swamp','snow','forest']; // 6 grid cells, 1 repeat
+  for(let i = regionTypeOrder.length-1; i > 0; i--){
+    const j = Math.floor(moistureRng() * (i+1));
+    [regionTypeOrder[i], regionTypeOrder[j]] = [regionTypeOrder[j], regionTypeOrder[i]];
+  }
+  const regionCellW = VW / REGION_GRID_COLS, regionCellH = VH / REGION_GRID_ROWS;
+  const regionSeeds = [];
+  let regionTypeIdx = 0;
+  for(let r = 0; r < REGION_GRID_ROWS; r++){
+    for(let c = 0; c < REGION_GRID_COLS; c++){
+      const jx = (moistureRng() - 0.5) * regionCellW * 0.6, jy = (moistureRng() - 0.5) * regionCellH * 0.6;
+      const x = (c + 0.5) * regionCellW + jx, y = (r + 0.5) * regionCellH + jy;
+      regionSeeds.push({ x, y, v: REGION_MOISTURE[regionTypeOrder[regionTypeIdx++]] });
+    }
+  }
+  const REGION_BLEND_DIST = Math.min(regionCellW, regionCellH) * 1.1;
   const moisture = new Float32Array(VW * VH);
   for(let gy = 0; gy < VH; gy++){
     for(let gx = 0; gx < VW; gx++){
-      const nx = gx / (22 * RF_GRID_SCALE), ny = gy / (22 * RF_GRID_SCALE);
-      const m = rfFbm(moistureNoise, nx, ny, 4);
-      moisture[gy*VW + gx] = (m + 1) / 2;
+      let bestD = Infinity, secondD = Infinity, bestV = 0, secondV = 0;
+      for(const s of regionSeeds){
+        const dx = s.x-gx, dy = s.y-gy;
+        const d = Math.sqrt(dx*dx + dy*dy);
+        if(d < bestD){ secondD = bestD; secondV = bestV; bestD = d; bestV = s.v; }
+        else if(d < secondD){ secondD = d; secondV = s.v; }
+      }
+      let raw = Math.min(1, (secondD - bestD) / REGION_BLEND_DIST);
+      raw = raw*raw*(3 - 2*raw); // smoothstep, 0 at the exact boundary, 1 once clearly inside one region
+      const bestWeight = 0.5 + 0.5*raw;
+      moisture[gy*VW + gx] = bestV*bestWeight + secondV*(1-bestWeight);
     }
   }
 

@@ -1443,7 +1443,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
   // mountain-core threshold, spaced apart so placements don't stack on the same ridge.
   const placedRanges = [];
   const rangeRng = rfMulberry32(0xBEEF ^ (stageW|0));
-  const MIN_RANGE_SPACING_PX = 75 * cw;
+  const MIN_RANGE_SPACING_PX = 90 * cw;
   for(let gy = 4; gy < rows-4; gy += 3){
     for(let gx = 4; gx < cols-4; gx += 3){
       if(elevation[gy*VW+gx] < RF_MOUNTAIN_EDGE_LO) continue;
@@ -1458,7 +1458,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
     const img = sprites[spec.key];
     if(!img) return;
     const grounded = rfGroundFadeSprite(img, spec.key);
-    const w = 85 * cw, h = w / spec.aspect;
+    const w = 115 * cw, h = w / spec.aspect;
     ctx.drawImage(grounded, p.x - w/2, p.y - h*0.8, w, h);
   });
 
@@ -2217,6 +2217,10 @@ const CHANGELOG = [
   ]},
   { id:111, date:"2026-09-26", changes:[
     "Bare mountainside ground now uses real generated rock art instead of a placeholder pattern."
+  ]},
+  { id:112, date:"2026-09-26", changes:[
+    "Mountain ranges are bigger and more prominent again.",
+    "Fixed the map dragging with noticeable lag on some phones — the political border overlay was drawing thousands of tiny individual line pieces instead of a few combined ones."
   ]},
 ];
 
@@ -5954,24 +5958,40 @@ function buildBorderMarkers(){
   // then-fill per segment in turn, so one segment's outline never paints over a neighboring
   // segment's fill at a shared joint — and peace drawn entirely before war, so an at-war stretch
   // always reads on top where the two meet.
+  // Each of these used to create one <line> DOM element per segment — for a world with 15-18
+  // kingdoms each tracing their own boundary over a 160x80 grid, that's several thousand
+  // individual SVG nodes in one group (the old 24-kingdom/426-burg world measured ~5000 just for
+  // one pass). Harmless to *build* (cheap loop), but expensive for a mobile compositor to
+  // rasterize into tiles while panning — exactly the kind of cost a desktop/Chromium check won't
+  // surface but a real phone will. Segments sharing the same stroke now batch into one <path> with
+  // one "M x,y L x,y" subpath per segment instead of one element per segment — SVG restarts
+  // stroke-dasharray at each new subpath (M command), so the dash pattern looks byte-identical to
+  // when these were separate <line> elements; only the DOM node count changes. Same halo-then-
+  // centerline technique as before, just each pass emitting far fewer elements.
+  const segPath = (segments)=> segments.map(([p1,p2])=> `M${p1[0]},${p1[1]} L${p2[0]},${p2[1]}`).join(' ');
   const outlinePass = (segments, width)=>{
-    segments.forEach(([p1,p2])=>{
-      const outline = document.createElementNS(ns, "line");
-      outline.setAttribute("x1", p1[0]); outline.setAttribute("y1", p1[1]);
-      outline.setAttribute("x2", p2[0]); outline.setAttribute("y2", p2[1]);
-      outline.setAttribute("stroke", "#1c150c");
-      outline.setAttribute("stroke-width", width);
-      outline.setAttribute("stroke-linecap", "round");
-      g.appendChild(outline);
-    });
+    if(!segments.length) return;
+    const outline = document.createElementNS(ns, "path");
+    outline.setAttribute("d", segPath(segments));
+    outline.setAttribute("fill", "none");
+    outline.setAttribute("stroke", "#1c150c");
+    outline.setAttribute("stroke-width", width);
+    outline.setAttribute("stroke-linecap", "round");
+    g.appendChild(outline);
   };
   const fillPass = (segments, colorOf, width, dash)=>{
+    if(!segments.length) return;
+    const groups = new Map(); // color -> its own segments, since stroke color can vary per segment (per-kingdom)
     segments.forEach(seg=>{
-      const [p1,p2] = seg;
-      const line = document.createElementNS(ns, "line");
-      line.setAttribute("x1", p1[0]); line.setAttribute("y1", p1[1]);
-      line.setAttribute("x2", p2[0]); line.setAttribute("y2", p2[1]);
-      line.setAttribute("stroke", colorOf(seg));
+      const color = colorOf(seg);
+      if(!groups.has(color)) groups.set(color, []);
+      groups.get(color).push(seg);
+    });
+    groups.forEach((segs, color)=>{
+      const line = document.createElementNS(ns, "path");
+      line.setAttribute("d", segPath(segs));
+      line.setAttribute("fill", "none");
+      line.setAttribute("stroke", color);
       line.setAttribute("stroke-width", width);
       if(dash) line.setAttribute("stroke-dasharray", dash);
       line.setAttribute("stroke-linecap", "round");

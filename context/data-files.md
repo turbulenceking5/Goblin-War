@@ -20,7 +20,7 @@ unused legacy prototype map (see root [CLAUDE.md](../CLAUDE.md)'s file table), s
 | `border-water-mask.json` | ~13KB | No longer — the generator computes its own water mask directly from elevation data, see below |
 | `game-map.json` | ~9.5MB | No |
 | `map` | 2 bytes | No — stray/placeholder file, not referenced anywhere |
-| `assets/realm-sprites/` | ~1.5MB | Yes — index.html's `renderWorldRaster()`; mountain-range/tree PNGs plus real ground and water JPEG textures the generator composites onto the terrain it paints, extracted from the "Realm Forge" prototype artifact |
+| `assets/realm-sprites/` | ~1.5MB | Yes — index.html's `renderWorldRaster()`; mountain-range/tree PNGs plus real ground and water JPEG textures the generator composites onto the terrain it paints. Most are extracted from the "Realm Forge" prototype artifact; `mountainRock1.jpg` is a later addition generated separately (bare mountainside ground didn't exist as a category in that prototype), see below |
 
 ## The procedural world generator (`generateWorld(seed)`)
 
@@ -46,21 +46,42 @@ Two things the old fetched files did are now computed instead, both only in inde
 - **The terrain backdrop** (`renderWorldRaster()`) paints a `STAGE_W`×`STAGE_H` canvas directly
   from the generator's own elevation/moisture grid. Ground is real photo texture, not flat color:
   each biome category (`RF_TEXTURE_BUCKETS`) picks one of its real JPEG variants once per world
-  (grass has 2, desert sand has 2, snow has 2, desert-rock/forest-floor/swamp/beach have 1 each —
-  only hills and mountains stay flat-colored, mountains because real sprite art draws over them
-  regardless), tiled via `ctx.createPattern`. Land-biome boundaries get a soft `globalAlpha`
-  cross-fade into the neighboring texture (`RF_BIOME_BLEND_RADIUS`, a multi-source BFS over the
-  grid) instead of a hard per-cell edge. Water is a 3-way blended pattern from `water1-3`, with a
-  lighter `waterShallow1-3` blend fading in by real distance-to-shore (`shoreDist`, already
-  computed for the border trace below) — same techniques as the "Realm Forge" prototype's own
-  final version, ported over after an initial pass that copied the texture files in but never
-  actually loaded or drew them (worth checking for this class of gap — files present but unused —
-  whenever a future port lands sprites/textures from that prototype). Mountain-range and tree
-  sprites composite on top as before. That canvas is then converted to a blob URL and set as
-  `#map-img`'s `src`. Everything else the map draws (roads, political borders, settlement
-  dots/labels/city icons, hitzones) is the same existing SVG-overlay code as before, completely
-  unchanged — it already worked generically off `graph.burgs`/`graph.edges`, so it needed no
-  changes at all to work against generated data instead of fetched data.
+  (grass has 2, desert sand has 2, snow has 2; desert-rock/forest-floor/swamp/beach/hills/mountains
+  have 1 each), tiled via `ctx.createPattern`. Every category has real art now — hills reuses the
+  same dry-rock photo as desert-rock (`desertRock1`, its designated stand-in per the Terrain Prompt
+  Forge tracker) rather than getting dedicated art of its own, and mountains has its own dedicated
+  `mountainRock1` texture (added after ground textures first shipped with mountains left flat —
+  see "Known simplifications" below for that gap's history). Land-biome boundaries get a soft
+  `globalAlpha` cross-fade into the neighboring texture (`RF_BIOME_BLEND_RADIUS`, a multi-source
+  BFS over the grid) instead of a hard per-cell edge; the BFS treats every land category as a valid
+  source/target (not just the ones with their own texture bucket), falling back to a plain
+  `RF_BIOME_FLAT_COLOR` fill for any target with no pattern — a safety net that shouldn't trigger
+  today since every category has real art, but kept so a category losing its texture in the future
+  degrades to a soft-blended flat fill rather than silently skipping the blend entirely (this used
+  to be a real, visible bug: hills/mountains were excluded from the BFS outright before either had
+  a texture, so snow — which almost always borders one of the two by elevation — never actually
+  got its own blend to fire, showing a hard blocky cutout at its edge instead). Water is a 3-way
+  blended pattern from `water1-3`, with a lighter `waterShallow1-3` blend fading in by real
+  distance-to-shore (`shoreDist`, already computed for the border trace below) — same techniques
+  as the "Realm Forge" prototype's own final version, ported over after an initial pass that copied
+  the texture files in but never actually loaded or drew them (worth checking for this class of
+  gap — files present but unused — whenever a future port lands sprites/textures from that
+  prototype). Mountain-range and tree sprites composite on top (`RF_RANGE_SPRITES`, 5 real variants
+  scaled to `85 × cw` wide — bumped up from an original `42 × cw` per the project owner wanting
+  bigger, more prominent ranges); each range sprite is also run through `rfGroundFadeSprite()`
+  once (cached per sprite key, not per placement) before drawing, which walks every column of the
+  sprite from the bottom to find its own lowest opaque pixel and fades alpha to 0 over the last
+  quarter of its height above that point — a real per-pixel `getImageData`/`putImageData` pass, not
+  `globalCompositeOperation: 'destination-in'` (tried first, rejected: it clears the whole canvas
+  outside the drawn shape rather than fading alpha only where the sprite painted) — so a range's
+  base visually dissolves into whatever ground texture is under it instead of showing a hard
+  silhouette cutout. That canvas is then converted to a blob URL and set as `#map-img`'s `src`.
+  Everything else the map draws (roads, political borders, settlement labels/city icons, hitzones)
+  is the same existing SVG-overlay code as before, completely unchanged — it already worked
+  generically off `graph.burgs`/`graph.edges`, so it needed no changes at all to work against
+  generated data instead of fetched data. (Settlement *icons* specifically did change since this
+  section was first written — see [travel-and-map.md](travel-and-map.md)'s own settlement-icon
+  section; that change is about the SVG overlay, not this raster pass, so it's documented there.)
 - **The border water mask** (`computeWaterMask()`) replaces the old fetched
   `border-water-mask.json` — instead of downsampling `world-raster.jpg`'s actual pixels offline,
   it samples the generator's own land/water field directly at the same grid resolution, which is
@@ -76,6 +97,22 @@ matching the original's tier-mix proportions) since Realm Forge itself only ever
 capital-or-not. `NOTABLE_FIGURES`/`COMPANIONS` no longer have fixed `homeBurgId` literals —
 `assignDynamicHomes()` (index.html) picks fresh, distinct Good-alliance settlements for all eight
 of them each load, deterministically from the map seed.
+
+**History worth knowing if you're touching ground textures again**: real photo textures for grass,
+desert, forest, swamp, snow, and beach shipped in one pass, and the port was reviewed as complete —
+but that review only checked whether copied texture files were referenced anywhere, not whether
+every biome category actually had one. Hills and mountains were both left flat-colored (no entry
+in `RF_TEXTURE_BUCKETS`) for an entire release, undetected until a player screenshot showed a large
+flat gray/brown wash across bare mountainside and hillside terrain. Hills was fixed immediately by
+reusing `desertRock1` (already the tracker's documented stand-in, just never wired in). Mountains
+had no existing art to reuse, so as a stopgap it briefly got a small procedurally-painted
+pixel-speckle canvas pattern (tileable, built once and cached) instead of a real photo texture —
+replaced by the real `mountainRock1` texture once a generated candidate that actually tiled cleanly
+was available (a first candidate was rejected: an obvious boulder-cluster shape recurring in a
+visible diagonal grid once self-tiled — the same class of macro-repeat issue that rejected earlier
+candidates for desert-rock, forest-floor, and swamp in the original pass). The general lesson: when
+a "one texture per biome category" system ships, explicitly check it against the *full list* of
+categories the terrain classifier can return, not just that some art exists somewhere in the diff.
 
 ## travel-graph.json
 

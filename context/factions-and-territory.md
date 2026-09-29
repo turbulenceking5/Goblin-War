@@ -105,6 +105,72 @@ Per the project owner: two kingdoms at war should have visible armies on the map
 - The polyline-fraction position (`pointAlongPolyline`) approximates "how far along the route," since a logical-space point list's on-screen length isn't exactly proportional to the route's real (`DISTANCE_SCALE`-compressed) miles — close enough for a once-a-day snap, not meant to be exact.
 - The muster population cost (`ARMY_MUSTER_FRACTION_MIN`-`MAX` of the origin's *current* population, randomized per muster — see above) has no cooldown or diminishing-returns curve — a capital that keeps getting mustered from keeps paying that same proportional-range cost each time, which can compound into a steep decline over a long, reinforcement-heavy war. Not yet tuned against real playtesting.
 
+## Supply lines
+
+Per the project owner: two factions at war should be able to hold out indefinitely as long as their
+supply line stays intact — but if it's cut, that side should falter, lose ground faster than the
+other, and eventually retreat. `getSupplyCutBurgs(kingdom)` is the one new primitive everything else
+here reads: a kingdom's own settlement is "cut off" whenever no path of *that kingdom's own*
+currently-controlled settlements connects it back to its capital through `burgAdjacency` (the same
+real settlement-border graph `getFrontlineEnemyKingdom`/`isFrontlineBurg` already BFS over — purely
+geometric, so it never needs rebuilding, just filtered live via `getControllerKingdom` at traversal
+time). A kingdom that's lost its capital outright has nothing left to be connected to, so *everything*
+it still controls counts as cut off — a real, cascading blow, not softened; that kingdom isn't
+`eliminateKingdom`'d until it loses its *last* settlement, but every one it still holds already fights
+at a steep disadvantage. This can only happen through ordinary conquest — an enemy capturing the one
+settlement linking two parts of a kingdom's territory severs it — no new capture mechanic needed.
+
+No new resource, currency, or treasury was introduced for this — kingdoms carry none anywhere in this
+codebase, and supply lines plug directly into the three formulas that already decide sieges/attrition
+instead of inventing one:
+
+- **`getGarrisonStrength(burgId)`**: a cut-off settlement defends at `SUPPLY_CUT_GARRISON_MULT` (half)
+  its normal strength. Its only reader, `advanceSiege`, picks this up automatically — a cut-off
+  settlement's siege just resolves faster in the attacker's favor, no other code changed.
+- **`getArmyStrength(kingdom)`**: a cut-off settlement's population contributes to the pooled total at
+  that same reduced rate rather than counting fully regardless of connectivity — ripples into every
+  existing reader (Petition for Troops, the AI's own Trusted-reinforcement pass, Guard House's
+  display, War Help) automatically.
+- **`applyWarLoss(burgId, rate)`**: multiplies the incoming `rate` by `SUPPLY_CUT_LOSS_MULT` (1.75×)
+  up front whenever `burgId` is cut off — covers both existing call sites (the weekly per-settlement
+  attrition pass and `advanceSiege`'s own `RAID_DAMAGE_RATE` call) for free, since the multiplier
+  lives inside the shared function instead of being duplicated at each call site.
+
+**Armies themselves wither, not just settlements.** `applySupplyAttrition()` (index.html), called
+from the end of `advanceArmies()` alongside `mergeArmies()`/`detectFieldBattles()`, is a new daily
+pass covering every army in the field — marching or already sieging alike (the movement loop above it
+only touches `'marching'` ones). Each army tracks `daysCutOff` and `lastSupplyCheckDay`; whenever its
+*origin* settlement (where it mustered from — see "Armies march before a siege starts" above) is
+itself in its kingdom's cut-off set, the army's `strength` decays by `SUPPLY_CUT_ARMY_DECAY_PER_DAY`
+(6%) compounded per elapsed day — roughly halving over two weeks. Reconnecting (the origin leaves the
+cut-off set — e.g. the kingdom retakes the choke-point settlement that severed it) resets `daysCutOff`
+to 0 immediately, no lingering penalty beyond strength already lost: relieving a cut-off force is
+worth doing, not just an accepted loss. An army cut off for `SUPPLY_CUT_RETREAT_DAYS` (14) days
+straight disbands entirely — abandoning any siege it was pressing (its `goblinwar_sieges` entry is
+deleted, not just the army) — with a `recordWorldEvent` line ("cut off from supply, has withdrawn
+from the field") rather than silently vanishing, the same "the player should be able to hear about
+this" precedent every other real siege/attack outcome already sets.
+
+Data model: `daysCutOff` and `lastSupplyCheckDay` are two new fields on existing `goblinwar_armies`
+records (see "Armies march before a siege starts" above for the full shape) — no new top-level
+`localStorage` key, and no changes anywhere in the character-snapshot triplication, since those
+already round-trip the whole `goblinwar_armies` array as an opaque JSON string. Both are safely absent
+on armies from before this shipped — `lastSupplyCheckDay` falls back to `spawnedDay` via `??`,
+`daysCutOff` to `0`.
+
+**Known simplifications, same spirit as the section above:**
+- `getSupplyCutBurgs` is deliberately uncached and recomputed fresh on every call — at this world's
+  scale (~45-65 settlements across ~15-18 kingdoms) a full BFS is cheap even called a few dozen times
+  in the heaviest tick; worth revisiting only if world size ever grows substantially.
+- No map marker shows which settlements are currently cut off — same precedent war exhaustion already
+  sets (a mechanic of comparable weight with no map visual either); it surfaces entirely through
+  `recordWorldEvent` text and its knock-on effects (sieges resolving faster, armies visibly vanishing
+  mid-campaign). A `buildSupplyMarkers()` iterating `getSupplyCutBurgs()` per kingdom would be a small,
+  clean follow-up if the project owner wants one later — see [roadmap.md](roadmap.md).
+- "No capital left = every remaining settlement is cut off" is an intentionally hard binary, not
+  softened with a partial-connectivity grace period — losing the capital is meant to read as a real,
+  cascading blow.
+
 ## Field battles: an Army Camp, and a real fight the player can join
 
 Per the project owner: two armies meeting shouldn't just be a number quietly resolving in the

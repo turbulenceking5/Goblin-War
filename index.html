@@ -4307,13 +4307,17 @@ const COMBAT_INTRO_LINES = [
 // Real environment art behind the enemy portraits — see the Scene Backdrops tracker's "biome"
 // category (Forest/Plains/Hills/Mountains/Desert/Swamp/Snow, plus Coast). Only Forest has real
 // art committed so far, so every other category's array is empty below — getBiomeBackdrop falls
-// back to Forest whenever a burg's own category has no art yet (including every burg that
-// predates the `biome` field itself), so this is a no-visible-change swap today, not a new
-// feature: it starts paying off burg-by-burg/category-by-category as (a) travel-graph.json's
-// burgs actually carry a `biome` field (see scripts/tag-burg-biomes.js and
-// context/data-files.md) and (b) that category's own array gets filled in with real art. Coast
-// deliberately isn't one of these categories — a burg's own `port` flag (already in
-// travel-graph.json) answers "is this coastal?" for free, no biome data needed.
+// back to Forest whenever a burg's own category has no art yet. Every burg's `biome` field is
+// real and already matches where that settlement actually sits on *this character's own*
+// procedurally generated map — generateWorld() derives it straight from the same
+// elevation/moisture grid renderWorldRaster() paints the terrain from (RF_BIOME_TO_GAME +
+// rfTerrainColor, evaluated at the burg's own map position — see context/data-files.md's
+// "procedural world generator" section). travel-graph.json/scripts/tag-burg-biomes.js are the
+// legacy, pre-procedural version of this same idea and no longer run — this file isn't even
+// fetched by the live game anymore. So this is purely an art gap now, not a data gap: every
+// category pays off the moment it gets a real image, no script to (re-)run first. Coast
+// deliberately isn't one of these categories — a burg's own `port` flag answers "is this
+// coastal?" for free, no biome data needed.
 const BIOME_ART = {
   forest: [
     "assets/biomes/forest-canopy.jpg",
@@ -4862,10 +4866,12 @@ function triggerAmbushFight(burgId, onEnd, context){
   const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
   const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? 'Ork raiders' : 'Goblin raiders');
   showToast(`${label} ${scene}!`);
-  // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — still reads as Forest-always until
-  // travel-graph.json's burgs carry real `biome` tags and more categories get real art. A camp
-  // ambush stays backdrop-less for now (Night Camp's own art is a separate, still-unbuilt Scene
-  // Backdrops entry).
+  // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — the burg's `biome` field is real,
+  // derived from this character's own generated map, so this already reads as whatever terrain
+  // that burg actually sits in; it still shows as Forest-always in practice only because Forest
+  // is the only category with real art committed yet. A camp ambush stays backdrop-less for now
+  // (Night Camp is meant to be its own dedicated art, not a reuse of daytime biome photos, since
+  // it's a scene set at night — a separate, still-unbuilt Scene Backdrops entry).
   const backdrop = context === 'camp' ? null : getBiomeBackdrop(burgId);
   triggerEnemyFight(enemy, onEnd, backdrop);
 }

@@ -2357,6 +2357,10 @@ const CHANGELOG = [
     "Combat now has real status effects — Reckless Swing leaves its target bleeding, Crushing Blow staggers it with a stun, and Adrenaline Rush leaves you fatigued (weaker attacks for a couple rounds) afterward.",
     "A couple of the toughest enemies fight dirty too: Goblin Skirmishers can open a bleeding wound with their curved blades, and an Ork Warlord's cleaver can stagger you outright."
   ]},
+  { id:121, date:"2026-09-29", changes:[
+    "Tavern Talk now picks up on more of what's actually happening in your game — supply lines cut, tribute being paid or collected, an army on the march, or a field battle underway can all come up.",
+    "Talk to Townsfolk and Work can now mention a settlement's supply line being cut too."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -7983,6 +7987,9 @@ function getReactiveWorkLines(burgId){
   if(getFrontlineEnemyKingdom(burgId)){
     lines.push(`Word is raiders have been spotted near the border recently — everyone's a little on edge.`);
   }
+  if(kingdom && getSupplyCutBurgs(kingdom).has(burgId)){
+    lines.push(`Between odd jobs, talk keeps turning to the empty supply road — nothing's gotten through in weeks.`);
+  }
   return lines;
 }
 function doWork(burgId){
@@ -8141,6 +8148,9 @@ function getReactiveTownsfolkLines(burgId){
   }
   const reinforcedFrom = kingdom ? getReinforcementSource(kingdom) : null;
   if(reinforcedFrom) lines.push(`Word is soldiers arrived from ${reinforcedFrom} to bolster the garrison here.`);
+  if(kingdom && getSupplyCutBurgs(kingdom).has(burgId)){
+    lines.push(`Every conversation here circles back to the same worry — no supply wagon's gotten through in weeks.`);
+  }
   return lines;
 }
 function getTownsfolkLines(burgId){
@@ -9459,6 +9469,36 @@ function resolveFieldBattleEngagement(battleId, engagementId, result){
   showFieldBattlePanel(battleId);
 }
 
+// Step 3 of "Reactive rumors" (see getReactiveTownsfolkLines/getReactiveWorkLines above and
+// context/roadmap.md) — Tavern Talk's own reactive layer, on top of the real-outcome event log it
+// already mixes in (getRecentEventTexts). Independent conditions, same non-exclusive shape as the
+// other two generators; each pushes at most one line.
+function getReactiveTavernLines(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  const lines = [];
+  if(kingdom && getSupplyCutBurgs(kingdom).has(burgId)){
+    lines.push(`Merchants at the bar swear no supply wagon has made it through in weeks.`);
+  }
+  const tribute = getTribute(kingdom);
+  if(tribute){
+    lines.push(tribute.role === 'payer'
+      ? `Word is ${kingdom} still pays tribute to ${tribute.counterpart} after the last war.`
+      : `Talk is ${kingdom} still collects tribute from ${tribute.counterpart}.`);
+  }
+  const marchingArmy = kingdom ? getArmies().find(a => a.kingdom === kingdom && a.status === 'marching') : null;
+  if(marchingArmy){
+    const target = graph.burgs[marchingArmy.targetBurgId];
+    lines.push(target
+      ? `Rumor has it ${kingdom}'s banners were seen marching toward ${target.name}.`
+      : `Rumor has it ${kingdom} has soldiers on the march.`);
+  }
+  const battle = getFieldBattles().find(fb => kingdom && (fb.goodKingdom === kingdom || fb.badKingdom === kingdom));
+  if(battle){
+    lines.push(`Everyone's heard about the battle being fought between ${battle.goodKingdom} and ${battle.badKingdom}'s forces.`);
+  }
+  return lines;
+}
+
 // One panel for all three of the old Inn/Pub's services — see the TAVERN section above for why
 // they merged. Fully re-renders (render(), the same pattern showMarketPanel/showQuestBoardPanel
 // use) after either action rather than patching individual elements in place, since both Rest
@@ -9469,7 +9509,7 @@ function showTavernPanel(burgId){
   function render(){
     // Recent real siege/attack outcomes (see recordWorldEvent above) mixed into the same random
     // pick as the static flavor pool — sometimes what you hear actually happened in this game.
-    const rumourPool = RUMOURS.concat(getRecentEventTexts());
+    const rumourPool = RUMOURS.concat(getRecentEventTexts()).concat(getReactiveTavernLines(burgId));
     const rumour = rumourPool[Math.floor(Math.random()*rumourPool.length)];
     list.innerHTML = `
       <button class="loc-action" id="tavern-back-btn">

@@ -58,9 +58,71 @@ A race with only one variant so far (Bandit) picks that same variant every time 
 ## Turn loop
 
 - **Attack** (`combatAttack`): costs `STAMINA_COST_PER_ATTACK` (20) stamina, spent via `setStamina(playerStamina - STAMINA_COST_PER_ATTACK)` before the damage roll — unless the Second Wind perk's 25% roll waives it that turn (see [player-state.md](player-state.md)'s perk table). If `playerStamina` is below the full cost, the attack refuses instead — logs "You're too exhausted to attack — flee and rest up first." and does nothing else; `updateCombatUI()` also disables the Attack button proactively whenever stamina is too low, so this refusal path is a fallback guard rather than the normal way players find out. Otherwise: roll player damage (`randRange(playerDmgRange) + getEquipDamageBonus()`, see [player-state.md](player-state.md) for what's equippable and which perk adds a flat bonus here), apply to `combat.enemies[combat.targetIndex].hp` (the currently-targeted enemy — see "Multi-enemy encounters" above). If every enemy is now dead (`aliveEnemies().length === 0`), `endCombat('victory')` fires immediately — enemies don't get a last hit in. Otherwise `autoAdvanceTarget()` runs (retargets off a just-killed enemy) and `runEnemyCounters(null)` resolves every alive enemy's counter-hit for the round: each rolls `Math.max(1, roll - getEquipDefenseBonus())` against `playerHealth` via `setHealth()` — armor/shield reduce the hit but can never make an attack deal zero — unless that enemy's own Evasion-perk 15% roll dodges it entirely first, independently per enemy. If the player is at 0 or below after the round, `endCombat('defeat')`.
-- **Specials** (`combatSpecial`, `#combat-special-btn` toggles `#combat-specials-panel`): a third action alongside Attack/Flee, listing whichever of the 6 `MOVES` the player has unlocked with a skill point (skills.html's Special Attacks card — see [player-state.md](player-state.md) for the full table and stamina costs). Each move is usable once per fight (`combat.usedMoves`, reset in `startCombat`) and cannot be re-enabled by resting mid-fight. `crushing_blow`/`precise_shot`/`adrenaline_rush` are single-target damage variants of Attack, hitting `combat.enemies[combat.targetIndex]`, then running `runEnemyCounters(null)` same as Attack. `reckless_swing` deals 2.5x single-target damage; its counter-hit ignores armor/Evasion, but only for the enemy it targeted (`runEnemyCounters(target)`) — every other alive enemy still counters normally that round, a deliberate scoping decision (see "Multi-enemy encounters" above). `war_cry` deals no damage, instead permanently reshaping every *alive* enemy's `dmgRange` downward by 30% for the rest of the fight. `cleave` loops over every alive enemy, dealing 60% damage to each — this is what its code originally claimed to do before multi-enemy fights existed to loop over.
+- **Specials** (`combatSpecial`, `#combat-special-btn` toggles `#combat-specials-panel`): a third action alongside Attack/Flee, listing whichever of the 6 `MOVES` the player has unlocked with a skill point (skills.html's Special Attacks card — see [player-state.md](player-state.md) for the full table and stamina costs). Each move is usable once per fight (`combat.usedMoves`, reset in `startCombat`) and cannot be re-enabled by resting mid-fight. `crushing_blow`/`precise_shot`/`adrenaline_rush` are single-target damage variants of Attack, hitting `combat.enemies[combat.targetIndex]`, then running `runEnemyCounters(null)` same as Attack. `reckless_swing` deals 2.5x single-target damage; its counter-hit ignores armor/Evasion, but only for the enemy it targeted (`runEnemyCounters(target)`) — every other alive enemy still counters normally that round, a deliberate scoping decision (see "Multi-enemy encounters" above). `war_cry` deals no damage, instead permanently reshaping every *alive* enemy's `dmgRange` downward by 30% for the rest of the fight. `cleave` loops over every alive enemy, dealing 60% damage to each — this is what its code originally claimed to do before multi-enemy fights existed to loop over. Three of these six moves also carry a real secondary effect now — `crushing_blow` staggers (stuns) its target, `reckless_swing` leaves its target bleeding, and `adrenaline_rush` fatigues the player afterward — see "Status effects" below.
 - **Flee** (`combatFlee`): always succeeds, no roll, no stamina cost — logs a line and calls `endCombat('flee')`, regardless of how many enemies are still alive. There's no "the enemies get a free hit as you flee" penalty. Because Flee is free of *Stamina*, running out of stamina mid-fight can't soft-lock a player — they can always break off and go rest, same philosophy behind travel never being blockable on Hunger/Thirst either (see [player-state.md](player-state.md)). It isn't entirely free anymore, though: `endCombat`'s `'flee'` branch adds `FLEE_HUNGER_PENALTY`/`FLEE_THIRST_PENALTY` on top of the flat combat exertion every outcome pays — see [player-state.md](player-state.md)'s Hunger & Thirst section for why that's the resource this cost landed on instead of Stamina.
 - `combatLog(msg)` appends a line to the scrolling `#combat-log` div (auto-scrolls to bottom).
+
+## Status effects
+
+Bleed, stun, and fatigue are modifiers layered on top of Attack/Specials — every combatant carries
+a plain `{type: {turns}}` map (never an array; only one instance of a type is ever active, and
+reapplying just refreshes `turns` rather than stacking): `combat.enemies[i].effects`,
+`combat.allies[i].effects`, and `combat.playerEffects` (the player has no per-unit object in
+`combat.*` otherwise). `hasStatusEffect(effects, type)`/`applyStatusEffect(effects, type, turns)`
+are the two small shared helpers everything below uses.
+
+**Bleed** (`BLEED_DAMAGE_PER_TURN`, 4 flat) ticks centrally, once a round, via `tickBleed()` —
+called at the tail of both `combatAttack` and `combatSpecial`, right after `runEnemyCounters`,
+before the final `updateCombatUI`/defeat check (bleed can finish someone off same as any other
+damage that round). It walks the player, every alive ally, and every alive enemy, applying damage
+and decrementing `turns` (removing the effect at 0) for whoever's bleeding. Ticking the very round
+it's applied is deliberate — the wound "starts bleeding now" rather than a round late.
+
+**Stun and fatigue are different**: both gate "does this unit get to act/deal full damage this
+round?", so — unlike bleed — they're checked *and* decremented inline, exactly at the point that
+question is asked, not by a shared central tick. (A central tick here would have a real ordering
+bug: an enemy-inflicted player stun is rolled inside `runEnemyCounters`, which runs *before* any
+tail tick in the same call — a central tick would decrement it to 0 in the very call it was just
+applied, before the player's own next click ever sees it. Checking inline avoids this by
+construction, since decrement always happens at the one place the value is read.)
+
+- **Stun**: `runEnemyCounters`'s loop checks `enemy.effects.stun` right after its `hp<=0 continue`
+  guard — if present, the enemy's counter is skipped, logged, and the stun ticked down there.
+  `runAllyAttacks`'s loop does the identical check for allies. The player has no separate "turn" to
+  skip — their click *is* the round (see "Turn loop" above) — so `combatAttack` checks
+  `combat.playerEffects.stun` at the very top: if stunned, it logs, ticks the stun down, and skips
+  straight to the same shared tail every other path uses (`runAllyAttacks()` → victory check →
+  `runEnemyCounters(null)` → `tickBleed()` → victory check → `updateCombatUI()` → defeat check) —
+  so a stunned round still fully advances. `canUseMove()` also refuses while the player is
+  stunned, so `combatSpecial` itself never needs its own stunned branch: Specials just grey out,
+  forcing Attack (which handles the stunned round) or Flee.
+- **Fatigue** (`FATIGUE_DAMAGE_MULT`, 0.7x) reduces the *player's* own damage output while active —
+  checked once at the top of whichever of `combatAttack`/`combatSpecial` is running that round
+  (`playerFatigued`/`fatigueFactor`, ticked down right there too) and multiplied into every one of
+  the player's own damage-roll expressions in that call (the basic Attack roll, and every damaging
+  case in `combatSpecial`'s switch). Only the player can carry fatigue in v1 — no enemy or ally
+  source exists yet — so it's never checked on `runAllyAttacks`'s or `applyEnemyHit`'s damage rolls.
+
+**Sourcing** — who can actually inflict one of these (so none of this is unused infrastructure):
+- **Crushing Blow** additionally stuns its target for `STUN_DEFAULT_TURNS` (1) — "a crushing blow
+  staggers it." **Reckless Swing** additionally bleeds its target for `BLEED_DEFAULT_TURNS` (3) —
+  pairs with its existing "counter ignores armor" risk. Both are purely additive; neither move's
+  existing damage numbers or stamina cost changed. **Adrenaline Rush** additionally self-inflicts
+  fatigue on the player for `FATIGUE_DEFAULT_TURNS` (2) rounds *after* dealing its own bonus hit
+  (an adrenaline crash) — the only source of player-side fatigue in v1. Precise Shot, War Cry, and
+  Cleave are unchanged.
+- Two `ENEMY_VARIANTS` entries carry an optional `inflicts: {type, chance, turns}` field, rolled in
+  `applyEnemyHit` (via `rollEnemyInflict`) right after computing that hit's own damage, only against
+  whichever defender was actually hit: **Goblin Skirmisher** (dual curved blades) has a 30% chance
+  to bleed its target for 2 turns; **Ork Warlord** (heavy cleaver, already the toughest fight in the
+  game) has a 20% chance to stun its target for 1 turn. Every other variant has no `inflicts` field
+  at all — fully backward compatible, zero behavior change for them. No enemy inflicts fatigue in
+  v1, to avoid overscoping every variant for a first pass.
+
+Small status badges (`statusBadgesHTML`, abbreviated: BLD/STN/FTG) render inside each alive
+enemy/ally slot's own `.combat-name` row (`renderEnemies`/`renderAllies`); the player's own active
+effects show as a small text line (`renderPlayerStatus`, `#combat-player-status`) next to the
+HP/Stamina bars, hidden entirely when empty, since the player has no per-unit slot to badge.
 
 ## Stamina
 

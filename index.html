@@ -2341,6 +2341,9 @@ const CHANGELOG = [
   { id:117, date:"2026-09-29", changes:[
     "Settlements cut off from their kingdom's supply line now show a small broken ring on the map, so you can actually see which pockets of territory are isolated instead of only hearing about it after an army retreats."
   ]},
+  { id:118, date:"2026-09-29", changes:[
+    "A besieging army can now be ambushed in the field by a passing enemy relief force, not just other marching armies — losing that fight ends the siege outright, while winning it means the siege carries on."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3492,27 +3495,37 @@ function mergeArmies(){
   if(changed) saveArmies(armies);
   return changed;
 }
-// Checks every pair of still-'marching' armies from opposite alliances for a chance encounter —
-// called once per advanceArmies() pass, right after movement/merging, so two armies that crossed
-// paths this exact day are caught immediately rather than a tick late. Only 'marching' armies
-// clash; one already 'sieging' a settlement isn't interrupted by a passing enemy force (a real
-// simplification — see "Field battles" in context/factions-and-territory.md). `matched` tracks
-// which armies already paired up this same call so a third nearby army can't double-book one that
-// was just claimed.
+// Checks every pair of opposite-alliance armies for a chance encounter — called once per
+// advanceArmies() pass, right after movement/merging, so two armies that crossed paths this exact
+// day are caught immediately rather than a tick late. A 'sieging' army can now be pulled into a
+// battle too, by a passing enemy 'marching' force reaching it — this is what a relief army
+// intercepting an ongoing siege looks like; the sieging army's siege entry itself is untouched
+// (still there in goblinwar_sieges), it just stops advancing while its army's status is
+// 'battling', same as a besieged settlement's progress already freezes for any other reason an
+// attacker's army isn't actively 'sieging'. Two already-'sieging' armies never spontaneously
+// clash against each other, though — that would mean two separate ongoing sieges happening to sit
+// within BATTLE_ENCOUNTER_RADIUS of each other with nothing having actually just met, not a real
+// chance encounter. `goodResumeStatus`/`badResumeStatus` record each side's status *before* this
+// call overwrites it to 'battling', so the winner can resume the right thing afterward (a besieger
+// pulled off its siege resumes 'sieging', not 'marching' off toward nowhere — see the field-battle
+// resolution pass in runFactionAITick). `matched` tracks which armies already paired up this same
+// call so a third nearby army can't double-book one that was just claimed.
 function detectFieldBattles(){
   const armies = getArmies();
-  const marching = armies.filter(a => a.status === 'marching');
+  const candidates = armies.filter(a => a.status === 'marching' || a.status === 'sieging');
   const matched = new Set();
   let changed = false;
-  for(let i = 0; i < marching.length; i++){
-    if(matched.has(marching[i].id)) continue;
-    for(let j = i+1; j < marching.length; j++){
-      if(matched.has(marching[j].id)) continue;
-      const a = marching[i], b = marching[j];
+  for(let i = 0; i < candidates.length; i++){
+    if(matched.has(candidates[i].id)) continue;
+    for(let j = i+1; j < candidates.length; j++){
+      if(matched.has(candidates[j].id)) continue;
+      const a = candidates[i], b = candidates[j];
+      if(a.status === 'sieging' && b.status === 'sieging') continue; // never a spontaneous clash between two unrelated ongoing sieges
       if(ALLIANCE[a.race] === ALLIANCE[b.race]) continue; // same side never fights
       if(Math.hypot(a.x-b.x, a.y-b.y) > BATTLE_ENCOUNTER_RADIUS) continue;
       const good = ALLIANCE[a.race] === 'Good' ? a : b;
       const bad = good === a ? b : a;
+      const goodResumeStatus = good.status, badResumeStatus = bad.status;
       good.status = 'battling'; bad.status = 'battling';
       const x = (good.x + bad.x) / 2, y = (good.y + bad.y) / 2;
       good.x = x; good.y = y; bad.x = x; bad.y = y;
@@ -3523,6 +3536,7 @@ function detectFieldBattles(){
         x, y,
         goodKingdom: good.kingdom, goodArmyId: good.id, goodRace: good.race,
         badKingdom: bad.kingdom, badArmyId: bad.id, badRace: bad.race,
+        goodResumeStatus, badResumeStatus,
         startedDay: gameDay, advantage: 0
       });
       saveFieldBattles(battles);
@@ -3753,8 +3767,26 @@ function runFactionAITick(){
         const goodWon = battle.advantage > 0;
         const loser = goodWon ? badArmy : goodArmy;
         const winner = goodWon ? goodArmy : badArmy;
+        // resumeStatus is whichever status detectFieldBattles overwrote to 'battling' when this
+        // fight started — 'marching' for an ordinary meeting in the field, or 'sieging' when one
+        // side was pulled off an active siege by the other. A losing besieger's own siege entry
+        // is abandoned outright (its army is gone, nothing left pressing it); a winning besieger
+        // resumes that same siege rather than marching off toward nowhere.
+        const loserResumeStatus = goodWon ? battle.badResumeStatus : battle.goodResumeStatus;
+        const winnerResumeStatus = goodWon ? battle.goodResumeStatus : battle.badResumeStatus;
+        if(loserResumeStatus === 'sieging'){
+          const sieges = getSieges();
+          if(sieges[loser.targetBurgId]){
+            delete sieges[loser.targetBurgId];
+            setSieges(sieges);
+          }
+        }
         removeArmy(loser.id);
-        winner.status = 'marching'; // resumes its own march from wherever it paused
+        winner.status = winnerResumeStatus || 'marching';
+        if(winner.status === 'sieging'){
+          const t = graph.burgs[winner.targetBurgId];
+          if(t){ winner.x = t.x; winner.y = t.y; }
+        }
         saveArmies(getArmies());
         removeFieldBattle(battle.id);
         events.push(`${loser.kingdom}'s army was routed in open battle by ${winner.kingdom}'s forces.`);

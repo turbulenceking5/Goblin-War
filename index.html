@@ -2361,6 +2361,9 @@ const CHANGELOG = [
     "Tavern Talk now picks up on more of what's actually happening in your game — supply lines cut, tribute being paid or collected, an army on the march, or a field battle underway can all come up.",
     "Talk to Townsfolk and Work can now mention a settlement's supply line being cut too."
   ]},
+  { id:122, date:"2026-09-29", changes:[
+    "Settlements can now have their own random events, not just the open road — a thief in the market, a brawl spilling out of a tavern, a fire at a warehouse, and more, each with a real help-or-walk-away choice."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -5273,11 +5276,74 @@ const WORLD_EVENTS = [
     good:{ label:"Drive it off", gold:8, loyalty:6, xp:8, staminaCost:15, resultText:"The wolf bolts at the first real fight back. The shepherd insists you take something for your trouble." },
     bad:{ label:"It's not your flock", gold:0, loyalty:-6, xp:0, resultText:"You let the shepherd deal with it alone." } },
 ];
+// Settlement-anchored counterpart to WORLD_EVENTS above — same {id, title, text, good, bad} shape
+// and the same resolveWorldEvent resolution path, but rolled at most once per settlement per
+// calendar day (see maybeRollSettlementEvent) rather than per road arrival, and shown as a
+// conditional action in the settlement's own action list (see showLocationView) rather than an
+// auto-popping modal on arrival — a settlement is somewhere the player revisits and re-opens all
+// day, so an intrusive forced modal on every render would be the wrong fit there. "At the
+// settlement" framing throughout (market/tavern/well/warehouse/gate) deliberately distinct from
+// the road pool's rural framing (milestone/cart/crossroads/farmstead/treeline).
+const SETTLEMENT_EVENTS = [
+  { id:'market_thief', title:"A Thief in the Crowd",
+    text:"A cutpurse bolts past you clutching a merchant's coin pouch, shoving through the crowded stalls.",
+    good:{ label:"Chase them down", gold:10, loyalty:6, xp:6, resultText:"You catch the thief by the collar and return the pouch. The merchant thanks you with a share of the coin." },
+    bad:{ label:"Not your problem", gold:0, loyalty:-6, xp:0, resultText:"The thief vanishes into the crowd. The merchant's shouting fades behind you." } },
+  { id:'tavern_brawl', title:"A Brawl Spilling Into the Street",
+    text:"Two men crash out of a tavern doorway, fists swinging, and a third — clearly the one who started it — is getting the worst of it.",
+    good:{ label:"Break it up", gold:0, loyalty:8, xp:8, staminaCost:10, resultText:"A firm hand on both collars is enough to end it. The battered one mutters thanks through a split lip." },
+    bad:{ label:"Step around them", gold:0, loyalty:-8, xp:0, resultText:"You give the brawl a wide berth. Someone else can sort it out." } },
+  { id:'lost_child', title:"A Lost Child",
+    text:"A small child stands crying alone near the well, too scared to speak, no parent in sight.",
+    good:{ label:"Help find their parents", gold:-5, loyalty:10, xp:8, resultText:"A few questions and a search of the nearby stalls turns up a frantic mother. Her relief is worth more than any coin." },
+    bad:{ label:"Someone else will notice", gold:0, loyalty:-10, xp:0, resultText:"You tell yourself it's not your place and keep walking. The crying follows you a while." } },
+  { id:'warehouse_fire', title:"Fire at the Warehouse",
+    text:"Smoke curls from a storehouse near the docks, and a dockhand is shouting that someone's still inside checking the ledgers.",
+    good:{ label:"Go in after them", gold:0, loyalty:15, xp:18, healthCost:8, resultText:"You haul the coughing clerk out just as the smoke turns black. The dockworkers won't soon forget it." },
+    bad:{ label:"Stand back", gold:0, loyalty:-18, xp:0, resultText:"The shouting inside stops before the fire brigade even arrives." } },
+  { id:'beggar_gate', title:"A Beggar at the Gate",
+    text:"An old beggar sits against the settlement gate, hand out, coughing hard enough to worry the guards nearby.",
+    good:{ label:"Give what you can", gold:-6, loyalty:6, xp:4, resultText:"The old man presses your hand between his and doesn't let go for a moment. \"Bless you,\" he manages between coughs." },
+    bad:{ label:"Walk past", gold:0, loyalty:-6, xp:0, resultText:"You step past without a second look. The coughing continues behind you." } },
+];
+const SETTLEMENT_EVENT_CHANCE = 0.12; // rolled at most once per settlement per calendar day, see maybeRollSettlementEvent
+const SETTLEMENT_EVENT_KEY = "goblinwar_settlementEvents"; // {burgId: {day, eventId}} — eventId null = rolled today, missed
+function getSettlementEventState(){
+  try{ return JSON.parse(localStorage.getItem(SETTLEMENT_EVENT_KEY)) || {}; }catch(e){ return {}; }
+}
+// Rolls at most once per settlement per calendar day — safe to call on every showLocationView
+// render/back-navigation, since a same-day entry (hit or miss) is a no-op. A hit stores the picked
+// event's id; a miss stores eventId:null so it doesn't re-roll again today — same "roll once,
+// remember the outcome" shape hasWorkedToday's WORK_COOLDOWN_KEY already uses.
+function maybeRollSettlementEvent(burgId){
+  const state = getSettlementEventState();
+  if(state[burgId] && state[burgId].day === gameDay) return;
+  const hit = Math.random() < SETTLEMENT_EVENT_CHANCE;
+  state[burgId] = { day: gameDay, eventId: hit ? SETTLEMENT_EVENTS[Math.floor(Math.random()*SETTLEMENT_EVENTS.length)].id : null };
+  localStorage.setItem(SETTLEMENT_EVENT_KEY, JSON.stringify(state));
+}
+// Today's still-unresolved event for this settlement, or null. Resolving it (see resolveWorldEvent
+// below) clears eventId back to null so the action disappears and can't re-trigger the same day.
+function getPendingSettlementEvent(burgId){
+  const entry = getSettlementEventState()[burgId];
+  if(!entry || entry.day !== gameDay || !entry.eventId) return null;
+  return SETTLEMENT_EVENTS.find(e => e.id === entry.eventId) || null;
+}
+function clearPendingSettlementEvent(burgId){
+  const state = getSettlementEventState();
+  if(state[burgId]) state[burgId].eventId = null;
+  localStorage.setItem(SETTLEMENT_EVENT_KEY, JSON.stringify(state));
+}
 function rollWorldEvent(){ return Math.random() < WORLD_EVENT_CHANCE; }
-let activeWorldEvent = null; // {event, onEnd} while #world-event-modal is open
-function triggerWorldEvent(onEnd){
-  const event = WORLD_EVENTS[Math.floor(Math.random()*WORLD_EVENTS.length)];
-  activeWorldEvent = { event, onEnd };
+// {event, onEnd, burgId} while #world-event-modal is open — burgId is set only for a
+// settlement-anchored event (see triggerSettlementEvent/showEventModal below), same "add a field
+// ad-hoc for a second caller" precedent combat.attackerKingdom already sets for siege defense.
+let activeWorldEvent = null;
+// Populates and shows #world-event-modal for one specific event — shared by both triggerWorldEvent
+// (random pick from WORLD_EVENTS, the road version) and triggerSettlementEvent (today's pending
+// SETTLEMENT_EVENTS pick for this burg) below, so resolution stays identical for both pools.
+function showEventModal(event, onEnd, burgId){
+  activeWorldEvent = { event, onEnd, burgId: burgId || null };
   document.getElementById('world-event-title').textContent = event.title;
   document.getElementById('world-event-text').textContent = event.text;
   const choicesEl = document.getElementById('world-event-choices');
@@ -5290,15 +5356,25 @@ function triggerWorldEvent(onEnd){
   });
   document.getElementById('world-event-modal').classList.add('show');
 }
+function triggerWorldEvent(onEnd){
+  const event = WORLD_EVENTS[Math.floor(Math.random()*WORLD_EVENTS.length)];
+  showEventModal(event, onEnd, null);
+}
+function triggerSettlementEvent(burgId){
+  const event = getPendingSettlementEvent(burgId);
+  if(!event){ showLocationView(burgId); return; } // defensive re-check, same pattern showNotableFigurePanel uses
+  showEventModal(event, ()=> showLocationView(burgId), burgId);
+}
 // gold can go either direction (clamped at 0, same floor every gold spend in the game already
 // uses); healthCost/staminaCost are optional stakes on the riskier "good" choices, floored at 1/0
 // respectively so helping someone can never itself be fatal.
 function resolveWorldEvent(choiceKey){
   if(!activeWorldEvent) return;
-  const { event, onEnd } = activeWorldEvent;
+  const { event, onEnd, burgId } = activeWorldEvent;
   const choice = event[choiceKey];
   activeWorldEvent = null;
   document.getElementById('world-event-modal').classList.remove('show');
+  if(burgId) clearPendingSettlementEvent(burgId);
   if(choice.gold) setGold(Math.max(0, playerGold + choice.gold));
   if(choice.healthCost) setHealth(Math.max(1, playerHealth - choice.healthCost));
   if(choice.staminaCost) setStamina(Math.max(0, playerStamina - choice.staminaCost));
@@ -7825,6 +7901,7 @@ function showLocationView(burgId){
   if(!b) return;
   recordVisitedBurg(burgId);
   checkQuestTurnIns(burgId);
+  maybeRollSettlementEvent(burgId);
   document.getElementById('loc-heading').textContent = b.name;
   const controller = getController(burgId);
   const controlNote = (controller !== b.race) ? ` · ${RACE_LABEL[controller]}-controlled` : '';
@@ -7883,6 +7960,10 @@ function showLocationView(burgId){
   if(hasRecentRefugeeArrival(burgId)){
     actions.push({ icon:`<circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5"/><path d="M13 20c.3-2.3 2-4 3.5-4.2"/>`, title:"Refugee Camp", desc:"Help those who fled the fighting", action:'refugee_camp' });
   }
+  const pendingSettlementEvent = getPendingSettlementEvent(burgId);
+  if(pendingSettlementEvent){
+    actions.push({ icon:`<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>`, title: pendingSettlementEvent.title, desc:"Something's happening here", action:'settlement_event' });
+  }
   const list = document.getElementById('loc-action-list');
   list.innerHTML = actions.map(a => `
     <button class="loc-action" data-action="${a.action}" ${a.disabled ? 'disabled' : ''}>
@@ -7937,6 +8018,7 @@ function showLocationView(burgId){
           if(aidBtn) aidBtn.addEventListener('click', ()=> acceptRefugeeAid(burgId));
         });
       }
+      else if(btn.dataset.action === 'settlement_event') triggerSettlementEvent(burgId);
       else if(btn.dataset.action === 'raid_village'){
         showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
         const raidBtn = document.getElementById('raid-village-btn');

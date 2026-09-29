@@ -162,14 +162,23 @@ on armies from before this shipped — `lastSupplyCheckDay` falls back to `spawn
 - `getSupplyCutBurgs` is deliberately uncached and recomputed fresh on every call — at this world's
   scale (~45-65 settlements across ~15-18 kingdoms) a full BFS is cheap even called a few dozen times
   in the heaviest tick; worth revisiting only if world size ever grows substantially.
-- No map marker shows which settlements are currently cut off — same precedent war exhaustion already
-  sets (a mechanic of comparable weight with no map visual either); it surfaces entirely through
-  `recordWorldEvent` text and its knock-on effects (sieges resolving faster, armies visibly vanishing
-  mid-campaign). A `buildSupplyMarkers()` iterating `getSupplyCutBurgs()` per kingdom would be a small,
-  clean follow-up if the project owner wants one later — see [roadmap.md](roadmap.md).
 - "No capital left = every remaining settlement is cut off" is an intentionally hard binary, not
   softened with a partial-connectivity grace period — losing the capital is meant to read as a real,
   cascading blow.
+
+**Map marker — done.** `buildSupplyMarkers()` (index.html) draws a dashed amber ring (`#supply-markers`,
+between `#frontline-markers` and `#army-markers`) around every settlement `getSupplyCutBurgs` returns for
+any kingdom in `ALL_KINGDOMS` — union across all of them rather than just kingdoms currently at war,
+since the cut-off set is a pure function of current territorial control, not of an active war or the
+weekly tick. Deliberately not the look `buildFrontlineMarkers`' retired red rings had (see that
+function's own comment) — a solid red ring there read as "something's broken" per the project owner's
+own feedback, not "this settlement is at war"; this uses a dashed circle (reads as "severed") in a
+muted amber rather than war-red, so it doesn't compete with `buildBorderMarkers`' own danger-red
+at-war line for the same visual real estate. Territory control only ever changes inside `advanceSiege`
+(`setController`'s one call site), which only ever runs from `runFactionAITick`'s pass 2 — so rebuilding
+this once at load and once after every weekly tick (`maybeRunFactionAI`, alongside
+`buildFrontlineMarkers`/`buildArmyMarkers`) is the complete set of times it can actually change; no
+other action in the game moves a settlement between kingdoms.
 
 ## Field battles: an Army Camp, and a real fight the player can join
 

@@ -575,6 +575,7 @@
         <g id="labels" style="pointer-events:none"></g>
         <g id="city-icons" style="pointer-events:none"></g>
         <g id="frontline-markers" style="pointer-events:none"></g>
+        <g id="supply-markers" style="pointer-events:none"></g>
         <g id="army-markers" style="pointer-events:none"></g>
         <g id="battle-markers"></g>
         <g id="quest-markers" style="pointer-events:none"></g>
@@ -2337,6 +2338,9 @@ const CHANGELOG = [
   { id:116, date:"2026-09-29", changes:[
     "Fixed the new lighter app icon not actually showing up after re-adding to your home screen — the icon files are now versioned so your phone can't keep serving the old cached one."
   ]},
+  { id:117, date:"2026-09-29", changes:[
+    "Settlements cut off from their kingdom's supply line now show a small broken ring on the map, so you can actually see which pockets of territory are isolated instead of only hearing about it after an army retreats."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3792,6 +3796,7 @@ function maybeRunFactionAI(){
   const events = runFactionAITick();
   buildFrontlineMarkers();
   buildBorderMarkers();
+  buildSupplyMarkers();
   buildLabels();
   buildKingdomTerritoryLabels();
   buildArmyMarkers();
@@ -5874,6 +5879,44 @@ function buildCityIcons(){
 function buildFrontlineMarkers(){
   const g = document.getElementById('frontline-markers');
   g.innerHTML = '';
+}
+
+// Visual counterpart to getSupplyCutBurgs (see context/factions-and-territory.md's "Supply
+// lines") — a settlement that's lost its own kingdom's line back to its capital gets a small mark
+// here, so a cut-off pocket of territory is something the player can actually see while panning
+// the map, not just infer after the fact from a withering-army world event or a Guard House visit.
+// Deliberately not the same look buildFrontlineMarkers' now-retired red rings had — those read as
+// "something's broken" per the project owner's own feedback, not "this is at war." This uses a
+// dashed ring instead of a solid one (so the mark itself reads as "severed," matching what it
+// means) and a muted amber rather than war-red, so it doesn't compete visually with the war
+// border's own danger-red line (see buildBorderMarkers) for the same real estate.
+// Iterates every kingdom in ALL_KINGDOMS rather than only those currently at war — getSupplyCutBurgs
+// is a pure function of current territorial control, not of an active war or the weekly tick, so a
+// pocket cut off during a war that's since ended can still be showing this correctly.
+// Rebuilt from scratch (same pattern as buildFrontlineMarkers/buildArmyMarkers) whenever
+// territorial control could have changed: on load and after the weekly tick, alongside every other
+// marker layer that reads getControllerKingdom.
+const SUPPLY_CUT_MARKER_COLOR = '#c9862e';
+function buildSupplyMarkers(){
+  const g = document.getElementById('supply-markers');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  const cutBurgs = new Set();
+  ALL_KINGDOMS.forEach(kingdom => { getSupplyCutBurgs(kingdom).forEach(id => cutBurgs.add(id)); });
+  cutBurgs.forEach(id=>{
+    const b = graph.burgs[id];
+    if(!b) return;
+    const ring = document.createElementNS(ns, "circle");
+    ring.setAttribute("cx", b.x);
+    ring.setAttribute("cy", b.y);
+    ring.setAttribute("r", (HIT_R[b.tier] || 10) + 3);
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", SUPPLY_CUT_MARKER_COLOR);
+    ring.setAttribute("stroke-width", "1.6");
+    ring.setAttribute("stroke-dasharray", "3,3");
+    g.appendChild(ring);
+  });
 }
 
 // A small marker per marching/sieging goblinwar_armies entry — see "Armies march before a siege
@@ -9539,6 +9582,7 @@ Promise.all([
   buildKingdomTerritoryLabels();
   buildCityIcons();
   buildFrontlineMarkers();
+  buildSupplyMarkers();
   buildArmyMarkers();
   buildBattleMarkers();
   buildQuestMarkers();

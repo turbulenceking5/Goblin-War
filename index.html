@@ -2344,6 +2344,9 @@ const CHANGELOG = [
   { id:118, date:"2026-09-29", changes:[
     "A besieging army can now be ambushed in the field by a passing enemy relief force, not just other marching armies — losing that fight ends the siege outright, while winning it means the siege carries on."
   ]},
+  { id:119, date:"2026-09-29", changes:[
+    "The Army Camp has a third way to help a field battle: Rally the Retreating, cutting off a pursuing patrol before it catches your own side's stragglers — a win reinforces your army's own strength, the mirror of Raid the Enemy Camp's effect on the enemy's."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -2473,6 +2476,13 @@ const FIELD_BATTLE_XP_RANGE = [30,50];
 // already set for muster size.
 const FIELD_BATTLE_RAID_DAMAGE_MIN = 0.15;
 const FIELD_BATTLE_RAID_DAMAGE_MAX = 0.3;
+// Rally the Retreating's own payoff (see FIELD_BATTLE_ENGAGEMENTS.rally below): the mirror image of
+// Raid the Enemy Camp — winning strengthens the *player's own* army's .strength directly instead of
+// weakening the enemy's or pushing the shared advantage meter, so a rallied army stays stronger for
+// every future clash the same way a raided one stays weaker. Smaller range than raid's — rounding up
+// stragglers who already broke off the line adds fewer bodies back than a raid removes.
+const FIELD_BATTLE_RALLY_BOOST_MIN = 0.1;
+const FIELD_BATTLE_RALLY_BOOST_MAX = 0.2;
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns"; // moved up here (used by initPlayerStateIfMissing, called well before the Defend the Walls code below is defined) — see that section for the actual cooldown accessors
 const WARSTART_KEY = "goblinwar_warStarts";       // {"KingdomA::KingdomB": gameDay a war began} — feeds war exhaustion below
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty's non-aggression expires} — see "War exhaustion"
@@ -9051,6 +9061,11 @@ function showFieldBattlePanel(battleId){
     : staminaLow
       ? "Too exhausted to fight — Resupply first"
       : `Strike at ${battle.badKingdom}'s camp to weaken their army directly`;
+  const rallyDisabledNote = engagedToday
+    ? "You've already fought here today — Resupply first"
+    : staminaLow
+      ? "Too exhausted to fight — Resupply first"
+      : `Cut off the patrol chasing ${battle.goodKingdom}'s stragglers before it catches them`;
 
   list.innerHTML = `
     <button class="loc-action" id="battle-retreat-btn">
@@ -9076,6 +9091,10 @@ function showFieldBattlePanel(battleId){
       <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 3l7 7-9.5 9.5a2 2 0 0 1-3-3L18 6"/><path d="M4 20l3-3"/></svg>
       <span class="li-text"><b>Raid the Enemy Camp</b><span>${raidDisabledNote}</span></span>
     </button>
+    <button class="loc-action" id="battle-rally-btn" ${engagedToday || staminaLow ? 'disabled' : ''}>
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M17 20h5v-1a4 4 0 0 0-4-4h-1M9 20H4v-1a4 4 0 0 1 4-4h1m1-3a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+      <span class="li-text"><b>Rally the Retreating</b><span>${rallyDisabledNote}</span></span>
+    </button>
   `;
   document.getElementById('battle-retreat-btn').addEventListener('click', ()=> document.getElementById('location-view').classList.remove('show'));
   document.getElementById('battle-rest-btn').addEventListener('click', ()=>{
@@ -9094,6 +9113,10 @@ function showFieldBattlePanel(battleId){
   const raidBtn = document.getElementById('battle-raid-btn');
   if(raidBtn && !raidBtn.disabled){
     raidBtn.addEventListener('click', ()=> triggerFieldBattleEngagement(battleId, 'raid'));
+  }
+  const rallyBtn = document.getElementById('battle-rally-btn');
+  if(rallyBtn && !rallyBtn.disabled){
+    rallyBtn.addEventListener('click', ()=> triggerFieldBattleEngagement(battleId, 'rally'));
   }
   document.getElementById('location-view').classList.add('show');
 }
@@ -9161,16 +9184,18 @@ function showFieldBattleCharacterConversation(battleId, charId){
   render();
 }
 
-// A small catalog, deliberately — so "Raid the Enemy Camp" and whatever else the project owner
-// wants to add later (see roadmap.md's "Armies meet and fight in the field") are each just one
-// more entry, not a rewrite of showFieldBattlePanel. Two entries ship now: 'frontline' (the
-// original pass) and 'raid' (Phase 2b). buildEnemies(battle) returns the enemySpecs startCombat
-// expects; onWin(battle) decides what a victory actually does — frontline pushes the shared
-// advantage meter, raid instead reduces the enemy army's own .strength directly (see
-// FIELD_BATTLE_RAID_DAMAGE_MIN/MAX above for why that's a real strategic difference, not just
+// A small catalog, deliberately — so "Raid the Enemy Camp", "Rally the Retreating", and whatever
+// else the project owner wants to add later (see roadmap.md's "Armies meet and fight in the
+// field") are each just one more entry, not a rewrite of showFieldBattlePanel. Three entries ship
+// now: 'frontline' (the original pass), 'raid' (Phase 2b), and 'rally' (a mirror of raid, added
+// after 2b). buildEnemies(battle) returns the enemySpecs startCombat expects; onWin(battle)
+// decides what a victory actually does — frontline pushes the shared advantage meter, raid
+// reduces the enemy army's own .strength directly, rally instead boosts the player's own army's
+// .strength the same way (see FIELD_BATTLE_RAID_DAMAGE_MIN/MAX and
+// FIELD_BATTLE_RALLY_BOOST_MIN/MAX above for why that's a real strategic difference, not just
 // flavor). introLine/victoryMessage/defeatMessage are optional per-entry flavor text; frontline
 // omits them and falls back to the original generic wording in triggerFieldBattleEngagement/
-// resolveFieldBattleEngagement below, so it's unchanged by raid's addition.
+// resolveFieldBattleEngagement below, so it's unchanged by either addition.
 const FIELD_BATTLE_ENGAGEMENTS = {
   frontline: {
     title: "Head to the Front Line",
@@ -9214,6 +9239,35 @@ const FIELD_BATTLE_ENGAGEMENTS = {
     },
     defeatMessage(){
       return `The raid goes wrong — you slip back out before the whole camp turns on you.`;
+    }
+  },
+  rally: {
+    title: "Rally the Retreating",
+    buildEnemies(battle){
+      // A pursuing patrol, not the main line — same leaner sizing raid uses, since this is about
+      // reaching the stragglers before the patrol does, not storming anything.
+      const variants = ENEMY_VARIANTS[battle.badRace] || ENEMY_VARIANTS.ork;
+      const count = 1 + Math.floor(Math.random()*2); // 1 or 2
+      const specs = [];
+      for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+      return specs;
+    },
+    introLine(battle){
+      return `A knot of ${battle.goodKingdom}'s wounded are falling back from the line, a ${battle.badKingdom} patrol closing fast to finish them — you move to cut off the pursuit!`;
+    },
+    onWin(battle){
+      const armies = getArmies();
+      const goodArmy = armies.find(a => a.id === battle.goodArmyId);
+      if(!goodArmy) return; // background tick already resolved this pairing some other way — nothing left to reinforce
+      const boostFraction = FIELD_BATTLE_RALLY_BOOST_MIN + Math.random()*(FIELD_BATTLE_RALLY_BOOST_MAX - FIELD_BATTLE_RALLY_BOOST_MIN);
+      goodArmy.strength = Math.round(goodArmy.strength * (1 + boostFraction));
+      saveArmies(armies);
+    },
+    victoryMessage(battle){
+      return `You drive off the patrol — the stragglers you saved fall back in, reinforcing ${battle.goodKingdom}'s line!`;
+    },
+    defeatMessage(){
+      return `The patrol scatters you before you can reach the stragglers — some make it back on their own, others don't.`;
     }
   }
 };

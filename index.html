@@ -2365,7 +2365,7 @@ const CHANGELOG = [
     "Settlements can now have their own random events, not just the open road — a thief in the market, a brawl spilling out of a tavern, a fire at a warehouse, and more, each with a real help-or-walk-away choice."
   ]},
   { id:123, date:"2026-09-29", changes:[
-    "A marching or besieging Good-alliance army now shows as a real heraldic banner on the map instead of a plain blue wedge — Bad-alliance armies are still the placeholder shape until their own art lands."
+    "A marching or besieging Good-alliance army now shows as a real heraldic banner on the map instead of a plain blue wedge — four different banner designs in the rotation so several armies in the field at once don't all look identical. Bad-alliance armies are still the placeholder shape until their own art lands."
   ]},
 ];
 
@@ -3481,7 +3481,11 @@ function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
     originBurgId: origin.id, targetBurgId: target.id,
     routePts: points, routeMiles: route.miles, progressMiles: 0,
     x: origin.x, y: origin.y, strength,
-    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay
+    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay,
+    // Picked once and kept for this army's whole life (not re-rolled on every buildArmyMarkers
+    // rebuild) so simultaneous armies visibly read as different banners rather than one icon
+    // flickering between variants — see buildArmyMarkers' own ARMY_GOOD_ICONS pool.
+    iconVariant: Math.floor(Math.random() * ARMY_GOOD_ICONS.length)
   };
   armies.push(army);
   saveArmies(armies);
@@ -6186,15 +6190,22 @@ function buildSupplyMarkers(){
 // starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
 // buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
 // changes: on load, after advanceArmies() moves/resolves anything, and after the weekly tick.
-// Good-alliance armies use real art now (assets/icons/Map/army-good.png, from the Scene Backdrops
-// tracker artifact's "army-good" icon — see context/roadmap.md's "Armies meet and fight in the
-// field"), drawn the same buildCityIcons()-style <image> swap TIER_ART's plain SVGs got once real
-// location photos existed. Bad-alliance armies are still the placeholder wedge until that icon's
-// own art exists.
+// Good-alliance armies use real art now, from the Scene Backdrops tracker artifact's "army-good"
+// icon — see context/roadmap.md's "Armies meet and fight in the field" — drawn the same
+// buildCityIcons()-style <image> swap TIER_ART's plain SVGs got once real location photos
+// existed. Four regenerated variants all came back usable, so rather than pick one, every Good
+// army gets a stable random pick from the whole pool (assigned once in spawnArmy, not re-rolled
+// here) — per the project owner, several different banners in the field at once reads as a more
+// alive world than one repeated icon everywhere. Bad-alliance armies are still the placeholder
+// wedge until that icon's own art exists.
 // pointer-events:none — armies aren't tappable (only a Phase 2 field-battle marker would be).
 const ARMY_MARKER_COLOR = { Good:'#3a6ea5', Bad:'#8a2b2b' };
-const ARMY_GOOD_ICON_HREF = "assets/icons/Map/army-good.png"; // 512x304, transparent outside the emblem
-const ARMY_GOOD_ICON_ASPECT = 304/512;
+const ARMY_GOOD_ICONS = [ // all 512 wide, transparent outside the emblem
+  { href:"assets/icons/Map/army-good-1.png", aspect:304/512 },
+  { href:"assets/icons/Map/army-good-2.png", aspect:304/512 },
+  { href:"assets/icons/Map/army-good-3.png", aspect:304/512 },
+  { href:"assets/icons/Map/army-good-4.png", aspect:512/512 },
+];
 function buildArmyMarkers(){
   const g = document.getElementById('army-markers');
   if(!g) return;
@@ -6207,11 +6218,14 @@ function buildArmyMarkers(){
     // number nobody sees.
     const hw = Math.max(3, Math.min(9, 3 + Math.sqrt(army.strength || 0) * 2.5));
     if(alliance === 'Good'){
+      // Falls back to variant 0 for an army saved before iconVariant existed, or if the index is
+      // ever out of range (the pool shrinking below a previously-assigned index).
+      const variant = ARMY_GOOD_ICONS[army.iconVariant] || ARMY_GOOD_ICONS[0];
       const w = hw * 2.4; // the real emblem's own silhouette reads smaller than the old wedge at the same hw, so it gets a mild size boost to stay just as visible
-      const h = w * ARMY_GOOD_ICON_ASPECT;
+      const h = w * variant.aspect;
       const icon = document.createElementNS(ns, "image");
-      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", ARMY_GOOD_ICON_HREF);
-      icon.setAttribute("href", ARMY_GOOD_ICON_HREF);
+      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
+      icon.setAttribute("href", variant.href);
       icon.setAttribute("x", army.x - w/2);
       icon.setAttribute("y", army.y - h/2);
       icon.setAttribute("width", w);

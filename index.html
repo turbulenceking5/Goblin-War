@@ -2328,6 +2328,9 @@ const CHANGELOG = [
     "Lakes sitting inside a snow region now freeze over with their own icy look.",
     "Fixed a repeating pattern in ground textures that became visible now that biomes span much larger areas."
   ]},
+  { id:114, date:"2026-09-29", changes:[
+    "Kingdoms now depend on supply lines: a settlement cut off from its own capital defends weaker, loses population to war faster, and any army mustered from it will eventually retreat if the cut-off drags on.",
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -2412,7 +2415,10 @@ const SIEGE_KEY = "goblinwar_sieges";
 // attacking-kingdom-per-enemy pair at once (see below) — multiple can be mustered against the
 // same target and merge into one stronger force (mergeArmies). {id, kingdom, defenderKingdom,
 // race, originBurgId, targetBurgId, routePts:[{x,y}...], routeMiles, progressMiles, x, y,
-// strength, status:'marching'|'sieging', spawnedDay, lastAdvancedDay}.
+// strength, status:'marching'|'sieging', spawnedDay, lastAdvancedDay, daysCutOff,
+// lastSupplyCheckDay}. The last two are supply-lines bookkeeping (see applySupplyAttrition) —
+// absent on armies spawned before that system shipped; lastSupplyCheckDay falls back to spawnedDay
+// via `??` and daysCutOff to 0, so old saves degrade gracefully with no migration needed.
 const ARMY_KEY = "goblinwar_armies";
 // First-pass balance number, easy to retune later (same convention as RAID_AMBUSH_CHANCE etc,
 // see context/combat.md) — picked so a typical border siege (pickRaidTarget prefers an actually
@@ -2582,6 +2588,34 @@ function getFrontlineEnemyKingdom(burgId){
   return neighborId ? getControllerKingdom(neighborId) : null;
 }
 function isFrontlineBurg(burgId){ return !!getFrontlineEnemyKingdom(burgId); }
+
+// Supply lines — every settlement a kingdom controls that ISN'T reachable from that kingdom's own
+// capital through its own currently-controlled territory (via burgAdjacency, the same
+// settlement-border graph getFrontlineEnemyKingdom BFS's over). A kingdom that's lost its capital
+// outright has nothing left to be connected to, so everything it still holds counts as cut off — a
+// real, cascading blow, not softened. See "Supply lines" in context/factions-and-territory.md for
+// what being cut off actually does (weaker garrisons, faster attrition, armies that eventually
+// retreat) — this function only computes the set, it has no side effects of its own. Deliberately
+// uncached and recomputed fresh on every call: at this world's scale (~45-65 settlements) a full BFS
+// is cheap even called a few dozen times in the heaviest tick, and every caller below already reads
+// this at most once per kingdom per pass.
+function getSupplyCutBurgs(kingdom){
+  const capital = Object.values(graph.burgs).find(b => b.tier === 'capital' && getControllerKingdom(b.id) === kingdom);
+  const owned = Object.keys(graph.burgs).filter(id => getControllerKingdom(id) === kingdom);
+  if(!capital) return new Set(owned); // no capital left — nothing is supplied
+  const reached = new Set([capital.id]);
+  let frontier = [capital.id];
+  while(frontier.length){
+    const next = [];
+    frontier.forEach(id => (burgAdjacency[id] || []).forEach(nid => {
+      if(reached.has(nid) || getControllerKingdom(nid) !== kingdom) return;
+      reached.add(nid);
+      next.push(nid);
+    }));
+    frontier = next;
+  }
+  return new Set(owned.filter(id => !reached.has(id)));
+}
 
 // goblinwar_territoryControl overrides store the specific conquering KINGDOM now (e.g.
 // "Kingdom of Warg"), not just its race — this is what lets getArmyStrength (below) credit a
@@ -2830,6 +2864,12 @@ const MILITARY_FRACTION = 0.08;     // rough share of population a kingdom could
 // genuinely doesn't.
 const ARMY_MUSTER_FRACTION_MIN = MILITARY_FRACTION * 0.5;
 const ARMY_MUSTER_FRACTION_MAX = MILITARY_FRACTION * 1.5;
+// Supply lines — first-pass balance numbers, same spirit as every other war-tuning constant above,
+// not verified against real play. See getSupplyCutBurgs above and applySupplyAttrition below.
+const SUPPLY_CUT_GARRISON_MULT = 0.5;         // a cut-off settlement's own garrison defends at half strength
+const SUPPLY_CUT_LOSS_MULT = 1.75;            // ...and loses population to war 75% faster
+const SUPPLY_CUT_ARMY_DECAY_PER_DAY = 0.06;   // an army based out of cut-off territory withers daily — ~14 days roughly halves it
+const SUPPLY_CUT_RETREAT_DAYS = 14;           // ...and disbands entirely (abandoning any siege) after this many days cut off
 // Weekly regrowth — the mirror image of WAR_ATTRITION_RATE above, and the first system to
 // actually use the long-tracked "Ork/Goblin multiply faster" race trait (see context/roadmap.md's
 // Character Creation & Race section). Scoped to whoever *currently* controls a settlement, not its
@@ -2926,7 +2966,12 @@ function isKingdomEliminated(kingdom){
 // same race (even allied ones) contribute nothing automatically. See the comment on
 // getController/getControllerKingdom above for why.
 function getArmyStrength(kingdom){
-  const base = Object.keys(graph.burgs).reduce((sum,id)=> getControllerKingdom(id)===kingdom ? sum+getPopulation(id) : sum, 0) * MILITARY_FRACTION;
+  const cutOff = getSupplyCutBurgs(kingdom);
+  const base = Object.keys(graph.burgs).reduce((sum,id)=>{
+    if(getControllerKingdom(id) !== kingdom) return sum;
+    const pop = getPopulation(id);
+    return sum + (cutOff.has(id) ? pop * SUPPLY_CUT_GARRISON_MULT : pop);
+  }, 0) * MILITARY_FRACTION;
   return base + getReinforcementBonus(kingdom);
 }
 
@@ -2947,6 +2992,8 @@ function findNearestPeacefulSettlement(fromBurgId){
 // for good, REFUGEE_FLEE_SHARE relocates to the nearest peaceful settlement (added to that
 // settlement's population, not lost) rather than the whole loss simply vanishing.
 function applyWarLoss(burgId, rate){
+  const kingdom = getControllerKingdom(burgId);
+  if(kingdom && getSupplyCutBurgs(kingdom).has(burgId)) rate *= SUPPLY_CUT_LOSS_MULT;
   const pop = getPopulation(burgId);
   const loss = pop * rate;
   if(loss <= 0) return;
@@ -3092,7 +3139,11 @@ function removeFieldBattle(id){
 // whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege, and
 // now a real mechanical input to advanceSiege's own math too (see "An army's own strength, not
 // the whole kingdom's" in context/factions-and-territory.md), not just a displayed number.
-function getGarrisonStrength(burgId){ return getPopulation(burgId) * MILITARY_FRACTION; }
+function getGarrisonStrength(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  const cutMult = (kingdom && getSupplyCutBurgs(kingdom).has(burgId)) ? SUPPLY_CUT_GARRISON_MULT : 1;
+  return getPopulation(burgId) * MILITARY_FRACTION * cutMult;
+}
 
 // A small log of real siege/attack outcomes — the "news you hear" behind Tavern Talk's rumour
 // pool (see RUMOURS/showTavernPanel below). Per the project owner, a rumour should sometimes
@@ -3529,9 +3580,46 @@ function advanceArmies(){
     saveArmies(kept);
   }
   const merged = mergeArmies();
-  if(changed || merged) buildArmyMarkers();
+  const supplyChanged = applySupplyAttrition();
+  if(changed || merged || supplyChanged) buildArmyMarkers();
   const battlesFormed = detectFieldBattles();
   if(battlesFormed) buildBattleMarkers();
+}
+// Daily supply-line upkeep for every army in the field, marching or sieging alike (advanceArmies'
+// own movement loop above only touches 'marching' ones — this covers both). An army whose origin
+// settlement is itself cut off from its kingdom's capital withers a little every elapsed day
+// (SUPPLY_CUT_ARMY_DECAY_PER_DAY); reconnecting resets the clock immediately, no lingering penalty
+// beyond strength already lost — relieving a cut-off force is worth doing, not just accepting the
+// loss. An army cut off for SUPPLY_CUT_RETREAT_DAYS straight disbands entirely, abandoning any siege
+// it was pressing, with a world-event line rather than silently vanishing. One BFS per kingdom per
+// call (cutCache), not per army, since several armies can share the same origin kingdom.
+function applySupplyAttrition(){
+  const armies = getArmies();
+  if(!armies.length) return false;
+  const sieges = getSieges();
+  const cutCache = {};
+  let changed = false;
+  const kept = armies.filter(army => {
+    const daysElapsed = gameDay - (army.lastSupplyCheckDay ?? army.spawnedDay);
+    if(daysElapsed <= 0) return true;
+    if(!(army.kingdom in cutCache)) cutCache[army.kingdom] = getSupplyCutBurgs(army.kingdom);
+    army.lastSupplyCheckDay = gameDay;
+    if(!cutCache[army.kingdom].has(army.originBurgId)){
+      if(army.daysCutOff){ army.daysCutOff = 0; changed = true; }
+      return true;
+    }
+    changed = true;
+    army.daysCutOff = (army.daysCutOff || 0) + daysElapsed;
+    army.strength *= Math.pow(1 - SUPPLY_CUT_ARMY_DECAY_PER_DAY, daysElapsed);
+    if(army.daysCutOff >= SUPPLY_CUT_RETREAT_DAYS){
+      if(army.status === 'sieging') delete sieges[army.targetBurgId];
+      recordWorldEvent(`Word has it ${army.kingdom}'s army, cut off from supply, has withdrawn from the field.`);
+      return false; // retreats — removed from the field entirely
+    }
+    return true;
+  });
+  if(changed){ setSieges(sieges); saveArmies(kept); }
+  return changed;
 }
 
 // Runs the whole weekly tick and returns a short list of {text} events worth telling the player

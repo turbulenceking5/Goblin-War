@@ -2364,6 +2364,9 @@ const CHANGELOG = [
   { id:122, date:"2026-09-29", changes:[
     "Settlements can now have their own random events, not just the open road — a thief in the market, a brawl spilling out of a tavern, a fire at a warehouse, and more, each with a real help-or-walk-away choice."
   ]},
+  { id:123, date:"2026-09-29", changes:[
+    "A marching or besieging Good-alliance army now shows as a real heraldic banner on the map instead of a plain blue wedge — Bad-alliance armies are still the placeholder shape until their own art lands."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -6183,27 +6186,43 @@ function buildSupplyMarkers(){
 // starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
 // buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
 // changes: on load, after advanceArmies() moves/resolves anything, and after the weekly tick.
-// Placeholder wedge shape until real art exists — the Scene Backdrops tracker artifact already
-// has generation prompts drafted for a proper "army-good"/"army-bad" map icon (see
-// context/roadmap.md's "Armies meet and fight in the field"), same "ship the mechanic, swap in
-// real art later" precedent TIER_ART's plain SVGs set before real location photos existed.
+// Good-alliance armies use real art now (assets/icons/Map/army-good.png, from the Scene Backdrops
+// tracker artifact's "army-good" icon — see context/roadmap.md's "Armies meet and fight in the
+// field"), drawn the same buildCityIcons()-style <image> swap TIER_ART's plain SVGs got once real
+// location photos existed. Bad-alliance armies are still the placeholder wedge until that icon's
+// own art exists.
 // pointer-events:none — armies aren't tappable (only a Phase 2 field-battle marker would be).
 const ARMY_MARKER_COLOR = { Good:'#3a6ea5', Bad:'#8a2b2b' };
+const ARMY_GOOD_ICON_HREF = "assets/icons/Map/army-good.png"; // 512x304, transparent outside the emblem
+const ARMY_GOOD_ICON_ASPECT = 304/512;
 function buildArmyMarkers(){
   const g = document.getElementById('army-markers');
   if(!g) return;
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
   getArmies().forEach(army=>{
-    const color = ARMY_MARKER_COLOR[ALLIANCE[army.race]] || '#a9926a';
-    const marker = document.createElementNS(ns, "path");
-    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
+    const alliance = ALLIANCE[army.race];
     // Half-width scales (mildly, clamped) with the army's own strength — see mergeArmies — so a
     // merged, reinforced force actually reads as a bigger army on the map, not just a bigger
     // number nobody sees.
     const hw = Math.max(3, Math.min(9, 3 + Math.sqrt(army.strength || 0) * 2.5));
+    if(alliance === 'Good'){
+      const w = hw * 2.4; // the real emblem's own silhouette reads smaller than the old wedge at the same hw, so it gets a mild size boost to stay just as visible
+      const h = w * ARMY_GOOD_ICON_ASPECT;
+      const icon = document.createElementNS(ns, "image");
+      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", ARMY_GOOD_ICON_HREF);
+      icon.setAttribute("href", ARMY_GOOD_ICON_HREF);
+      icon.setAttribute("x", army.x - w/2);
+      icon.setAttribute("y", army.y - h/2);
+      icon.setAttribute("width", w);
+      icon.setAttribute("height", h);
+      g.appendChild(icon);
+      return;
+    }
+    const marker = document.createElementNS(ns, "path");
+    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
     marker.setAttribute("d", `M${army.x},${army.y-hw} L${army.x+hw*0.8},${army.y} L${army.x},${army.y+hw} L${army.x-hw*0.8},${army.y} Z`);
-    marker.setAttribute("fill", color);
+    marker.setAttribute("fill", ARMY_MARKER_COLOR[alliance] || '#a9926a');
     marker.setAttribute("stroke", "#1c150c");
     marker.setAttribute("stroke-width", "0.8");
     g.appendChild(marker);

@@ -348,8 +348,9 @@
   }
   #loc-banner-art{ height:100%; display:flex; align-items:center; justify-content:center; }
   #loc-banner-art svg{ height:72%; width:auto; filter:drop-shadow(0 6px 10px rgba(0,0,0,.5)); }
-  /* Guard House swaps the generic TIER_ART icon for a real interior scene (see GUARDHOUSE_ART) —
-     full-bleed cover instead of a centered icon, same banner slot. */
+  /* Reusable slot for a real interior-photo backdrop in place of the generic TIER_ART icon —
+     full-bleed cover instead of a centered icon, same banner slot. Currently unused — see the
+     comment above RUMOURS in index.html's script — waiting on pixel-art location interiors. */
   #loc-banner-art.photo{ width:100%; }
   #loc-banner-art.photo img{ width:100%; height:100%; object-fit:cover; }
   /* A talking character (or several) overlaid on top of the settlement art above — see
@@ -2377,6 +2378,9 @@ const CHANGELOG = [
   { id:126, date:"2026-09-30", changes:[
     "Defend the Walls and an overnight camp ambush now show real backdrops too — a besieged wall under torchlight, and a dying campfire in the dark — instead of a flat background."
   ]},
+  { id:127, date:"2026-09-30", changes:[
+    "Art direction pass: the recent map banners/icons and combat/settlement backdrops are being redone in a new pixel-art style to match the game's own pixel-art UI. The old ones are gone for now — armies, an active field battle, and a cut-off settlement's supply line are back to their plain map markers, Defend the Walls/Night Camp/field battles are back to a flat background, and the Tavern/Marketplace/Blacksmith/Temple/Guard House no longer show a photo — until the pixel-art versions replace them. An open-grassland ambush is the first to get the new look."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3485,19 +3489,13 @@ function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
   const strength = originPop * musterFraction;
   setPopulation(origin.id, originPop - strength);
   const armies = getArmies();
-  const race = KINGDOM_RACE[kingdom];
-  const iconPool = ARMY_ICON_POOLS[ALLIANCE[race]];
   const army = {
     id: `army_${gameDay}_${Math.floor(Math.random()*1e6)}`,
-    kingdom, defenderKingdom, race,
+    kingdom, defenderKingdom, race: KINGDOM_RACE[kingdom],
     originBurgId: origin.id, targetBurgId: target.id,
     routePts: points, routeMiles: route.miles, progressMiles: 0,
     x: origin.x, y: origin.y, strength,
-    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay,
-    // Picked once and kept for this army's whole life (not re-rolled on every buildArmyMarkers
-    // rebuild) so simultaneous armies visibly read as different banners rather than one icon
-    // flickering between variants — see buildArmyMarkers' own ARMY_ICON_POOLS.
-    iconVariant: Math.floor(Math.random() * (iconPool ? iconPool.length : 1))
+    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay
   };
   armies.push(army);
   saveArmies(armies);
@@ -3583,10 +3581,7 @@ function detectFieldBattles(){
         goodKingdom: good.kingdom, goodArmyId: good.id, goodRace: good.race,
         badKingdom: bad.kingdom, badArmyId: bad.id, badRace: bad.race,
         goodResumeStatus, badResumeStatus,
-        startedDay: gameDay, advantage: 0,
-        // Picked once and kept for this battle's whole life, same iconVariant precedent
-        // spawnArmy's own ARMY_ICON_POOLS pick set — see buildBattleMarkers.
-        iconVariant: Math.floor(Math.random() * BATTLE_MARKER_ICONS.length)
+        startedDay: gameDay, advantage: 0
       });
       saveFieldBattles(battles);
       changed = true;
@@ -4417,45 +4412,38 @@ const COMBAT_INTRO_LINES = [
 // category pays off the moment it gets a real image, no script to (re-)run first. Coast
 // deliberately isn't one of these categories — a burg's own `port` flag answers "is this
 // coastal?" for free, no biome data needed.
+// Forest, Field Battle, Under Siege, and Night Camp all briefly had real painted-style art here.
+// Pulled per the project owner: the Scene Backdrops tracker's art direction pivoted to pixel art
+// (matching Goblin War's own pixel-art UI theme — see roadmap.md's "UI Theme" entry), so every
+// painted-style combat backdrop got removed rather than left mismatched alongside new pixel art.
+// Plains is the first category regenerated in the new style. Field Battle/Under Siege/Night Camp
+// go back to plain flat backgrounds (setCombatBackdrop(null), same as before any of this existed)
+// until their own pixel-art regens land.
 const BIOME_ART = {
-  forest: [
-    "assets/biomes/forest-canopy.jpg",
-    "assets/biomes/forest-deadwood.jpg",
-    "assets/biomes/forest-birch.jpg",
-  ],
-  plains: [], desert: [], hills: [], mountains: [], swamp: [], snow: [], coast: [],
+  forest: [], plains: [
+    "assets/biomes/plains-road.jpg",
+    "assets/biomes/plains-crossing.jpg",
+  ], desert: [], hills: [], mountains: [], swamp: [], snow: [], coast: [],
 };
 // Field Battle's own dedicated backdrop — a fight *context* (see triggerFieldBattleEngagement),
 // not a terrain biome, so it lives outside BIOME_ART even though it's the same "wide painted
 // combat plate" shape.
-const FIELD_BATTLE_ART = [
-  "assets/biomes/field-battle-aftermath.jpg",
-  "assets/biomes/field-battle-clash.jpg",
-  "assets/biomes/field-battle-ridgeline.jpg",
-];
+const FIELD_BATTLE_ART = [];
 // Under Siege's own backdrop (triggerSiegeDefenseFight) — a besieged settlement's own wall under
 // attack at dusk, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside BIOME_ART.
-const SIEGE_ART = [
-  "assets/biomes/siege-wall-dusk.jpg",
-  "assets/biomes/siege-wall-dawn.jpg",
-  "assets/biomes/siege-wall-close.jpg",
-  "assets/biomes/siege-earthworks.jpg",
-];
+const SIEGE_ART = [];
 // Night Camp's own backdrop (triggerAmbushFight's 'camp' context) — a resting camp ambushed after
 // dark, distinct from daytime BIOME_ART since the scene is set at night rather than being a reuse
 // of whatever terrain the player happens to be resting in.
-const NIGHT_CAMP_ART = [
-  "assets/biomes/night-camp-fire.jpg",
-  "assets/biomes/night-camp-embers.jpg",
-];
+const NIGHT_CAMP_ART = [];
 function pickBackdrop(list){
   return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null;
 }
 // Picks a real backdrop for an ambush at burgId — port settlements try Coast art first, then
 // whichever BIOME_ART category that burg's own `biome` field names, falling back to Forest
-// (today's only real art, and the safe default for a burg with no `biome` tag at all) if that
-// category is still empty. Picked fresh each fight (Math.random(), not seeded) since a fight has
-// no persistent identity to stay consistent across, unlike a settlement's GUARDHOUSE_ART/TEMPLE_ART.
+// (the safe default for a burg with no `biome` tag at all) if that category is still empty.
+// Picked fresh each fight (Math.random(), not seeded) since a fight has no persistent identity to
+// stay consistent across.
 function getBiomeBackdrop(burgId){
   const b = graph.burgs[burgId];
   if(b && b.port){
@@ -6189,22 +6177,21 @@ function buildFrontlineMarkers(){
 // lines") — a settlement that's lost its own kingdom's line back to its capital gets a small mark
 // here, so a cut-off pocket of territory is something the player can actually see while panning
 // the map, not just infer after the fact from a withering-army world event or a Guard House visit.
-// Real art now (assets/icons/Map/supply-cut.png, from the Scene Backdrops tracker artifact's
-// "supply-cut" icon), drawn as a small badge offset up-and-right of the settlement's own point
-// rather than covering its city-icon — the same reason the placeholder below it was a ring drawn
-// *around* the point instead of on top of it. Deliberately not the same look
-// buildFrontlineMarkers' now-retired red rings had — those read as "something's broken" per the
-// project owner's own feedback, not "this is at war" — and a muted amber rather than war-red so
-// it doesn't compete visually with the war border's own danger-red line (see buildBorderMarkers)
-// for the same real estate.
+// Deliberately not the same look buildFrontlineMarkers' now-retired red rings had — those read as
+// "something's broken" per the project owner's own feedback, not "this is at war." This uses a
+// dashed ring instead of a solid one (so the mark itself reads as "severed," matching what it
+// means) and a muted amber rather than war-red, so it doesn't compete visually with the war
+// border's own danger-red line (see buildBorderMarkers) for the same real estate.
 // Iterates every kingdom in ALL_KINGDOMS rather than only those currently at war — getSupplyCutBurgs
 // is a pure function of current territorial control, not of an active war or the weekly tick, so a
 // pocket cut off during a war that's since ended can still be showing this correctly.
 // Rebuilt from scratch (same pattern as buildFrontlineMarkers/buildArmyMarkers) whenever
 // territorial control could have changed: on load and after the weekly tick, alongside every other
 // marker layer that reads getControllerKingdom.
-const SUPPLY_CUT_ICON_HREF = "assets/icons/Map/supply-cut.png"; // 512x304, transparent outside the crate
-const SUPPLY_CUT_ICON_ASPECT = 304/512;
+// Placeholder ring, real art pending — the Scene Backdrops tracker's art direction pivoted to
+// pixel art (see context/roadmap.md's "Combat environment backgrounds"); the painted-style
+// "supply-cut" icon that briefly lived here was pulled since it no longer matches.
+const SUPPLY_CUT_MARKER_COLOR = '#c9862e';
 function buildSupplyMarkers(){
   const g = document.getElementById('supply-markers');
   if(!g) return;
@@ -6215,17 +6202,15 @@ function buildSupplyMarkers(){
   cutBurgs.forEach(id=>{
     const b = graph.burgs[id];
     if(!b) return;
-    const r = (HIT_R[b.tier] || 10) + 3;
-    const w = 9, h = w * SUPPLY_CUT_ICON_ASPECT;
-    const cx = b.x + r * 0.8, cy = b.y - r * 0.8;
-    const icon = document.createElementNS(ns, "image");
-    icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", SUPPLY_CUT_ICON_HREF);
-    icon.setAttribute("href", SUPPLY_CUT_ICON_HREF);
-    icon.setAttribute("x", cx - w/2);
-    icon.setAttribute("y", cy - h/2);
-    icon.setAttribute("width", w);
-    icon.setAttribute("height", h);
-    g.appendChild(icon);
+    const ring = document.createElementNS(ns, "circle");
+    ring.setAttribute("cx", b.x);
+    ring.setAttribute("cy", b.y);
+    ring.setAttribute("r", (HIT_R[b.tier] || 10) + 3);
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", SUPPLY_CUT_MARKER_COLOR);
+    ring.setAttribute("stroke-width", "1.6");
+    ring.setAttribute("stroke-dasharray", "3,3");
+    g.appendChild(ring);
   });
 }
 
@@ -6233,64 +6218,27 @@ function buildSupplyMarkers(){
 // starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
 // buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
 // changes: on load, after advanceArmies() moves/resolves anything, and after the weekly tick.
-// Both alliances use real art now, from the Scene Backdrops tracker artifact's "army-good"/
-// "army-bad" icons — see context/roadmap.md's "Armies meet and fight in the field" — drawn the
-// same buildCityIcons()-style <image> swap TIER_ART's plain SVGs got once real location photos
-// existed. Every regenerated variant on both sides came back usable, so rather than pick one per
-// side, every army gets a stable random pick from its alliance's whole pool (assigned once in
-// spawnArmy, not re-rolled here) — per the project owner, several different banners in the field
-// at once reads as a more alive world than one repeated icon everywhere. The plain colored wedge
-// (ARMY_MARKER_COLOR) stays as a defensive fallback for any alliance without a pool — dead code
-// today (both real alliances have one), same "won't happen but stay safe" precedent the rest of
-// this file's ALLIANCE-keyed lookups already follow.
+// Placeholder wedge shape, real art pending — the painted-style "army-good"/"army-bad" icons that
+// briefly lived here were pulled since the Scene Backdrops tracker's art direction pivoted to
+// pixel art (see context/roadmap.md's "Combat environment backgrounds"); same "ship the mechanic,
+// swap in real art later" precedent TIER_ART's plain SVGs set before real location photos existed.
 // pointer-events:none — armies aren't tappable (only a Phase 2 field-battle marker would be).
 const ARMY_MARKER_COLOR = { Good:'#3a6ea5', Bad:'#8a2b2b' };
-const ARMY_ICON_POOLS = { // all 512 wide, transparent outside the emblem
-  Good: [
-    { href:"assets/icons/Map/army-good-1.png", aspect:304/512 },
-    { href:"assets/icons/Map/army-good-2.png", aspect:304/512 },
-    { href:"assets/icons/Map/army-good-3.png", aspect:304/512 },
-    { href:"assets/icons/Map/army-good-4.png", aspect:512/512 },
-  ],
-  Bad: [
-    { href:"assets/icons/Map/army-bad-1.png", aspect:304/512 },
-    { href:"assets/icons/Map/army-bad-2.png", aspect:304/512 },
-    { href:"assets/icons/Map/army-bad-3.png", aspect:304/512 },
-    { href:"assets/icons/Map/army-bad-4.png", aspect:304/512 },
-  ],
-};
 function buildArmyMarkers(){
   const g = document.getElementById('army-markers');
   if(!g) return;
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
   getArmies().forEach(army=>{
-    const alliance = ALLIANCE[army.race];
+    const color = ARMY_MARKER_COLOR[ALLIANCE[army.race]] || '#a9926a';
+    const marker = document.createElementNS(ns, "path");
+    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
     // Half-width scales (mildly, clamped) with the army's own strength — see mergeArmies — so a
     // merged, reinforced force actually reads as a bigger army on the map, not just a bigger
     // number nobody sees.
     const hw = Math.max(3, Math.min(9, 3 + Math.sqrt(army.strength || 0) * 2.5));
-    const pool = ARMY_ICON_POOLS[alliance];
-    if(pool){
-      // Falls back to variant 0 for an army saved before iconVariant existed, or if the index is
-      // ever out of range (the pool shrinking below a previously-assigned index).
-      const variant = pool[army.iconVariant] || pool[0];
-      const w = hw * 2.4; // the real emblem's own silhouette reads smaller than the old wedge at the same hw, so it gets a mild size boost to stay just as visible
-      const h = w * variant.aspect;
-      const icon = document.createElementNS(ns, "image");
-      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
-      icon.setAttribute("href", variant.href);
-      icon.setAttribute("x", army.x - w/2);
-      icon.setAttribute("y", army.y - h/2);
-      icon.setAttribute("width", w);
-      icon.setAttribute("height", h);
-      g.appendChild(icon);
-      return;
-    }
-    const marker = document.createElementNS(ns, "path");
-    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
     marker.setAttribute("d", `M${army.x},${army.y-hw} L${army.x+hw*0.8},${army.y} L${army.x},${army.y+hw} L${army.x-hw*0.8},${army.y} Z`);
-    marker.setAttribute("fill", ARMY_MARKER_COLOR[alliance] || '#a9926a');
+    marker.setAttribute("fill", color);
     marker.setAttribute("stroke", "#1c150c");
     marker.setAttribute("stroke-width", "0.8");
     g.appendChild(marker);
@@ -6600,21 +6548,16 @@ function buildBorderMarkers(){
   fillPass(warSegments, ()=> "#e2857f", "3.2", null); // thicker, solid, danger-red — a front line, not an administrative one, unaffected by per-kingdom color
 }
 
-// Small crossed-weapons marker per active goblinwar_fieldBattles entry — the one truly tappable
+// Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable
 // non-settlement marker on the map. Two elements per battle, same "invisible hitzone circle +
 // separate visible mark" split every settlement already uses (see HIT_R/buildHitzones): a
 // `.hitzone.battle-hitzone[data-battle]` circle (interactive — handleTap checks dataset.battle
 // before falling through to the ordinary settlement-hitzone branch) plus a pointer-events:none
-// icon on top of it so the visual doesn't intercept its own tap. Real art now, from the Scene
-// Backdrops tracker artifact's "battle-marker" icon — its first generation pass had the same
-// wide-scene problem ARMY_ICON_POOLS' own army-good prompt did (multiple banners/an explosion
-// cloud instead of a contained glyph); the corrected regen came back with two usable contained
-// variants, so same "several designs read as a livelier world" choice as the army icons — see
-// context/roadmap.md's "Armies meet and fight in the field".
-const BATTLE_MARKER_ICONS = [ // both 512 wide, transparent outside the emblem
-  { href:"assets/icons/Map/battle-marker-1.png", aspect:304/512 },
-  { href:"assets/icons/Map/battle-marker-2.png", aspect:304/512 },
-];
+// crossed-line mark on top of it so the visual doesn't intercept its own tap. Placeholder look,
+// real art pending — the painted-style "battle-marker" icon that briefly lived here was pulled
+// since the Scene Backdrops tracker's art direction pivoted to pixel art (see
+// context/roadmap.md's "Combat environment backgrounds"), same precedent buildArmyMarkers' own
+// placeholder wedge sets.
 function buildBattleMarkers(){
   const g = document.getElementById('battle-markers');
   if(!g) return;
@@ -6628,19 +6571,13 @@ function buildBattleMarkers(){
     hit.setAttribute("r", 10);
     hit.dataset.battle = battle.id;
     g.appendChild(hit);
-    // Falls back to variant 0 for a battle saved before iconVariant existed, or if the index is
-    // ever out of range (the pool shrinking below a previously-assigned index).
-    const variant = BATTLE_MARKER_ICONS[battle.iconVariant] || BATTLE_MARKER_ICONS[0];
-    const w = 16, h = w * variant.aspect;
-    const icon = document.createElementNS(ns, "image");
-    icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
-    icon.setAttribute("href", variant.href);
-    icon.setAttribute("x", battle.x - w/2);
-    icon.setAttribute("y", battle.y - h/2);
-    icon.setAttribute("width", w);
-    icon.setAttribute("height", h);
-    icon.style.pointerEvents = "none";
-    g.appendChild(icon);
+    const mark = document.createElementNS(ns, "path");
+    mark.setAttribute("d", `M${battle.x-5},${battle.y-5} L${battle.x+5},${battle.y+5} M${battle.x-5},${battle.y+5} L${battle.x+5},${battle.y-5}`);
+    mark.setAttribute("stroke", "#d1a445");
+    mark.setAttribute("stroke-width", "2.2");
+    mark.setAttribute("stroke-linecap", "round");
+    mark.style.pointerEvents = "none";
+    g.appendChild(mark);
   });
 }
 
@@ -6995,62 +6932,12 @@ const TIER_ART = {
   </svg>`
 };
 
-// Guard House gets a real interior scene instead of a TIER_ART icon (see #loc-banner-art.photo) —
-// three variants so not every settlement's Guard House looks identical. Picked deterministically
-// per burg (hashSeed, not Math.random) so a given settlement always shows the same one rather
-// than reshuffling on every visit.
-const GUARDHOUSE_ART = [
-  "assets/locations/guardhouse-hall.jpg",
-  "assets/locations/guardhouse-workshop.jpg",
-  "assets/locations/guardhouse-barracks.jpg",
-];
-function getGuardHouseArt(burgId){
-  const idx = Math.floor(seededRandom(hashSeed(`guardhouse_art_${burgId}`)) * GUARDHOUSE_ART.length);
-  return GUARDHOUSE_ART[Math.min(idx, GUARDHOUSE_ART.length - 1)];
-}
-
-// Same real-photo treatment as GUARDHOUSE_ART above, now for Temple — three variants, picked
-// deterministically per burg so a given settlement's Temple always shows the same one.
-const TEMPLE_ART = [
-  "assets/locations/temple-nave.jpg",
-  "assets/locations/temple-candlelit.jpg",
-  "assets/locations/temple-sanctuary.jpg",
-];
-function getTempleArt(burgId){
-  const idx = Math.floor(seededRandom(hashSeed(`temple_art_${burgId}`)) * TEMPLE_ART.length);
-  return TEMPLE_ART[Math.min(idx, TEMPLE_ART.length - 1)];
-}
-
-// Same real-photo treatment as GUARDHOUSE_ART/TEMPLE_ART above, now for the Tavern, Marketplace,
-// and Blacksmith — every settlement action but Work/Talk to Townsfolk/Quest Board/Raid the
-// Village now has real art instead of the generic TIER_ART icon.
-const TAVERN_ART = [
-  "assets/locations/tavern-hearth.jpg",
-  "assets/locations/tavern-fireside.jpg",
-  "assets/locations/tavern-barroom.jpg",
-];
-function getTavernArt(burgId){
-  const idx = Math.floor(seededRandom(hashSeed(`tavern_art_${burgId}`)) * TAVERN_ART.length);
-  return TAVERN_ART[Math.min(idx, TAVERN_ART.length - 1)];
-}
-const MARKET_ART = [
-  "assets/locations/marketplace-street.jpg",
-  "assets/locations/marketplace-gate.jpg",
-  "assets/locations/marketplace-stalls.jpg",
-];
-function getMarketArt(burgId){
-  const idx = Math.floor(seededRandom(hashSeed(`market_art_${burgId}`)) * MARKET_ART.length);
-  return MARKET_ART[Math.min(idx, MARKET_ART.length - 1)];
-}
-const BLACKSMITH_ART = [
-  "assets/locations/blacksmith-forge.jpg",
-  "assets/locations/blacksmith-workshop.jpg",
-  "assets/locations/blacksmith-hood.jpg",
-];
-function getBlacksmithArt(burgId){
-  const idx = Math.floor(seededRandom(hashSeed(`blacksmith_art_${burgId}`)) * BLACKSMITH_ART.length);
-  return BLACKSMITH_ART[Math.min(idx, BLACKSMITH_ART.length - 1)];
-}
+// Guard House/Temple/Tavern/Marketplace/Blacksmith each briefly had a real interior-photo pool
+// here (#loc-banner-art.photo, picked deterministically per burg via hashSeed so a given
+// settlement always showed the same one) — pulled along with every other painted-style Scene
+// Backdrop image, since the tracker's art direction pivoted to pixel art (see
+// context/roadmap.md's "Combat environment backgrounds"). All five fall back to the generic
+// TIER_ART icon for now, same as Palace/Village Square/Army Camp/Refugee Camp already do.
 
 const RUMOURS = [
   "A caravan guard swears he saw goblin banners moving along the eastern road.",
@@ -8074,37 +7961,16 @@ function showLocationView(burgId){
   `).join('');
   list.querySelectorAll('.loc-action').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      if(btn.dataset.action === 'tavern'){
-        showTavernPanel(burgId);
-        const artEl = document.getElementById('loc-banner-art');
-        artEl.classList.add('photo');
-        artEl.innerHTML = `<img src="${getTavernArt(burgId)}" alt="Tavern">`;
-      }
-      else if(btn.dataset.action === 'market'){
-        showMarketPanel(burgId);
-        const artEl = document.getElementById('loc-banner-art');
-        artEl.classList.add('photo');
-        artEl.innerHTML = `<img src="${getMarketArt(burgId)}" alt="Marketplace">`;
-      }
-      else if(btn.dataset.action === 'blacksmith'){
-        showBlacksmithPanel(burgId);
-        const artEl = document.getElementById('loc-banner-art');
-        artEl.classList.add('photo');
-        artEl.innerHTML = `<img src="${getBlacksmithArt(burgId)}" alt="Blacksmith">`;
-      }
+      if(btn.dataset.action === 'tavern') showTavernPanel(burgId);
+      else if(btn.dataset.action === 'market') showMarketPanel(burgId);
+      else if(btn.dataset.action === 'blacksmith') showBlacksmithPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple'){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', null, TEMPLE_LINES);
-        const artEl = document.getElementById('loc-banner-art');
-        artEl.classList.add('photo');
-        artEl.innerHTML = `<img src="${getTempleArt(burgId)}" alt="Temple">`;
       }
       else if(btn.dataset.action === 'guardhouse'){
         showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
-        const artEl = document.getElementById('loc-banner-art');
-        artEl.classList.add('photo');
-        artEl.innerHTML = `<img src="${getGuardHouseArt(burgId)}" alt="Guard House">`;
       }
       else if(btn.dataset.action === 'palace'){
         showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));

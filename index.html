@@ -2384,6 +2384,9 @@ const CHANGELOG = [
   { id:128, date:"2026-09-30", changes:[
     "A marching or besieging Good-alliance army shows a real pixel-art banner on the map again — two designs in the rotation, first done in the game's new pixel-art style. Bad-alliance armies still show the plain map marker for now."
   ]},
+  { id:129, date:"2026-09-30", changes:[
+    "Bad-alliance armies now show a real pixel-art banner too — three skull-and-axes designs in the rotation."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -6227,15 +6230,16 @@ function buildSupplyMarkers(){
 // starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
 // buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
 // changes: on load, after advanceArmies() moves/resolves anything, and after the weekly tick.
-// Good-alliance armies use real pixel-art icons now, from the Scene Backdrops tracker's
-// regenerated "army-good" prompt — the first icon regenerated in the project's new pixel-art
-// direction (see context/roadmap.md's "Combat environment backgrounds"). Two of the four
-// generated variants had a real defect (a faint diagonal watermark-like streak baked into the
-// source art, visible even after checkerboard/alpha recovery) and were discarded; the two clean
-// ones are a pool, same per-army stable `iconVariant` pick precedent the painted-style version
-// used before it was pulled. Bad-alliance armies stay on the placeholder wedge until their own
-// icon gets the same pixel-art treatment — `pool && pool.length` (not just a truthy pool, since
-// `[]` is still truthy) is what makes that fallback safe rather than crashing on `pool[0]`.
+// Both alliances use real pixel-art icons now, from the Scene Backdrops tracker's regenerated
+// "army-good"/"army-bad" prompts — the first icons regenerated in the project's new pixel-art
+// direction (see context/roadmap.md's "Combat environment backgrounds"). Each regen came back
+// with a real defect in some variants (army-good: a faint diagonal watermark-like streak baked
+// into two of four; army-bad: one of four visibly soft/anti-aliased rather than crisp pixel art)
+// — discarded those, kept the rest as a per-alliance pool, same per-army stable `iconVariant` pick
+// precedent the painted-style version used before it was pulled. `pool && pool.length` (not just
+// a truthy pool, since `[]` is still truthy) is what makes an eventual empty pool fall back to the
+// wedge safely rather than crashing on `pool[0]` — not needed for either alliance today, but kept
+// since a pool can always shrink back to empty later.
 // pointer-events:none — armies aren't tappable (only a Phase 2 field-battle marker would be).
 const ARMY_MARKER_COLOR = { Good:'#3a6ea5', Bad:'#8a2b2b' };
 const ARMY_ICON_POOLS = { // all 512 wide, transparent outside the emblem
@@ -6243,7 +6247,11 @@ const ARMY_ICON_POOLS = { // all 512 wide, transparent outside the emblem
     { href:"assets/icons/Map/army-good-1.png", aspect:304/512 },
     { href:"assets/icons/Map/army-good-2.png", aspect:304/512 },
   ],
-  Bad: [],
+  Bad: [
+    { href:"assets/icons/Map/army-bad-1.png", aspect:304/512 },
+    { href:"assets/icons/Map/army-bad-2.png", aspect:304/512 },
+    { href:"assets/icons/Map/army-bad-3.png", aspect:304/512 },
+  ],
 };
 function buildArmyMarkers(){
   const g = document.getElementById('army-markers');

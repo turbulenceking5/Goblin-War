@@ -4099,7 +4099,7 @@ function getFightBiome(burgId){
   if(b && b.port) return 'coast';
   return (b && b.biome) || 'forest';
 }
-// ===== Biome combat modifiers — cosmetic-only before this, one mechanical hook per biome so far =====
+// ===== Biome combat modifiers — cosmetic-only before this, now one mechanical hook per biome =====
 // Swamp: the boggy ground throws off the enemy's own footing, giving every enemy attack (against
 // the player or an ally) an extra flat chance to miss entirely, on top of whatever the Evasion
 // perk or armor already does. Skipped under ignoreDefense (Reckless Swing's counter) same as the
@@ -4108,6 +4108,23 @@ const SWAMP_ENEMY_MISS_CHANCE = 0.2;
 // Hills: high ground favors a ranged shot. Precise Shot (agi-gated, always-max-roll) is the one
 // MOVES entry with a ranged flavor, so it's the one that benefits.
 const HILLS_RANGED_DAMAGE_MULT = 1.25;
+// Forest: like Swamp, a general defensive hook rather than one tied to a specific MOVES entry —
+// dense cover/underbrush gives a flat extra chance to shrug off an enemy's inflicted status effect
+// entirely (rolled in rollEnemyInflict, only once the enemy's own `inflicts` chance already hit),
+// rather than another flavor of "the enemy misses" (already Swamp's whole mechanic).
+const FOREST_INFLICT_RESIST_CHANCE = 0.3;
+// The remaining 5 biomes below each pair with one of the 5 MOVES entries Hills' Precise Shot
+// didn't already claim — every special attack now has exactly one biome it synergizes with.
+// Plains: open ground gives a sweeping strike room to connect.
+const PLAINS_CLEAVE_DAMAGE_MULT = 1.2;
+// Desert: a heavy blow kicks up a blinding dust cloud, keeping its target staggered longer.
+const DESERT_STUN_BONUS_TURNS = 1;
+// Mountains: a battle cry echoes off the peaks, unsettling the enemy line further.
+const MOUNTAINS_WARCRY_CUT_MULT = 0.6; // replaces the flat 0.7 War Cry normally cuts enemy damage to
+// Snow: a wound doesn't close in the cold, bleeding longer than it would elsewhere.
+const SNOW_BLEED_BONUS_TURNS = 1;
+// Coast: sea air helps you recover from a reckless burst of speed faster than usual.
+const COAST_FATIGUE_REDUCTION_TURNS = 1;
 // Paints (or clears) a real photo behind #combat-view's own content — combined with a
 // darkening gradient in the same `background` value so the enemy portraits, bars, and log
 // text on top stay legible regardless of how bright the source art is. Cleared back to the
@@ -4286,6 +4303,11 @@ function pickDefender(){
 // so this is a no-op for them — see ENEMY_VARIANTS and context/combat.md's "Status effects" section.
 function rollEnemyInflict(enemy, effects, targetIsPlayer, allyTitle){
   if(!enemy.inflicts || Math.random() >= enemy.inflicts.chance) return;
+  if(combat.biome === 'forest' && Math.random() < FOREST_INFLICT_RESIST_CHANCE){
+    const who = targetIsPlayer ? 'you shake' : `your ${allyTitle} shakes`;
+    combatLog(`The dense cover helps ${who} it off before it takes hold.`);
+    return;
+  }
   applyStatusEffect(effects, enemy.inflicts.type, enemy.inflicts.turns);
   const who = targetIsPlayer ? 'You are' : `Your ${allyTitle} is`;
   combatLog(`${who} ${STATUS_LABEL[enemy.inflicts.type].toLowerCase()}!`);
@@ -4492,8 +4514,9 @@ function combatSpecial(moveId){
       target.hp -= dmg;
       combatLog(`Crushing Blow! You hit the ${target.name} for ${dmg} damage.`);
       if(target.hp > 0){
-        applyStatusEffect(target.effects, 'stun', STUN_DEFAULT_TURNS);
-        combatLog(`The ${target.name} is staggered!`);
+        const stunTurns = STUN_DEFAULT_TURNS + (combat.biome === 'desert' ? DESERT_STUN_BONUS_TURNS : 0);
+        applyStatusEffect(target.effects, 'stun', stunTurns);
+        combatLog(`The ${target.name} is staggered!` + (combat.biome === 'desert' ? ` The kicked-up dust keeps it reeling.` : ''));
       }
       break;
     case 'reckless_swing':
@@ -4501,8 +4524,9 @@ function combatSpecial(moveId){
       target.hp -= dmg;
       combatLog(`Reckless Swing! You hit the ${target.name} for ${dmg} damage, leaving yourself wide open.`);
       if(target.hp > 0){
-        applyStatusEffect(target.effects, 'bleed', BLEED_DEFAULT_TURNS);
-        combatLog(`The ${target.name} is bleeding!`);
+        const bleedTurns = BLEED_DEFAULT_TURNS + (combat.biome === 'snow' ? SNOW_BLEED_BONUS_TURNS : 0);
+        applyStatusEffect(target.effects, 'bleed', bleedTurns);
+        combatLog(`The ${target.name} is bleeding!` + (combat.biome === 'snow' ? ` The cold keeps the wound from closing.` : ''));
       }
       break;
     case 'precise_shot': {
@@ -4513,26 +4537,33 @@ function combatSpecial(moveId){
         + (hillsBonus > 1 ? ` The high ground gives your shot extra bite.` : ''));
       break;
     }
-    case 'adrenaline_rush':
+    case 'adrenaline_rush': {
       dmg = Math.round(randRange(combat.playerDmgRange) * fatigueFactor) + getEquipDamageBonus();
       target.hp -= dmg;
       combatLog(`Adrenaline Rush! A free extra strike hits the ${target.name} for ${dmg} damage.`);
-      applyStatusEffect(combat.playerEffects, 'fatigue', FATIGUE_DEFAULT_TURNS);
-      combatLog(`The exertion catches up with you — you're fatigued.`);
+      const fatigueTurns = Math.max(1, FATIGUE_DEFAULT_TURNS - (combat.biome === 'coast' ? COAST_FATIGUE_REDUCTION_TURNS : 0));
+      applyStatusEffect(combat.playerEffects, 'fatigue', fatigueTurns);
+      combatLog(`The exertion catches up with you — you're fatigued.` + (combat.biome === 'coast' ? ` The sea air helps you shake it off faster than usual.` : ''));
       break;
-    case 'war_cry':
+    }
+    case 'war_cry': {
+      const cutMult = combat.biome === 'mountains' ? MOUNTAINS_WARCRY_CUT_MULT : 0.7;
       aliveEnemies().forEach(e => {
-        e.dmgRange = [Math.max(1,Math.round(e.dmgRange[0]*0.7)), Math.max(1,Math.round(e.dmgRange[1]*0.7))];
+        e.dmgRange = [Math.max(1,Math.round(e.dmgRange[0]*cutMult)), Math.max(1,Math.round(e.dmgRange[1]*cutMult))];
       });
-      combatLog(`War Cry! Every enemy's attacks are weaker for the rest of the fight.`);
+      combatLog(`War Cry! Every enemy's attacks are weaker for the rest of the fight.` + (combat.biome === 'mountains' ? ` Your voice echoes off the peaks, unsettling them further.` : ''));
       break;
-    case 'cleave':
+    }
+    case 'cleave': {
+      const plainsBonus = combat.biome === 'plains' ? PLAINS_CLEAVE_DAMAGE_MULT : 1;
+      if(plainsBonus > 1) combatLog(`The open ground gives your swing more room to connect.`);
       aliveEnemies().forEach(e => {
-        const hit = Math.round(randRange(combat.playerDmgRange)*0.6 * fatigueFactor) + getEquipDamageBonus();
+        const hit = Math.round(randRange(combat.playerDmgRange)*0.6 * fatigueFactor * plainsBonus) + getEquipDamageBonus();
         e.hp -= hit;
         combatLog(`Cleave! You strike the ${e.name} for ${hit} damage.`);
       });
       break;
+    }
   }
 
   if(aliveEnemies().length === 0){

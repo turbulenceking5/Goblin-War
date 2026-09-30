@@ -1025,5 +1025,12 @@
     "changes": [
       "Fixed the supply-cut marker showing up on settlements that were never actually at war — it was triggering purely from how the map's territory happened to be laid out, not from an actual enemy blocking the way. A settlement now only reads as cut off when a real at-war enemy sits between it and its kingdom's capital."
     ]
+  },
+  {
+    "id": 138,
+    "date": "2026-09-30",
+    "changes": [
+      "Every terrain type now affects road/camp ambushes, not just Swamp and Hills: Forest gives a chance to shake off an enemy's bleed/stun before it takes hold, Plains gives Cleave more room to connect, Desert makes Crushing Blow's stagger last longer, Mountains makes War Cry hit harder, Snow makes Reckless Swing's bleed last longer, and Coast helps you recover from Adrenaline Rush's fatigue faster."
+    ]
   }
 ]

@@ -2394,6 +2394,9 @@ const CHANGELOG = [
     "Joining a field battle now shows a real pixel-art battlefield backdrop again — a trampled no-man's-land between two lines of planted spears and banners, three lighting variants.",
     "The map's supply-cut marker over a cut-off settlement is a real pixel-art roped supply crate again, in place of the dashed amber ring."
   ]},
+  { id:132, date:"2026-09-30", changes:[
+    "An ambush while camped for the night now shows a real pixel-art backdrop again — a dying campfire beside a bedroll and travel pack, three variants."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4461,8 +4464,16 @@ const FIELD_BATTLE_ART = [
 const SIEGE_ART = [];
 // Night Camp's own backdrop (triggerAmbushFight's 'camp' context) — a resting camp ambushed after
 // dark, distinct from daytime BIOME_ART since the scene is set at night rather than being a reuse
-// of whatever terrain the player happens to be resting in.
-const NIGHT_CAMP_ART = [];
+// of whatever terrain the player happens to be resting in. Regenerated in the new pixel-art style —
+// three variants (deciduous forest, conifer forest, an open clearing), all clean this time once the
+// prompt was rewritten to head off a real generation failure: the original wording kept producing a
+// rest-at-a-campfire game-UI mockup (menus/HUD) instead of a plain backdrop, a known trope diffusion
+// models default to for this exact scene unless told very explicitly not to.
+const NIGHT_CAMP_ART = [
+  "assets/biomes/night-camp-deciduous.jpg",
+  "assets/biomes/night-camp-conifer.jpg",
+  "assets/biomes/night-camp-clearing.jpg",
+];
 function pickBackdrop(list){
   return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null;
 }

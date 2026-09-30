@@ -2374,6 +2374,9 @@ const CHANGELOG = [
     "Field battles fought from the Army Camp now show a real battlefield backdrop behind the fight instead of a flat background.",
     "A settlement cut off from its own kingdom's supply line now shows a real broken-crate badge next to it on the map instead of a plain dashed ring."
   ]},
+  { id:126, date:"2026-09-30", changes:[
+    "Defend the Walls and an overnight camp ambush now show real backdrops too — a besieged wall under torchlight, and a dying campfire in the dark — instead of a flat background."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4424,12 +4427,25 @@ const BIOME_ART = {
 };
 // Field Battle's own dedicated backdrop — a fight *context* (see triggerFieldBattleEngagement),
 // not a terrain biome, so it lives outside BIOME_ART even though it's the same "wide painted
-// combat plate" shape. Night Camp/Under Siege stay backdrop-less until their own dedicated art
-// exists (see context/roadmap.md's "Combat environment backgrounds").
+// combat plate" shape.
 const FIELD_BATTLE_ART = [
   "assets/biomes/field-battle-aftermath.jpg",
   "assets/biomes/field-battle-clash.jpg",
   "assets/biomes/field-battle-ridgeline.jpg",
+];
+// Under Siege's own backdrop (triggerSiegeDefenseFight) — a besieged settlement's own wall under
+// attack at dusk, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside BIOME_ART.
+const SIEGE_ART = [
+  "assets/biomes/siege-wall-dusk.jpg",
+  "assets/biomes/siege-wall-dawn.jpg",
+  "assets/biomes/siege-wall-close.jpg",
+  "assets/biomes/siege-earthworks.jpg",
+];
+// Night Camp's own backdrop (triggerAmbushFight's 'camp' context) — a resting camp ambushed after
+// dark, distinct from daytime BIOME_ART since the scene is set at night rather than being a reuse
+// of whatever terrain the player happens to be resting in.
+const NIGHT_CAMP_ART = [
+  "assets/biomes/night-camp-fire.jpg",
 ];
 function pickBackdrop(list){
   return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null;
@@ -5089,10 +5105,9 @@ function triggerAmbushFight(burgId, onEnd, context){
   // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — the burg's `biome` field is real,
   // derived from this character's own generated map, so this already reads as whatever terrain
   // that burg actually sits in; it still shows as Forest-always in practice only because Forest
-  // is the only category with real art committed yet. A camp ambush stays backdrop-less for now
-  // (Night Camp is meant to be its own dedicated art, not a reuse of daytime biome photos, since
-  // it's a scene set at night — a separate, still-unbuilt Scene Backdrops entry).
-  const backdrop = context === 'camp' ? null : getBiomeBackdrop(burgId);
+  // is the only category with real art committed yet. A camp ambush uses its own dedicated Night
+  // Camp art (NIGHT_CAMP_ART) instead of a daytime biome photo, since it's a scene set at night.
+  const backdrop = context === 'camp' ? pickBackdrop(NIGHT_CAMP_ART) : getBiomeBackdrop(burgId);
   triggerEnemyFight(enemy, onEnd, backdrop);
 }
 
@@ -9284,7 +9299,7 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   const count = 2 + Math.floor(Math.random()*2); // 2 or 3
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
-  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace);
+  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace, pickBackdrop(SIEGE_ART));
   // Recorded so endCombat's victory branch can attribute killed-enemy population loss (see
   // applyEnemyCasualtyLoss) to this specific kingdom rather than just "the nearest settlement of
   // that race" — a plain ambush has no particular kingdom behind it, but a siege's attacker does.

@@ -2,6 +2,8 @@
 
 A browser-based overworld RPG. No build step, no framework — every page is a single self-contained `.html` file with inline `<style>` and `<script>`, opened directly or served as static files. Live gameplay state lives in `localStorage` while playing, shared across pages by convention (same key names, no formal schema) — but the durable copy is a row in Supabase (hosted Postgres + auth), talked to directly over its JS client loaded from a CDN `<script>` tag (no server code of ours, just a public anon key and Row Level Security). **Every player page requires a logged-in account with an active character** (see [context/accounts.md](context/accounts.md) and [context/characters.md](context/characters.md)) — an account can own a roster of characters, picked at login, one save per character, autosaved as you play.
 
+**Single-player only, per the project owner.** Every account's characters, world, kingdoms, and wars are entirely its own — Supabase's `characters` table exists for durable cross-device saves, not for any shared or synced state between different accounts. Nothing in the game (armies, factions, quests, the map) is meant to involve or be visible to other real players; don't scope a feature (leaderboards, shared worlds, trading between accounts, PvP) that would require otherwise.
+
 Fictional setting only — "Goblin War" and its world data have no connection to any real organization, event, or person.
 
 ## Files at a glance

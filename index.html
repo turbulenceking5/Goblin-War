@@ -2442,6 +2442,10 @@ const CHANGELOG = [
   { id:135, date:"2026-09-30", changes:[
     "The map now loads noticeably faster, especially on phones — cut way down on the number of individual drawing operations the world-map painter does per load, and switched its final image format to one that's much quicker to produce, with no visible difference in how the map looks."
   ]},
+  { id:136, date:"2026-09-30", changes:[
+    "Settlement markers and the army/battle/supply-cut icons on the map are 4x bigger and much easier to make out at a glance.",
+    "Fixed a real bug in several of those same map icons (army, battle, and supply-cut) where a leftover transparency-preview checkerboard had been baked into the image itself instead of a real transparent background — they now sit cleanly on the map instead of showing a gray/white box behind them."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -6245,8 +6249,8 @@ function positionKingdomLabels(){
 const CITY_ICON_HREF = "assets/icons/Map/Cities.png"; // 1024x848, transparent outside the coin
 const CITY_ICON_ASPECT = 848/1024;
 const CITY_ICON_OFFSET_Y = 0; // logical units above the point — the icon *is* the marker now
-const SETTLEMENT_ICON_W = { village:7, town:10, city:14, capital:20 };
-const SETTLEMENT_ICON_CLEARANCE = { village:4, town:5, city:7, capital:7 };
+const SETTLEMENT_ICON_W = { village:28, town:40, city:56, capital:80 }; // 4x, per the project owner
+const SETTLEMENT_ICON_CLEARANCE = { village:16, town:20, city:28, capital:28 }; // scaled with the icon size above so a bigger icon still doesn't overlap a close neighbor
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
   g.innerHTML = '';
@@ -6322,7 +6326,7 @@ function buildSupplyMarkers(){
     const r = (HIT_R[b.tier] || 10) + 3;
     if(SUPPLY_CUT_ICONS.length){
       const variant = SUPPLY_CUT_ICONS[0];
-      const w = r * 1.8, h = w * variant.aspect;
+      const w = r * 1.8 * 4, h = w * variant.aspect; // 4x, per the project owner
       const icon = document.createElementNS(ns, "image");
       icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
       icon.setAttribute("href", variant.href);
@@ -6389,7 +6393,7 @@ function buildArmyMarkers(){
       // Falls back to variant 0 for an army saved before iconVariant existed, or if the index is
       // ever out of range (the pool shrinking below a previously-assigned index).
       const variant = pool[army.iconVariant] || pool[0];
-      const w = hw * 2.4; // the real emblem's own silhouette reads smaller than the old wedge at the same hw, so it gets a mild size boost to stay just as visible
+      const w = hw * 2.4 * 4; // the real emblem's own silhouette reads smaller than the old wedge at the same hw, so it gets a mild size boost to stay just as visible — 4x again on top of that, per the project owner
       const h = w * variant.aspect;
       const icon = document.createElementNS(ns, "image");
       icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
@@ -6742,14 +6746,14 @@ function buildBattleMarkers(){
     hit.setAttribute("class", "hitzone battle-hitzone");
     hit.setAttribute("cx", battle.x);
     hit.setAttribute("cy", battle.y);
-    hit.setAttribute("r", 10);
+    hit.setAttribute("r", 30); // scaled up along with the icon below (was 10 at the old, 4x-smaller icon size) so the whole visible marker stays tappable
     hit.dataset.battle = battle.id;
     g.appendChild(hit);
     if(BATTLE_MARKER_ICONS.length){
       // Falls back to variant 0 for a battle saved before iconVariant existed, or if the index is
       // ever out of range (the pool shrinking below a previously-assigned index).
       const variant = BATTLE_MARKER_ICONS[battle.iconVariant] || BATTLE_MARKER_ICONS[0];
-      const w = 16, h = w * variant.aspect;
+      const w = 16 * 4, h = w * variant.aspect; // 4x, per the project owner
       const icon = document.createElementNS(ns, "image");
       icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
       icon.setAttribute("href", variant.href);
@@ -7468,16 +7472,19 @@ function buildQuestMarkers(){
   targets.forEach(burgId => {
     const b = graph.burgs[burgId];
     if(!b) return;
+    // 4x the original pole/flag dimensions, per the project owner (same as the settlement/army/
+    // battle/supply-cut markers above) — stroke widths only doubled rather than also 4x, so the
+    // outline doesn't read as a thick cartoon border at the bigger size.
     const pole = document.createElementNS(ns, "line");
     pole.setAttribute("x1", b.x); pole.setAttribute("y1", b.y - 4);
-    pole.setAttribute("x2", b.x); pole.setAttribute("y2", b.y - 16);
-    pole.setAttribute("stroke", "#3a2c18"); pole.setAttribute("stroke-width", "1.4");
+    pole.setAttribute("x2", b.x); pole.setAttribute("y2", b.y - 64);
+    pole.setAttribute("stroke", "#3a2c18"); pole.setAttribute("stroke-width", "2.8");
     g.appendChild(pole);
     const flag = document.createElementNS(ns, "path");
-    flag.setAttribute("d", `M${b.x},${b.y-16} L${b.x+8},${b.y-13} L${b.x},${b.y-10} Z`);
+    flag.setAttribute("d", `M${b.x},${b.y-64} L${b.x+32},${b.y-52} L${b.x},${b.y-40} Z`);
     flag.setAttribute("fill", "#d1a445");
     flag.setAttribute("stroke", "#3a2c18");
-    flag.setAttribute("stroke-width", "0.8");
+    flag.setAttribute("stroke-width", "1.6");
     g.appendChild(flag);
   });
 }

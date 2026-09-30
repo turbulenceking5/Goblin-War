@@ -535,6 +535,10 @@ const CHANGELOG = [
   { id:135, date:"2026-09-30", changes:[
     "The map now loads noticeably faster, especially on phones — cut way down on the number of individual drawing operations the world-map painter does per load, and switched its final image format to one that's much quicker to produce, with no visible difference in how the map looks."
   ]},
+  { id:136, date:"2026-09-30", changes:[
+    "Settlement markers and the army/battle/supply-cut icons on the map are 4x bigger and much easier to make out at a glance.",
+    "Fixed a real bug in several of those same map icons (army, battle, and supply-cut) where a leftover transparency-preview checkerboard had been baked into the image itself instead of a real transparent background — they now sit cleanly on the map instead of showing a gray/white box behind them."
+  ]},
 ];
 
 function renderChangelog(){

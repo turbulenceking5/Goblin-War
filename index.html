@@ -2387,6 +2387,9 @@ const CHANGELOG = [
   { id:129, date:"2026-09-30", changes:[
     "Bad-alliance armies now show a real pixel-art banner too — three skull-and-axes designs in the rotation."
   ]},
+  { id:130, date:"2026-09-30", changes:[
+    "The crossed-swords marker for an active field battle is a real pixel-art clashing-weapons icon again — four variants in the rotation, including a circular medallion design."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3593,7 +3596,10 @@ function detectFieldBattles(){
         goodKingdom: good.kingdom, goodArmyId: good.id, goodRace: good.race,
         badKingdom: bad.kingdom, badArmyId: bad.id, badRace: bad.race,
         goodResumeStatus, badResumeStatus,
-        startedDay: gameDay, advantage: 0
+        startedDay: gameDay, advantage: 0,
+        // Picked once and kept for this battle's whole life, same iconVariant precedent
+        // spawnArmy's own ARMY_ICON_POOLS pick set — see buildBattleMarkers.
+        iconVariant: Math.floor(Math.random() * (BATTLE_MARKER_ICONS.length || 1))
       });
       saveFieldBattles(battles);
       changed = true;
@@ -6599,11 +6605,19 @@ function buildBorderMarkers(){
 // separate visible mark" split every settlement already uses (see HIT_R/buildHitzones): a
 // `.hitzone.battle-hitzone[data-battle]` circle (interactive — handleTap checks dataset.battle
 // before falling through to the ordinary settlement-hitzone branch) plus a pointer-events:none
-// crossed-line mark on top of it so the visual doesn't intercept its own tap. Placeholder look,
-// real art pending — the painted-style "battle-marker" icon that briefly lived here was pulled
-// since the Scene Backdrops tracker's art direction pivoted to pixel art (see
-// context/roadmap.md's "Combat environment backgrounds"), same precedent buildArmyMarkers' own
-// placeholder wedge sets.
+// icon on top of it so the visual doesn't intercept its own tap. Real pixel-art icons now, from
+// the Scene Backdrops tracker's regenerated "battle-marker" prompt (see context/roadmap.md's
+// "Combat environment backgrounds") — all four generated variants were clean this time (unlike
+// army-good/army-bad's regens, which each had one defective variant), including a circular
+// rope-bordered medallion composition distinct from the other three's freestanding crossed
+// weapons, so all four are a pool. Same `pool && pool.length` guard buildArmyMarkers uses, though
+// with only one alliance-agnostic pool here there's nothing that can currently be empty.
+const BATTLE_MARKER_ICONS = [ // all 512 wide, transparent outside the emblem
+  { href:"assets/icons/Map/battle-marker-1.png", aspect:304/512 },
+  { href:"assets/icons/Map/battle-marker-2.png", aspect:304/512 },
+  { href:"assets/icons/Map/battle-marker-3.png", aspect:304/512 },
+  { href:"assets/icons/Map/battle-marker-4.png", aspect:304/512 },
+];
 function buildBattleMarkers(){
   const g = document.getElementById('battle-markers');
   if(!g) return;
@@ -6617,6 +6631,22 @@ function buildBattleMarkers(){
     hit.setAttribute("r", 10);
     hit.dataset.battle = battle.id;
     g.appendChild(hit);
+    if(BATTLE_MARKER_ICONS.length){
+      // Falls back to variant 0 for a battle saved before iconVariant existed, or if the index is
+      // ever out of range (the pool shrinking below a previously-assigned index).
+      const variant = BATTLE_MARKER_ICONS[battle.iconVariant] || BATTLE_MARKER_ICONS[0];
+      const w = 16, h = w * variant.aspect;
+      const icon = document.createElementNS(ns, "image");
+      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
+      icon.setAttribute("href", variant.href);
+      icon.setAttribute("x", battle.x - w/2);
+      icon.setAttribute("y", battle.y - h/2);
+      icon.setAttribute("width", w);
+      icon.setAttribute("height", h);
+      icon.style.pointerEvents = "none";
+      g.appendChild(icon);
+      return;
+    }
     const mark = document.createElementNS(ns, "path");
     mark.setAttribute("d", `M${battle.x-5},${battle.y-5} L${battle.x+5},${battle.y+5} M${battle.x-5},${battle.y+5} L${battle.x+5},${battle.y-5}`);
     mark.setAttribute("stroke", "#d1a445");

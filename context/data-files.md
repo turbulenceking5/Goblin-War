@@ -1,26 +1,34 @@
 # Data Files (assets/)
 
-**The world is procedurally generated per character now — this file mostly describes legacy
-data.** As of the "Realm Forge" swap (see [travel-and-map.md](travel-and-map.md)'s own note at
-its top), index.html/character.html/settings.html/characters.html/achievements.html no longer
-fetch `travel-graph.json` or `border-water-mask.json` at all, and index.html no longer fetches
-`world-raster.jpg` either — every one of those now calls `generateWorld(seed)` (a big block of
-code duplicated into all five pages, same no-modules convention as everything else) and, in
-index.html's case, renders its own raster canvas from that same call's output. The three files
-are kept in the repo (nothing was deleted) as the last snapshot of the original hand-authored
-world, and `git tag legacy-map-fixed-world` (local only — pushing tag refs isn't permitted in
-this project's CI environment) marks the commit they were last live at. `game-map.html`, the
-unused legacy prototype map (see root [CLAUDE.md](../CLAUDE.md)'s file table), still references
-`world-raster.jpg` directly — it was never touched by this swap, being dead code nothing links to.
+**The world is procedurally generated per character now.** As of the "Realm Forge" swap (see
+[travel-and-map.md](travel-and-map.md)'s own note at its top), index.html/character.html/
+settings.html/characters.html/achievements.html no longer fetch any world data file at all —
+every one of those now calls `generateWorld(seed)` (a big block of code duplicated into all five
+pages, same no-modules convention as everything else) and, in index.html's case, renders its own
+raster canvas from that same call's output. `travel-graph.json`, `world-raster.jpg`,
+`border-water-mask.json`, `game-map.html`, and `scripts/tag-burg-biomes.js` — confirmed fetched
+by nothing and superseded end-to-end by the procedural generator — were deleted outright on
+2026-09-30, after sitting as unused legacy weight for a while (`assets/game-map.json`, also
+long superseded, had apparently already been removed sometime before that pass — it's referenced
+in a few places below and in `scripts/build-world-raster/`'s tooling, but wasn't present in the
+working tree by the time this cleanup ran). See "Retired: the original hand-authored world"
+below for what those files were and the hand-patches baked into them, kept as history now that
+the files themselves are gone. `git tag legacy-map-fixed-world` (local to whichever environment
+ran the delete — pushing tag refs isn't permitted in this project's CI, confirmed by a failed
+push attempt) marks the last commit any of them were actually live at; failing that, the branch's
+own ordinary git history still has every one of them in the commits before the deletion, tag or
+not.
 
-| File | Size | Fetched at runtime? |
+`scripts/build-world-raster/` (the offline tool that rendered `world-raster.jpg` from
+`game-map.json`) and the `assets/map-sprites/` art it consumed are now doubly non-functional as a
+result — their one input file doesn't exist in the repo and their one output file has just been
+deleted too. Left in place for now (not part of this cleanup pass, which only touched the 5 files
+named above) but worth a follow-up decision of their own.
+
+| File | Size | Status |
 |---|---|---|
-| `travel-graph.json` | ~400KB | No longer — kept as a legacy snapshot, see above |
-| `world-raster.jpg` | ~6.5MB | Only by the unused `game-map.html` prototype |
-| `border-water-mask.json` | ~13KB | No longer — the generator computes its own water mask directly from elevation data, see below |
-| `game-map.json` | ~9.5MB | No |
-| `map` | 2 bytes | No — stray/placeholder file, not referenced anywhere |
-| `assets/realm-sprites/` | ~1.5MB | Yes — index.html's `renderWorldRaster()`; mountain-range/tree PNGs plus real ground and water JPEG textures the generator composites onto the terrain it paints. Most are extracted from the "Realm Forge" prototype artifact; `mountainRock1.jpg` is a later addition generated separately (bare mountainside ground didn't exist as a category in that prototype), see below |
+| `assets/realm-sprites/` | ~1.5MB | **Live.** index.html's `renderWorldRaster()`; mountain-range/tree PNGs plus real ground and water JPEG textures the generator composites onto the terrain it paints. Most are extracted from the "Realm Forge" prototype artifact; `mountainRock1.jpg` is a later addition generated separately (bare mountainside ground didn't exist as a category in that prototype), see below |
+| `map` | 2 bytes | Stray/placeholder file, nothing references it — see the bottom of this file |
 
 ## The procedural world generator (`generateWorld(seed)`)
 
@@ -149,69 +157,52 @@ candidates for desert-rock, forest-floor, and swamp in the original pass). The g
 a "one texture per biome category" system ships, explicitly check it against the *full list* of
 categories the terrain classifier can return, not just that some art exists somewhere in the diff.
 
-## travel-graph.json
+## Retired: the original hand-authored world (deleted 2026-09-30)
 
-The only world data the live game reads. Top-level shape:
+`travel-graph.json`, `world-raster.jpg`, and `border-water-mask.json` (plus `game-map.html`, the
+dead-code page that was their only remaining reader, and `scripts/tag-burg-biomes.js`) are gone
+from the repo now — confirmed unread by any live page first (see the top of this file), then
+deleted rather than kept as unused weight. This section is a compressed record of what they were
+and the hand-work baked into them, for anyone who ever needs that history; the git tag/branch
+history mentioned at the top of this file is the fallback for the actual bytes.
 
-```js
-{
-  "burgs": {
-    "<id>": {
-      id, name, tier,        // tier: "village" | "town" | "city" | "capital"
-      x, y,                  // logical-space coordinates (2560x1277), see travel-and-map.md
-      cell,                  // the map-cell id this burg sits on, links into the graph
-      stateId, state,        // owning nation, e.g. "Grand Duchy of Mevia"
-      race,                  // "human" | "dwarf" | "ork" | "goblin" | "neutral"
-      population, port
-    }, ...
-  },
-  "edges": [
-    { a, b, mi, kind, pts }  // a/b: cell ids this edge connects; mi: distance in miles;
-                             // kind: "road" | "trail" | "sea" (etc.); pts: [[x,y], ...] polyline
-  ],
-  "states": { ... }          // nation metadata, not currently read by any page
-}
-```
+- **`travel-graph.json`** was the only world data the live game read, before `generateWorld(seed)`
+  replaced it: `{burgs: {id: {id, name, tier, x, y, cell, stateId, state, race, population, port}},
+  edges: [{a, b, mi, kind, pts}], states: {...}}` — logical-space coordinates (2560×1277, see
+  [travel-and-map.md](travel-and-map.md)), burg `"5"` (Bary) hardcoded as the starting/fallback
+  settlement. It was derived from the raw Azgaar export (`game-map.json`, not present in this repo
+  by the time of this cleanup either) through several one-off, never-rerun hand-patches, all now
+  lost along with the file itself since none were ever reapplied to the live procedural generator
+  (a completely separate, independently-coded system — see below): settlement density thinned from
+  Azgaar's raw 796 burgs down to 426 (two greedy min-distance passes, Capitals always kept, denser
+  clusters keeping their biggest settlement); all 13 Ork/Goblin kingdoms' political titles
+  reworded to race-flavored ones (`Kingdom of Warg` → `Warg Horde`, etc.) while Human/Dwarf titles
+  stayed untouched; all 265 Ork/Goblin *settlement* names replaced with race-flavored ones via a
+  seeded prefix/suffix generator; and 17 mountain-elevation settlements reassigned to Dwarf control
+  (deliberately creating non-contiguous Dwarf enclaves elsewhere on the map, a geographic quirk the
+  project owner accepted rather than redraw borders for contiguity). `scripts/tag-burg-biomes.js`
+  was the mechanism that wrote a `biome` category onto each burg from Azgaar's per-cell elevation
+  data — fully superseded (not merely unrun) since `generateWorld(seed)` computes the same
+  categories live from each character's own generated elevation/moisture grid instead.
+- **`world-raster.jpg`** was a 10240×5108 rendering (4× the logical coordinate space) of that same
+  world, painted offline by `scripts/build-world-raster/render-painterly.js` from `game-map.json`'s
+  cell/biome/elevation/river/state data — see [roadmap.md](roadmap.md)'s "World map rebuilt as a
+  painterly render" for the fuller design history (macro-repeat detection, alpha-premultiplied
+  blur, chamfer distance fields — lessons that generalized and were directly reused porting real
+  ground textures into the live procedural renderer, even though the specific file and script
+  output are gone now).
+- **`border-water-mask.json`** was a precomputed land/water lookup (`{cols:160, rows:80,
+  rowStrings:[...]}`) for the political-border overlay, generated from `world-raster.jpg` by
+  `scripts/build-world-raster/build-border-water-mask.js` — superseded by `computeWaterMask()`
+  sampling the live generator's own land/water field directly (see "The procedural world
+  generator" above).
 
-`burgs` is keyed by a stable numeric-string id — burg `"5"` (Bary) is hardcoded as the new-game starting location and the fallback for a stranded/invalid saved position (see [travel-and-map.md](travel-and-map.md)). `edges` is the road/sea graph itself: `buildAdjacency()` in index.html turns it into a bidirectional lookup, and `pts` is what makes the travel animation follow the actual drawn road shape instead of a straight line.
-
-**Settlement density was hand-thinned — this is also NOT in the raw Azgaar export.** The raw export had 796 burgs (24 capitals, 67 cities, 507 towns, 198 villages) — 89% Town/Village tier, with many pairs sitting only 10-20 logical units apart, dense enough that map labels routinely collided (e.g. "Lengar"/"Sandosen" running together, or two cities 13.6 units apart). A one-off script greedily removes burgs sitting within a minimum distance of another kept settlement, processed by tier priority (Capital always kept, never touched) then by population within a tier (a denser cluster's bigger settlement wins the contested spot over its smaller neighbors), one tier at a time — City, then Town, then Village — so a lower tier is also excluded by whatever higher tier already claimed that ground. Went through two passes at the project owner's direction, both keyed off the *original* 796-burg export rather than compounding on the first pass's specific survivors, so each pass's thresholds are easy to reason about independently:
-
-- **Pass 1**: Town/Village only, 20-unit minimum, City left untouched — 796 → 561 burgs (24/67/367/103).
-- **Pass 2 (current)**: City added (30-unit minimum, so Cities also keep real distance from each other and from Capitals, not just from Town/Village) and the Town/Village minimum raised to 28 — 796 → **426 burgs** (24 capital / 58 city / 286 town / 58 village).
-
-Roads (`edges`) are untouched throughout: they're keyed to map cells, not burgs, so a removed settlement's cell is still a real pass-through point on the route graph, it just stops being a named, tappable stop. **If `travel-graph.json` is ever regenerated from `game-map.json`, this thinning is lost too and needs reapplying**, same caveat as the kingdom-name patch below.
-
-**Kingdom names were hand-patched to be race-appropriate — this is NOT in the raw Azgaar export.** Every kingdom name in the original `game-map.json` export used the same generic political-title format (Kingdom/Duchy/Grand Duchy/Principality/Republic/Empire/Dominion/Protectorate of `<name>`) regardless of which race actually ended up controlling it — so Ork- and Goblin-controlled kingdoms read exactly like Human/Dwarf ones (e.g. "Kingdom of Warg" for an Ork nation), per the project owner. A one-off script renamed all 13 Ork/Goblin kingdoms' `state` field (on every one of their burgs) to a race-flavored title while keeping each kingdom's distinctive original name — e.g. `Kingdom of Warg` → `Warg Horde`, `Dominion of Foroughia` → `Foroughia Warband`, `Kingdom of Mikiv` → `Mikiv Swarm` (Ork titles: Warband/Warhost/Horde/Clan/Warcamp/Stronghold/Legion; Goblin titles: Warren/Swarm/Nest/Burrow/Pack). Human and Dwarf kingdom names are untouched. `graph.states[*].name` was patched to match too, for consistency, even though nothing reads `states` today. **If `travel-graph.json` is ever regenerated from `game-map.json` again, this patch is lost and needs reapplying** — it lives only in the derived file, not the source export.
-
-**Individual Ork/Goblin *settlement* names were hand-patched too, same reasoning one step down.** The kingdom-name patch above only ever touched the `state` field — every individual burg's own `name` was still a generic Azgaar name indistinguishable from a Human/Dwarf one (e.g. "Sidhyr", "Witry" for Ork villages), per the project owner. A second one-off script renamed all 265 Ork (147) and Goblin (118) burgs' `name` fields — a small prefix/suffix generator per race (Ork: harsh, guttural, heavy k/g/r/z clusters — "Grimgash", "Uzgardun"; Goblin: scrappier, sibilant, small-sounding — "Snikwick", "Grubditch"), seeded and checked against every existing name in the file so no new collision was introduced (426 burgs total; 3 pre-existing Human/Dwarf duplicate names from the original Azgaar export were already there and are unrelated/untouched). Every other field (`id`/`cell`/`x`/`y`/`state`/`race`/`tier`/`port`/`biome`) is byte-identical to before — confirmed by diffing every burg field against the pre-patch file, not just spot-checked. Human and Dwarf settlement names are untouched. **If `travel-graph.json` is ever regenerated from `game-map.json` again, this patch is lost too and needs reapplying**, same caveat as the kingdom-name patch above.
-
-**Settlements can carry a `biome` category — legacy history below; the live game gets this from the procedural generator instead, not from this file.** `scripts/tag-burg-biomes.js` (a real, committed, re-runnable script — unlike the one-off patches below, which were run once and never kept) reads `game-map.json`'s per-cell `biome`/`h` (elevation) data for each burg's own `cell` and reduces it down to one of 7 strings — `forest`/`plains`/`desert`/`swamp`/`snow`/`hills`/`mountains` — written onto that burg's `biome` field in `travel-graph.json`. That was the original mechanism behind `index.html`'s `BIOME_ART`/`getBiomeBackdrop` (see [combat.md](combat.md)'s "Environment backdrop"), back when the game fetched this file. It's now superseded, not merely unrun: since the "Realm Forge" procedural-world swap (see "The procedural world generator" above), every character's `generateWorld(seed)` call computes each of its own burgs' `biome` field directly from that character's own generated elevation/moisture grid (`RF_BIOME_TO_GAME[rfTerrainColor(...)]`, evaluated at the burg's own map position) — the same categories, the same consumer (`getBiomeBackdrop`), but sourced live per-character rather than patched once into this now-unfetched file. Coast is still deliberately not one of the 7 — a burg's `port` flag answers that directly. This script and this file's `biome` field are kept only as the last snapshot of the original hand-authored world (same status as everything else in this file); there's nothing to run or regenerate for the live game's combat backdrops anymore. `HILL_HEIGHT_THRESHOLD`/`MOUNTAIN_HEIGHT_THRESHOLD` live on in the procedural generator's own `rfTerrainColor` thresholds (see "The procedural world generator" above), not just in this now-dormant script.
-
-**Settlements sitting in mountain-elevation terrain were reassigned to Dwarf — also NOT in the raw Azgaar export, and also lost if `travel-graph.json` is ever regenerated.** The project owner's call: mountain settlements should read as Dwarf, not whatever race the original export happened to assign. Cross-referencing every burg's `cell` against that cell's elevation in `game-map.json` (`pack.cells[cell].h >= 62`, the same `MOUNTAIN_HEIGHT_THRESHOLD` `scripts/build-world-raster/render-painterly.js` uses to decide where mountain art goes) found 17 settlements sitting on mountain terrain, only 2 of which were already Dwarf-owned. A one-off script set `race:"dwarf"` on all 17 and, for the 15 that belonged to a real (non-Dwarf) kingdom, also reassigned `state`/`stateId` to whichever *existing* Dwarf kingdom's territory centroid was geographically nearest — changing only `.race` and leaving `.state` alone would have been cosmetic no-ops for gameplay purposes, since `KINGDOM_RACE` (index.html's `buildFactionData()`) derives a settlement's *effective* race from its controlling kingdom, not its own raw `.race` field, except for the one settlement with no kingdom at all (`state: null`), where `.race` **is** read directly. Because every existing Dwarf kingdom's own territory sits clustered in the map's center-west while these mountain settlements are scattered much further out (several hundred logical units in some cases), this deliberately creates non-contiguous Dwarf enclaves deep inside other kingdoms' territory — a real geographic/thematic oddity the project owner accepted rather than the alternative (actually redrawing kingdom borders for contiguity, which is unscoped, much larger work — see roadmap.md's "Procedurally generated per-game kingdoms/borders" idea for why that's hard). No burg was removed, renamed, moved, or given a new id/cell/position — every id/quest/notable-figure reference into `travel-graph.json` still resolves exactly as before, only the settlement's own race/kingdom fields changed.
-
-## world-raster.jpg
-
-A 10240×5108 rendering of the world map, 4× the logical coordinate space (see [travel-and-map.md](travel-and-map.md) for why). Purely visual — the SVG `#overlay` sitting on top of it (same pixel dimensions, `viewBox="0 0 2560 1277"` so it can use logical coordinates directly) is what's actually interactive. Generated, not hand-drawn or AI-painted: `scripts/build-world-raster/render-painterly.js` (see [roadmap.md](roadmap.md)'s "World map rebuilt as a painterly render" for the design history, and [scripts/build-world-raster/README.md](../scripts/build-world-raster/README.md) for how to actually run it) renders it straight from `game-map.json`'s real cell/biome/elevation/river/state data below — coastlines, forests, rivers, and mountains all come from that data, not from art. Being purely visual with no roads/rivers/borders baked in (those are the SVG overlay, drawn separately) is what let the renderer treat them independently from the terrain underneath.
-
-## border-water-mask.json
-
-A precomputed land/water lookup for `index.html`'s political border overlay (`buildBorderMarkers()`
-— see [travel-and-map.md](travel-and-map.md)'s border section), keeping a kingdom's territory
-contour off open water. `{cols:160, rows:80, rowStrings:[...]}` — 81 strings of 161 `'0'`/`'1'`
-characters, one bit per point of the same `TERRITORY_CONTOUR_COLS×ROWS` grid the contour itself is
-traced on (`rowStrings[gy][gx] === '1'` means that grid point is water). Generated by
-`scripts/build-world-raster/build-border-water-mask.js` from `world-raster.jpg` itself — see that
-script's own header comment for why this moved from a live in-browser canvas computation to a
-precomputed, checked-in file (repeated live breakage a synthetic test never caught: browser-specific
-downscale quality differences and canvas read failures on real devices, at a >63x single-step
-reduction ratio). **If `world-raster.jpg` is ever regenerated, re-run that script too** — same
-"derived file goes stale" caveat as `travel-graph.json`'s own patches above, just for map art instead
-of burg data.
-
-## game-map.json
-
-The raw export from the Azgaar Fantasy Map Generator that `travel-graph.json` was derived from — full cell geometry, biomes, rivers, and everything else Azgaar tracks, well beyond what the game needs. Not fetched by any page at runtime. It's a ~9.5MB single-line JSON file, which is heavy to carry in git history permanently — worth confirming with the project owner whether it belongs in version control at all, or should live outside the repo (regenerating `travel-graph.json` from it is a one-time/occasional step, not something that needs to ship with every clone). Keep it around as the source if `travel-graph.json` ever needs regenerating with more fields (e.g. biome-based encounter tables), but don't wire it into runtime fetches directly. It now has a second real consumer besides that one-time regeneration: `scripts/build-world-raster/render-painterly.js` reads it directly (cell geometry, biome, elevation, rivers, state) every time `assets/world-raster.jpg` gets rebuilt — see [roadmap.md](roadmap.md).
+`scripts/build-world-raster/` itself (the offline Node tool, plus the `assets/map-sprites/` art it
+consumed) wasn't part of this deletion pass and is still in the repo, but it's now non-functional
+either way: its one documented input (`game-map.json`) isn't present in the working tree, and its
+one output (`world-raster.jpg`) is the file just deleted above. Worth its own follow-up decision
+(delete alongside the rest, or keep as reference for a future from-scratch Azgaar re-export)
+rather than being silently left to rot as the next round of this same cleanup.
 
 ## `assets/map`
 

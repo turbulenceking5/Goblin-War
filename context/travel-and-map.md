@@ -2,8 +2,9 @@
 
 **The world itself is procedurally generated per character now** — see
 [data-files.md](data-files.md)'s "The procedural world generator" section for `generateWorld(seed)`,
-what replaced the old fetched `travel-graph.json`/`world-raster.jpg`/`border-water-mask.json`, and
-what stayed exactly the same. Everything below this point — the two coordinate spaces, the camera,
+what replaced the old fetched `travel-graph.json`/`world-raster.jpg`/`border-water-mask.json` (all
+three now deleted from the repo entirely, not just unfetched — see [data-files.md](data-files.md)'s
+"Retired: the original hand-authored world"), and what stayed exactly the same. Everything below this point — the two coordinate spaces, the camera,
 the road/sea graph, travel animation, the calendar, and the whole "Roads, settlement dots, labels,
 and city icons" section — describes the SVG-overlay/pathfinding code that reads whatever `graph`
 currently holds, and needed **zero changes** for the swap: it already worked generically off

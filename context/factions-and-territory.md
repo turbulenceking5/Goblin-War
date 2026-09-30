@@ -31,7 +31,7 @@ A kingdom can be at war with one specific enemy while at peace with everyone els
 
 `travel-graph.json` has no burg-to-burg or kingdom-to-kingdom border data at all — `graph.edges` only connects map *cells*, most of which aren't a settlement. `buildBurgAdjacency()` (called once after `buildAdjacency()`, alongside `buildFactionData()`) derives a real one: for every burg, it BFSes outward through the existing cell-level `adjacency` graph and, along each branch, stops at the first cell that's home to some *other* burg — collecting those as that burg's neighbors into a module-level `burgAdjacency` map (`burgId -> [burgId, ...]`), never persisted, same "derived fresh every load" treatment as `KINGDOM_RACE`/`ALL_KINGDOMS`.
 
-`isFrontlineBurg(burgId)` uses it: true when any neighbor is controlled by an opposite-alliance kingdom this burg's controller currently has a `"war"` relation with. `buildFrontlineMarkers()` draws a small red ring (in the SVG overlay's `#frontline-markers` group, alongside `#city-icons`) on every burg that qualifies, rebuilt once at load and again after every weekly tick (`maybeRunFactionAI` calls it) — the map's visual read of where the fighting is actually happening. `isFrontlineBurg` is now a thin wrapper around `getFrontlineEnemyKingdom(burgId)`, which does the same adjacency check but returns the specific bordering kingdom's name (or `null`) instead of a boolean — added for "Reactive rumors" (see [locations-and-camp.md](locations-and-camp.md)/[roadmap.md](roadmap.md)), whose frontline flavor lines need to actually name who you're bordering, not just know that you are.
+`isFrontlineBurg(burgId)` uses it: true when any neighbor is controlled by an opposite-alliance kingdom this burg's controller currently has a `"war"` relation with. `buildFrontlineMarkers()` originally drew a small red ring on every qualifying burg (in the SVG overlay's `#frontline-markers` group, alongside `#city-icons`) but is a deliberate no-op today — it just clears that group — per the project owner, who found the solid red ring read as "something's broken" rather than "this is at war"; see "Where this shows up" below for the real border visual that replaced it (`buildBorderMarkers`). `isFrontlineBurg`/`getFrontlineEnemyKingdom` themselves are still real and live on, still called once at load and again after every weekly tick (`maybeRunFactionAI`) — `isFrontlineBurg` is now a thin wrapper around `getFrontlineEnemyKingdom(burgId)`, which does the same adjacency check but returns the specific bordering kingdom's name (or `null`) instead of a boolean — added for "Reactive rumors" (see [locations-and-camp.md](locations-and-camp.md)/[roadmap.md](roadmap.md)), whose frontline flavor lines need to actually name who you're bordering, not just know that you are.
 
 ## The weekly tick
 
@@ -166,15 +166,16 @@ on armies from before this shipped — `lastSupplyCheckDay` falls back to `spawn
   softened with a partial-connectivity grace period — losing the capital is meant to read as a real,
   cascading blow.
 
-**Map marker — done.** `buildSupplyMarkers()` (index.html) draws a dashed amber ring (`#supply-markers`,
-between `#frontline-markers` and `#army-markers`) around every settlement `getSupplyCutBurgs` returns for
-any kingdom in `ALL_KINGDOMS` — union across all of them rather than just kingdoms currently at war,
-since the cut-off set is a pure function of current territorial control, not of an active war or the
-weekly tick. Deliberately not the look `buildFrontlineMarkers`' retired red rings had (see that
-function's own comment) — a solid red ring there read as "something's broken" per the project owner's
-own feedback, not "this settlement is at war"; this uses a dashed circle (reads as "severed") in a
-muted amber rather than war-red, so it doesn't compete with `buildBorderMarkers`' own danger-red
-at-war line for the same visual real estate. Territory control only ever changes inside `advanceSiege`
+**Map marker — done.** `buildSupplyMarkers()` (index.html) draws a real pixel-art roped supply-crate
+icon (`#supply-markers`, between `#frontline-markers` and `#army-markers`, `SUPPLY_CUT_ICONS`) above
+every settlement `getSupplyCutBurgs` returns for any kingdom in `ALL_KINGDOMS` — union across all of
+them rather than just kingdoms currently at war, since the cut-off set is a pure function of current
+territorial control, not of an active war or the weekly tick. Falls back to the original dashed amber
+ring (deliberately not the look `buildFrontlineMarkers`' retired red rings had — a solid red ring
+there read as "something's broken" per the project owner's own feedback, not "this settlement is at
+war"; the dashed circle reads as "severed" in a muted amber rather than war-red, so it doesn't compete
+with `buildBorderMarkers`' own danger-red at-war line) if the icon pool is ever empty, same
+`pool.length`-guarded precedent the army/battle marker icons already use. Territory control only ever changes inside `advanceSiege`
 (`setController`'s one call site), which only ever runs from `runFactionAITick`'s pass 2 — so rebuilding
 this once at load and once after every weekly tick (`maybeRunFactionAI`, alongside
 `buildFrontlineMarkers`/`buildArmyMarkers`) is the complete set of times it can actually change; no

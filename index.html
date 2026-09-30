@@ -2370,6 +2370,10 @@ const CHANGELOG = [
   { id:124, date:"2026-09-30", changes:[
     "The crossed-swords marker for an active field battle is a real clashing-weapons icon now instead of a plain gold X — two variants in the rotation."
   ]},
+  { id:125, date:"2026-09-30", changes:[
+    "Field battles fought from the Army Camp now show a real battlefield backdrop behind the fight instead of a flat background.",
+    "A settlement cut off from its own kingdom's supply line now shows a real broken-crate badge next to it on the map instead of a plain dashed ring."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4418,6 +4422,15 @@ const BIOME_ART = {
   ],
   plains: [], desert: [], hills: [], mountains: [], swamp: [], snow: [], coast: [],
 };
+// Field Battle's own dedicated backdrop — a fight *context* (see triggerFieldBattleEngagement),
+// not a terrain biome, so it lives outside BIOME_ART even though it's the same "wide painted
+// combat plate" shape. Night Camp/Under Siege stay backdrop-less until their own dedicated art
+// exists (see context/roadmap.md's "Combat environment backgrounds").
+const FIELD_BATTLE_ART = [
+  "assets/biomes/field-battle-aftermath.jpg",
+  "assets/biomes/field-battle-clash.jpg",
+  "assets/biomes/field-battle-ridgeline.jpg",
+];
 function pickBackdrop(list){
   return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null;
 }
@@ -6160,18 +6173,22 @@ function buildFrontlineMarkers(){
 // lines") — a settlement that's lost its own kingdom's line back to its capital gets a small mark
 // here, so a cut-off pocket of territory is something the player can actually see while panning
 // the map, not just infer after the fact from a withering-army world event or a Guard House visit.
-// Deliberately not the same look buildFrontlineMarkers' now-retired red rings had — those read as
-// "something's broken" per the project owner's own feedback, not "this is at war." This uses a
-// dashed ring instead of a solid one (so the mark itself reads as "severed," matching what it
-// means) and a muted amber rather than war-red, so it doesn't compete visually with the war
-// border's own danger-red line (see buildBorderMarkers) for the same real estate.
+// Real art now (assets/icons/Map/supply-cut.png, from the Scene Backdrops tracker artifact's
+// "supply-cut" icon), drawn as a small badge offset up-and-right of the settlement's own point
+// rather than covering its city-icon — the same reason the placeholder below it was a ring drawn
+// *around* the point instead of on top of it. Deliberately not the same look
+// buildFrontlineMarkers' now-retired red rings had — those read as "something's broken" per the
+// project owner's own feedback, not "this is at war" — and a muted amber rather than war-red so
+// it doesn't compete visually with the war border's own danger-red line (see buildBorderMarkers)
+// for the same real estate.
 // Iterates every kingdom in ALL_KINGDOMS rather than only those currently at war — getSupplyCutBurgs
 // is a pure function of current territorial control, not of an active war or the weekly tick, so a
 // pocket cut off during a war that's since ended can still be showing this correctly.
 // Rebuilt from scratch (same pattern as buildFrontlineMarkers/buildArmyMarkers) whenever
 // territorial control could have changed: on load and after the weekly tick, alongside every other
 // marker layer that reads getControllerKingdom.
-const SUPPLY_CUT_MARKER_COLOR = '#c9862e';
+const SUPPLY_CUT_ICON_HREF = "assets/icons/Map/supply-cut.png"; // 512x304, transparent outside the crate
+const SUPPLY_CUT_ICON_ASPECT = 304/512;
 function buildSupplyMarkers(){
   const g = document.getElementById('supply-markers');
   if(!g) return;
@@ -6182,15 +6199,17 @@ function buildSupplyMarkers(){
   cutBurgs.forEach(id=>{
     const b = graph.burgs[id];
     if(!b) return;
-    const ring = document.createElementNS(ns, "circle");
-    ring.setAttribute("cx", b.x);
-    ring.setAttribute("cy", b.y);
-    ring.setAttribute("r", (HIT_R[b.tier] || 10) + 3);
-    ring.setAttribute("fill", "none");
-    ring.setAttribute("stroke", SUPPLY_CUT_MARKER_COLOR);
-    ring.setAttribute("stroke-width", "1.6");
-    ring.setAttribute("stroke-dasharray", "3,3");
-    g.appendChild(ring);
+    const r = (HIT_R[b.tier] || 10) + 3;
+    const w = 9, h = w * SUPPLY_CUT_ICON_ASPECT;
+    const cx = b.x + r * 0.8, cy = b.y - r * 0.8;
+    const icon = document.createElementNS(ns, "image");
+    icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", SUPPLY_CUT_ICON_HREF);
+    icon.setAttribute("href", SUPPLY_CUT_ICON_HREF);
+    icon.setAttribute("x", cx - w/2);
+    icon.setAttribute("y", cy - h/2);
+    icon.setAttribute("width", w);
+    icon.setAttribute("height", h);
+    g.appendChild(icon);
   });
 }
 
@@ -9585,7 +9604,7 @@ function triggerFieldBattleEngagement(battleId, engagementId){
   const engagement = FIELD_BATTLE_ENGAGEMENTS[engagementId];
   if(!battle || !engagement){ showFieldBattlePanel(battleId); return; }
   const specs = engagement.buildEnemies(battle);
-  startCombat(specs, PLAYER_DMG_RANGE, (result)=> resolveFieldBattleEngagement(battleId, engagementId, result), battle.badRace);
+  startCombat(specs, PLAYER_DMG_RANGE, (result)=> resolveFieldBattleEngagement(battleId, engagementId, result), battle.badRace, pickBackdrop(FIELD_BATTLE_ART));
   document.getElementById('combat-title').textContent = engagement.title + '!';
   const log = document.getElementById('combat-log');
   const introText = engagement.introLine ? engagement.introLine(battle) : `${battle.goodKingdom}'s line clashes with ${battle.badKingdom}'s forces!`;

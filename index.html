@@ -1670,8 +1670,20 @@ const RACE_LABEL = { human:"Human", dwarf:"Dwarf", ork:"Ork", goblin:"Goblin" };
 const ALLIANCE = { human:"Good", dwarf:"Good", ork:"Bad", goblin:"Bad" };
 
 // ===================== MAP CANVAS / VIEW (raster + CSS transform pan/zoom) =====================
-const STAGE_W = 10240, STAGE_H = 5108;      // native raster pixel size
+const STAGE_W = 10240, STAGE_H = 5108;      // #map-img's fixed CSS box size and every marker/overlay's coordinate space (see LOGICAL_W below) — NOT the raster bitmap's actual pixel resolution any more, see RASTER_W/RASTER_H just below
 const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1 unit = 2 raster px)
+// The actual pixel dimensions the world-map <canvas> is rendered at, kept well under WebKit's
+// real, undocumented-in-spec canvas area ceiling (empirically ~16,777,216px, i.e. 4096x4096) —
+// iOS/iPadOS Safari returns a null 2D context past that ceiling, and renderWorldRaster's very
+// next line (ctx.imageSmoothingEnabled = ...) then throws, which the LOAD block's outer .catch()
+// turns into the generic "Could not load the map." on every single load, unconditionally, for
+// any player on Safari — this was reported live and reproduced here by confirming STAGE_W*STAGE_H
+// (10240x5108 = ~52.3M px) is more than 3x that ceiling, while Chromium (no such limit) never
+// hits it, which is why this only ever showed up for an iPhone/iPad player. A plain uniform half
+// -scale keeps the exact STAGE_W/STAGE_H aspect ratio (so #map-img's own fixed-pixel CSS box,
+// unchanged above, just upscales a slightly softer bitmap rather than distorting it) while landing
+// at ~13.1M px — comfortably under the ceiling with real margin, not shaving it razor-close.
+const RASTER_W = STAGE_W / 2, RASTER_H = STAGE_H / 2; // 5120 x 2554
 const START_X = 705, START_Y = 448;         // placeholder pre-recenter position — immediately overridden once this character's own generated world/currentBurg resolves, see the LOAD init block
 const REGION_W = 260;                        // default zoom shows this many logical units wide
 
@@ -2399,6 +2411,9 @@ const CHANGELOG = [
   ]},
   { id:133, date:"2026-09-30", changes:[
     "The ground you're ambushed on now changes the fight, not just how it looks: boggy swamp terrain throws enemies off their footing, giving every one of their attacks a real chance to miss outright, while fighting from the hills makes Precise Shot hit noticeably harder."
+  ]},
+  { id:134, date:"2026-09-30", changes:[
+    "Fixed the map failing to load at all on iPhone/iPad — \"Could not load the map.\" every time — caused by the world map's canvas exceeding Safari's own size limit; it now renders at a safe resolution with no visible quality loss."
   ]},
 ];
 
@@ -10053,7 +10068,7 @@ Promise.all([
   refreshReachability();
 
   const img = document.getElementById('map-img');
-  const raster = renderWorldRaster(world, sprites, STAGE_W, STAGE_H, seed);
+  const raster = renderWorldRaster(world, sprites, RASTER_W, RASTER_H, seed);
   const finishLoad = ()=>{
     // A ?viewBurg=<id> param (quests.html's View Location button — see viewLocation below)
     // overrides the normal "recenter on where you actually are" behavior, so a quest's

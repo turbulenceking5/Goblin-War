@@ -539,6 +539,9 @@ const CHANGELOG = [
     "Settlement markers and the army/battle/supply-cut icons on the map are 4x bigger and much easier to make out at a glance.",
     "Fixed a real bug in several of those same map icons (army, battle, and supply-cut) where a leftover transparency-preview checkerboard had been baked into the image itself instead of a real transparent background — they now sit cleanly on the map instead of showing a gray/white box behind them."
   ]},
+  { id:137, date:"2026-09-30", changes:[
+    "Fixed the supply-cut marker showing up on settlements that were never actually at war — it was triggering purely from how the map's territory happened to be laid out, not from an actual enemy blocking the way. A settlement now only reads as cut off when a real at-war enemy sits between it and its kingdom's capital."
+  ]},
 ];
 
 function renderChangelog(){

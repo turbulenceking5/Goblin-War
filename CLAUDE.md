@@ -8,6 +8,8 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 
 | File | Role |
 |---|---|
+| [README.md](README.md) | Human-facing project overview and quickstart — this file (CLAUDE.md) is the deep brief for an AI assistant or a contributor sitting down to make a change; README.md is the shorter landing page for anyone just cloning the repo. |
+| [SETUP.md](SETUP.md) | Step-by-step Supabase project bootstrap (create project, run schema.sql, wire up `assets/supabase-config.js`, configure Auth redirect URLs) — the operational "make it work" doc that [context/accounts.md](context/accounts.md) assumes is already done. |
 | [index.html](index.html) | The overworld map — pan/zoom, travel, camp, combat. This is the game's hub; every other page links back to it. |
 | [character.html](character.html) | Hero sheet — identity, Health/Stamina, Equipment (unequip from here), Accessories (unequip from here too — 8 real slots), Purse, and basic info (age/location/day/food/weight). Mostly read-only. Level, stats, perks, and special attacks live on [skills.html](skills.html), not here. |
 | [skills.html](skills.html) | Level/XP, Strength/Agility/Intelligence (spend skill points here), the 9 passive perks, and the 6 active special attacks — see [context/player-state.md](context/player-state.md)'s "Leveling & stats". Split out from character.html into its own toolbar tab so the two screens don't compete for space. |
@@ -59,6 +61,7 @@ Each covers one system in depth — read the relevant one before changing that p
 - [context/secondary-pages.md](context/secondary-pages.md) — character.html, inventory.html, party.html.
 - [context/data-files.md](context/data-files.md) — the shape of `travel-graph.json` and where the map assets come from.
 - [context/roadmap.md](context/roadmap.md) — every "coming soon" stub in the codebase, collected in one place.
+- [context/testing-and-qa.md](context/testing-and-qa.md) — the manual smoke-test checklist to run before shipping a change, since there's no automated test suite.
 
 ## Conventions worth knowing before editing
 

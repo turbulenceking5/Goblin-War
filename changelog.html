@@ -532,6 +532,9 @@ const CHANGELOG = [
   { id:134, date:"2026-09-30", changes:[
     "Fixed the map failing to load at all on iPhone/iPad — \"Could not load the map.\" every time — caused by the world map's canvas exceeding Safari's own size limit; it now renders at a safe resolution with no visible quality loss."
   ]},
+  { id:135, date:"2026-09-30", changes:[
+    "The map now loads noticeably faster, especially on phones — cut way down on the number of individual drawing operations the world-map painter does per load, and switched its final image format to one that's much quicker to produce, with no visible difference in how the map looks."
+  ]},
 ];
 
 function renderChangelog(){

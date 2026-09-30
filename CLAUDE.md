@@ -6,6 +6,8 @@ A browser-based overworld RPG. No build step, no framework — every page is a s
 
 Fictional setting only — "Goblin War" and its world data have no connection to any real organization, event, or person.
 
+**Live at [turbulenceking5.github.io/Goblin-War](https://turbulenceking5.github.io/Goblin-War/)** — GitHub Pages serving this repo's static files directly, no build/deploy step beyond pushing to the branch it's configured against.
+
 ## Files at a glance
 
 | File | Role |

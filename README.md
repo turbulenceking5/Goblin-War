@@ -6,7 +6,7 @@ Fictional setting only — "Goblin War" and its world data have no connection to
 
 ## Play it
 
-Live version: served as static files (see [context/roadmap.md](context/roadmap.md) / your deployment target — this repo doesn't pin one). To run it locally:
+**Live version: [turbulenceking5.github.io/Goblin-War](https://turbulenceking5.github.io/Goblin-War/)** — served as static files straight from this repo via GitHub Pages, no build step. To run it locally instead:
 
 ```
 python3 -m http.server 8000

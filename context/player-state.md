@@ -23,7 +23,7 @@ There is no player-state module — every page reads and writes the same `localS
 | `goblinwar_xp` | XP progress toward the *next* level (not cumulative) | `0` | index.html, character.html |
 | `goblinwar_skillPoints` | Unspent skill points | `0` | index.html, character.html |
 | `goblinwar_stats` | JSON object `{str, agi, int}` | `{str:0,agi:0,int:0}` | index.html (persists only), character.html |
-| `goblinwar_skills` | JSON object `{skillId: true}` — unlocked perks/moves | `{}` | index.html (persists only) — nothing reads it yet, see below |
+| `goblinwar_skills` | JSON object `{skillId: true}` — unlocked perks/moves | `{}` | index.html, skills.html — the whole Perks/Special Attacks system reads it (`hasPerk`, `combatSpecial`, `canUseMove`), see "Leveling & stats" below |
 | `goblinwar_kills` | JSON object `{race: count}` — cumulative combat-victory kills by enemy race, incremented in `endCombat('victory')` by `combat.enemies.length` against `combat.race` | `{}` | index.html (writes, via `addKills`), character.html (reads, via `getKills`/`currentTitle` — see "Titles" below) |
 | `goblinwar_quests` | JSON array of accepted quests | `[]` | index.html, quests.html — see [quests.md](quests.md) |
 | `goblinwar_completedQuests` | JSON array of completed-quest records, newest first, capped at 20 | `[]` | index.html (writes only), quests.html (reads only) — see [quests.md](quests.md) |

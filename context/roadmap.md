@@ -301,3 +301,70 @@ Everything below came from a photographed handwritten list, not `Goblin_War_Trac
 ### Character Creation & Race
 
 - **"Realistic" difficulty: die of old age — done, including the missing prerequisite (age now actually advances).** A fourth toggle in the permadeath family (`permadeathOldAge`, off by default like `permadeathPlayer`), on characters.html's create form alongside the other three. Building this required `goblinwar_age` to actually mean something over time first — it was tracked and shown but never advanced with calendar time before this; `applyAging()` (index.html, hooked into `advanceTime`'s day-crossing path and `restThroughNight()`, same two spots mercenary upkeep/the faction tick already use) is that missing half, one year per `DAYS_PER_YEAR` (360) of elapsed `gameDay`. Past `OLD_AGE_DEATH_THRESHOLD` (60), `permadeathOldAge` rolls `OLD_AGE_DEATH_CHANCE_PER_YEAR` (5%) once per birthday actually crossed — simulated: reaching 60 at all already takes a 35+ year playthrough (12,960 in-game days), and death (when the toggle's on) lands at a median age of 73, mean ~79, with real spread (62-105) either side — a rare, flavorful capstone for a very long-lived character, not a routine threat. Doesn't touch the still-unbuilt age-threshold stat-tradeoff idea under Living World below — `applyAging` only feeds the death roll so far, no stat side-effects yet.
+
+## Future ideas from Expansion Research (2026-09-30, not from the dev tracker or an AI brainstorming pass)
+
+Everything below came from the "Goblin War — Expansion Research" doc, a pass that mapped each theme's existing plans in this file against net-new ideas fitting the game's static-file, localStorage+Supabase architecture — kept in its own section per this file's usual practice of staying honest about where each idea actually came from. Pure brainstorm, nothing scoped, nothing with a code stub, same as the three sections above. Also mirrored into the War Room tracker artifact's own new "Large / Risky Ideas" section and the rest of its existing sections.
+
+### World Map & Travel
+
+- **Route fork at travel-accept time.** Offer a second "shortcut" itinerary alongside the normal quoted route — same pathfinding math, lower travel hours, higher ambush-chance multiplier. No new pathfinding system needed.
+- **Caravan escort.** A paid Guard House/Marketplace action that applies a temporary ambush-chance discount to the next trip, with a short arrival conversation using the existing dialogue-tree engine.
+- **A Cartographer purchase per settlement.** A one-time fee that reveals nearby settlements' Quest Board / Notable Figure / companion status, using data the game already computes — gives fog-of-war (once built) or today's static map a reason to scout ahead.
+
+### Settlements & Economy
+
+- **Palace Savings/Vault.** The inverse of the already-shipped Palace Loan: deposit gold with a kingdom's court for interest over time, forfeited if that kingdom is later eliminated — a real gold sink with risk tied to the existing war system, not a risk-free bank.
+- **Settlement Investment.** A proactive counterpart to Aid the Refugees: spend gold at any settlement to nudge its population/economy upward directly, using the same primitives already used for war losses.
+- **Race-exclusive accessory tier.** New accessories sold only at a home-race's own settlements (a Dwarven trinket only in Dwarf territory, an Ork totem only in Ork/Goblin territory) — distinct from the existing race-agnostic Bronze/Iron/Steel/Mithril ladder.
+
+### Combat
+
+- **A fourth wildlife/monster enemy category.** This file already flags the lack of one distinct from humanoid raiders (see "Smaller/implicit gaps" above). Wolves/bears/etc., keyed to biome rather than kingdom/race, with their own loot table — just a new enemy-variants entry plus a biome-based trigger.
+- **Ambush composition scaling.** Also already flagged as missing: no scaling by settlement tier, frontline distance, or war duration. Concretely, weight ambushes toward tougher enemy variants the closer a settlement sits to the frontline or the longer its kingdom has been at war.
+- **Biome-linked combat modifiers.** Combat backdrops already key off biome but it's purely cosmetic; give it one mechanical hook (e.g. Swamp reduces enemy accuracy, Hills boosts ranged Specials).
+- **A combo/momentum meter.** Landing three plain Attacks in a row without a miss grants a bonus on the next hit — a reason to sometimes skip a Special attack.
+
+### Progression & Character
+
+- **Renown-based titles.** The existing title system only tracks kill counts; add a parallel set triggered by reputation crossing Trusted with a specific kingdom (e.g. "Hero of Bary") — same display mechanism, new trigger.
+- **Gear salvage/scrap.** Let inventory's Drop button optionally "Salvage" an item into a Scrap resource spendable at the Blacksmith toward repairs or tier-upgrade credit — gives surplus low-tier gear a use instead of being dropped for nothing.
+- **A respec service.** A rare, expensive Marketplace/Temple item that resets stats/skills for a gold cost — a self-contained fix for early build mistakes, no changes to the underlying skill tree.
+
+### Party & Companions
+
+- **A loyalty payoff at high standing.** Loyalty currently only prevents departure at 0; a companion at Devoted could grant a small passive combat bonus — gives the meter a reason to climb, not just avoid hitting bottom.
+- **Gift-giving at the Campfire.** Give a carried item to a specific companion for an instant, larger loyalty bump than any existing action — reuses existing item-consumption and loyalty-adjustment code.
+- **Companion synergy pairs.** A specific two-companion combination unlocks a small shared combat bonus while both are in the active party — a lookup table over the existing party snapshot, no new UI.
+
+### Factions & War
+
+- **Espionage.** A Guard House action to pay gold for a one-time intel read on a bordering enemy kingdom's army strength or muster status, surfaced as a rumor — uses entirely existing read-only data.
+- **A war-history ledger.** Track how many times a kingdom pair has gone to war and let repeat conflicts make Incite War cheaper or Negotiate Peace pricier for that pair — a lightweight answer to "no diplomatic memory" without reworking the relations model.
+- **Fealty/Allegiance pledge.** A one-time Palace action to formally swear to a kingdom: locks in a permanent price discount and blocks hostile actions against it (and its allies), in exchange for losing those actions against everyone else — a real permanent choice distinct from the fluid war/peace matrix.
+
+### Quests & Narrative
+
+- **A Rival Adventurer race.** A kill-quest variant with a competing NPC party racing to the same target — a light timer on top of the existing race-match check at combat's end, first to defeat the target wins the reward.
+- **A multi-part Notable Figure storyline.** Today each figure offers one flat kill-task forever; let completing it unlock a harder follow-up task from the same figure — a small personal arc, distinct from this file's own kingdom-wide reputation chain idea.
+- **Quest offer expiry.** Give Quest Board and Notable Figure offers a countdown before they reroll early if ignored, using the existing seeded-offer regeneration machinery — adds urgency without new state.
+
+### Living World & NPCs
+
+- **Tavern Regulars.** Two or three fixed, named NPCs at the Tavern with a short dialogue tree that advances one step per visit (max once/day), reusing the existing dialogue engine — a minimal real slice of "NPC memory."
+- **A memorial/legacy mechanic on permadeath.** When a character's run ends, drop a small "grave" marker at their last settlement, discoverable by a new character on the same account for a one-time bonus — a concrete answer to "death with some form of legacy."
+- **Temple Blessings.** The Temple is explicitly pure flavor today with no extra content, unlike the Guard House/Palace. Give it one real action: a purchasable temporary buff (regen or ambush-chance reduction) priced or gated by reputation — a genuinely new mechanic for a page that currently has none.
+
+### Meta / UX / Technical
+
+- **A first-run tutorial overlay.** Nothing addresses onboarding today — a lightweight, localStorage-gated walkthrough of map/travel/combat basics on a brand-new character closes a real, currently-undocumented gap.
+- **A service worker for offline asset caching.** The game already ships a Web App Manifest for "Add to Home Screen"; a service worker caching static assets would make the installed PWA usable with a flaky connection, with zero new infrastructure.
+- **A Data Saver toggle.** A settings.html option to skip loading heavier equipment/biome/UI-theme art in favor of the generic SVG fallbacks already built for exactly this purpose.
+
+### Large/risky ideas flagged separately
+
+Distinct from every other bullet in this file: these aren't scoped-but-unbuilt features, they're ideas worth a conscious decision *not* to build, or to build very differently than anything else here.
+
+- **Multiplayer or any shared/competitive world state — ruled out.** Per the project owner, Goblin War is single-player only (see [CLAUDE.md](../CLAUDE.md)'s opening section) — every account's world/kingdoms/wars are entirely its own. Worth recording the technical reason too, not just the decision: every rule runs client-side in the browser, and Supabase's Row Level Security only protects "this row belongs to this account," enforcing no game logic — a shared economy or competitive feature would be trivially cheatable (edit `localStorage`, resubmit) without real server-side authority, likely Supabase Edge Functions or a genuine backend, a first for this project.
+- **Native mobile app / app-store distribution.** The codebase is deliberately build-step-free, self-contained HTML files. App-store shipping means wrapping it (e.g. Capacitor) or a native rewrite — either introduces a build pipeline, signing, and slower release cadence, unlike the current "bump three files, ship" changelog convention. The existing "Add to Home Screen" PWA path already gets most of the practical benefit without this cost.
+- **Any real-money, trading, or leaderboard feature with a scoring/reward stake.** Since the client fully controls its own state (health, gold, XP, kills all live in editable `localStorage` before syncing), comparing or trading between players needs server-verified state first — the same trust problem as multiplayer above, narrower in scope. Worth scoping out explicitly unless the project is ready to introduce server-authoritative logic somewhere — which, per the single-player decision above, it isn't right now.

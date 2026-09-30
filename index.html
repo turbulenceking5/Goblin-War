@@ -1410,6 +1410,17 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
   ctx.imageSmoothingEnabled = false;
   const cw = stageW / cols, ch = stageH / rows;
   const isLandAt = (gx,gy) => elevation[gy*VW+gx] >= RF_SEA;
+  // Paints 2x2 blocks of world-cells per draw call rather than one cell at a time — this whole
+  // pass used to be ~200K+ individual ctx.fillRect calls (up to 2-3x that counting the shallow-
+  // water/biome-blend overlay passes below), which was invisible in testing (desktop Chromium has
+  // no trouble with it) but turned out to be the dominant cost of the ~30-90s real-device load
+  // time once the canvas-size fix above let mobile Safari actually reach this code at all — canvas
+  // API call overhead, not pixel-fill area, is what dominates on a real phone. Biome regions are
+  // already spatially coherent (not per-cell noise), so sampling every other cell and drawing a
+  // correspondingly wider rect reads visually the same at this pixel-art scale, just a quarter of
+  // the draw calls; the elevation/moisture/shoreDist/blend data itself is untouched, still sampled
+  // at full RF_COLS x RF_ROWS resolution elsewhere (biome-blend BFS, generateWorld's own fields).
+  const PAINT_STEP = 2;
 
   // Pick this world's own texture variant per multi-option biome bucket (deterministic per seed,
   // same as every other seed-derived choice this generator makes) and build a canvas pattern for
@@ -1486,8 +1497,9 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
     }
   }
 
-  for(let gy = 0; gy < rows; gy++){
-    for(let gx = 0; gx < cols; gx++){
+  const pcw = cw*PAINT_STEP+0.6, pch = ch*PAINT_STEP+0.6; // +0.6 overdraw to avoid seams between blocks, same as the old per-cell overdraw
+  for(let gy = 0; gy < rows; gy += PAINT_STEP){
+    for(let gx = 0; gx < cols; gx += PAINT_STEP){
       const idx = gy*VW+gx;
       const px = gx*cw, py = gy*ch;
       if(!isLandAt(gx,gy)){
@@ -1496,10 +1508,10 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
         // land side uses to force snow, just applied to water cells here instead.
         if(moisture[idx] < 0){
           ctx.fillStyle = icePattern || RF_BIOME_FLAT_COLOR.snow;
-          ctx.fillRect(px, py, cw+0.6, ch+0.6);
+          ctx.fillRect(px, py, pcw, pch);
         } else {
           ctx.fillStyle = waterPattern || RF_DEEP_WATER;
-          ctx.fillRect(px, py, cw+0.6, ch+0.6);
+          ctx.fillRect(px, py, pcw, pch);
           if(sd <= WATER_SHALLOW_RADIUS){
             // 1 right at the coast, fading smoothly to 0 at the outer edge of the shallow band —
             // real distance-to-shore blending, same technique/precedent as Realm Forge's own
@@ -1507,14 +1519,14 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
             const fade = 1 - sd / WATER_SHALLOW_RADIUS;
             ctx.globalAlpha = shallowPattern ? fade : fade * 0.4;
             ctx.fillStyle = shallowPattern || RF_SHALLOW_WATER;
-            ctx.fillRect(px, py, cw+0.6, ch+0.6);
+            ctx.fillRect(px, py, pcw, pch);
             ctx.globalAlpha = 1;
           }
         }
       } else {
         const cat = rfTerrainColor(elevation[idx], moisture[idx]);
         ctx.fillStyle = categoryPattern[cat] || RF_BIOME_FLAT_COLOR[cat];
-        ctx.fillRect(px, py, cw+0.6, ch+0.6); // slight overdraw to avoid seams between cells
+        ctx.fillRect(px, py, pcw, pch); // slight overdraw to avoid seams between blocks
         const bIdx = gy*cols+gx;
         const bd = blendDist[bIdx];
         if(bd <= RF_BIOME_BLEND_RADIUS){
@@ -1527,7 +1539,7 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
             const alpha = (RF_BIOME_BLEND_RADIUS + 1 - bd) / (RF_BIOME_BLEND_RADIUS + 1) * 0.55;
             ctx.globalAlpha = alpha;
             ctx.fillStyle = targetFill;
-            ctx.fillRect(px, py, cw+0.6, ch+0.6);
+            ctx.fillRect(px, py, pcw, pch);
             ctx.globalAlpha = 1;
           }
         }
@@ -1537,14 +1549,26 @@ function renderWorldRaster(world, sprites, stageW, stageH, seed){
 
   // Parchment grain overlay — cheap texture so any flat-color fallback (hills, or a missing
   // texture image) doesn't read as flat/banded; barely visible over the real photo textures.
-  const rng = rfMulberry32(0xC0FFEE);
-  ctx.save();
-  for(let i = 0; i < 60000; i++){
-    const x = rng()*stageW, y = rng()*stageH;
-    const v = rng();
-    ctx.fillStyle = v < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
-    ctx.fillRect(x, y, 3, 3);
+  // Built once as a small repeating tile (createPattern + a single fillRect) instead of 60,000
+  // individual fillRect calls scattered across the whole canvas — same per-pixel speckle density
+  // (grainCount is just 60000's own density re-scaled down to the tile's area), but replacing tens
+  // of thousands of separate draw calls with one, for the same per-call-overhead reason as
+  // PAINT_STEP above. The repeat boundary is invisible at this opacity/scale.
+  const GRAIN_TILE = 256;
+  const grainTile = document.createElement('canvas');
+  grainTile.width = GRAIN_TILE; grainTile.height = GRAIN_TILE;
+  const gctx = grainTile.getContext('2d');
+  const grainRng = rfMulberry32(0xC0FFEE);
+  const grainCount = Math.round(60000 * (GRAIN_TILE*GRAIN_TILE) / (stageW*stageH));
+  for(let i = 0; i < grainCount; i++){
+    const x = grainRng()*GRAIN_TILE, y = grainRng()*GRAIN_TILE;
+    const v = grainRng();
+    gctx.fillStyle = v < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+    gctx.fillRect(x, y, 3, 3);
   }
+  ctx.save();
+  ctx.fillStyle = ctx.createPattern(grainTile, 'repeat');
+  ctx.fillRect(0, 0, stageW, stageH);
   ctx.restore();
 
   // Mountain ranges — one wide-ridge sprite per placement, scattered where terrain crosses the
@@ -2414,6 +2438,9 @@ const CHANGELOG = [
   ]},
   { id:134, date:"2026-09-30", changes:[
     "Fixed the map failing to load at all on iPhone/iPad — \"Could not load the map.\" every time — caused by the world map's canvas exceeding Safari's own size limit; it now renders at a safe resolution with no visible quality loss."
+  ]},
+  { id:135, date:"2026-09-30", changes:[
+    "The map now loads noticeably faster, especially on phones — cut way down on the number of individual drawing operations the world-map painter does per load, and switched its final image format to one that's much quicker to produce, with no visible difference in how the map looks."
   ]},
 ];
 
@@ -10100,7 +10127,12 @@ Promise.all([
     });
   };
   img.addEventListener('load', finishLoad);
-  raster.toBlob(blob=>{ img.src = URL.createObjectURL(blob); });
+  // JPEG, not the toBlob default (lossless PNG) — this layer is fully opaque (every cell gets
+  // painted, nothing needs alpha), and PNG's lossless encode of a ~13M px, texture-and-grain-heavy
+  // image was measured as a real, multi-second chunk of the total map-load time on a throttled
+  // CPU (one of several real perf fixes here — see PAINT_STEP/the grain-overlay tile above), on
+  // top of producing a file roughly 8x larger to decode back into #map-img for no visible benefit.
+  raster.toBlob(blob=>{ img.src = URL.createObjectURL(blob); }, 'image/jpeg', 0.85);
 }).catch(err=>{
   document.getElementById('loading').textContent = 'Could not load the map.';
   console.error(err);

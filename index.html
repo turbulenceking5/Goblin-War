@@ -2381,6 +2381,9 @@ const CHANGELOG = [
   { id:127, date:"2026-09-30", changes:[
     "Art direction pass: the recent map banners/icons and combat/settlement backdrops are being redone in a new pixel-art style to match the game's own pixel-art UI. The old ones are gone for now — armies, an active field battle, and a cut-off settlement's supply line are back to their plain map markers, Defend the Walls/Night Camp/field battles are back to a flat background, and the Tavern/Marketplace/Blacksmith/Temple/Guard House no longer show a photo — until the pixel-art versions replace them. An open-grassland ambush is the first to get the new look."
   ]},
+  { id:128, date:"2026-09-30", changes:[
+    "A marching or besieging Good-alliance army shows a real pixel-art banner on the map again — two designs in the rotation, first done in the game's new pixel-art style. Bad-alliance armies still show the plain map marker for now."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3489,13 +3492,19 @@ function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
   const strength = originPop * musterFraction;
   setPopulation(origin.id, originPop - strength);
   const armies = getArmies();
+  const race = KINGDOM_RACE[kingdom];
+  const iconPool = ARMY_ICON_POOLS[ALLIANCE[race]];
   const army = {
     id: `army_${gameDay}_${Math.floor(Math.random()*1e6)}`,
-    kingdom, defenderKingdom, race: KINGDOM_RACE[kingdom],
+    kingdom, defenderKingdom, race,
     originBurgId: origin.id, targetBurgId: target.id,
     routePts: points, routeMiles: route.miles, progressMiles: 0,
     x: origin.x, y: origin.y, strength,
-    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay
+    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay,
+    // Picked once and kept for this army's whole life (not re-rolled on every buildArmyMarkers
+    // rebuild) so simultaneous armies visibly read as different banners rather than one icon
+    // flickering between variants — see buildArmyMarkers' own ARMY_ICON_POOLS.
+    iconVariant: Math.floor(Math.random() * (iconPool && iconPool.length ? iconPool.length : 1))
   };
   armies.push(army);
   saveArmies(armies);
@@ -6218,27 +6227,56 @@ function buildSupplyMarkers(){
 // starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
 // buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
 // changes: on load, after advanceArmies() moves/resolves anything, and after the weekly tick.
-// Placeholder wedge shape, real art pending — the painted-style "army-good"/"army-bad" icons that
-// briefly lived here were pulled since the Scene Backdrops tracker's art direction pivoted to
-// pixel art (see context/roadmap.md's "Combat environment backgrounds"); same "ship the mechanic,
-// swap in real art later" precedent TIER_ART's plain SVGs set before real location photos existed.
+// Good-alliance armies use real pixel-art icons now, from the Scene Backdrops tracker's
+// regenerated "army-good" prompt — the first icon regenerated in the project's new pixel-art
+// direction (see context/roadmap.md's "Combat environment backgrounds"). Two of the four
+// generated variants had a real defect (a faint diagonal watermark-like streak baked into the
+// source art, visible even after checkerboard/alpha recovery) and were discarded; the two clean
+// ones are a pool, same per-army stable `iconVariant` pick precedent the painted-style version
+// used before it was pulled. Bad-alliance armies stay on the placeholder wedge until their own
+// icon gets the same pixel-art treatment — `pool && pool.length` (not just a truthy pool, since
+// `[]` is still truthy) is what makes that fallback safe rather than crashing on `pool[0]`.
 // pointer-events:none — armies aren't tappable (only a Phase 2 field-battle marker would be).
 const ARMY_MARKER_COLOR = { Good:'#3a6ea5', Bad:'#8a2b2b' };
+const ARMY_ICON_POOLS = { // all 512 wide, transparent outside the emblem
+  Good: [
+    { href:"assets/icons/Map/army-good-1.png", aspect:304/512 },
+    { href:"assets/icons/Map/army-good-2.png", aspect:304/512 },
+  ],
+  Bad: [],
+};
 function buildArmyMarkers(){
   const g = document.getElementById('army-markers');
   if(!g) return;
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
   getArmies().forEach(army=>{
-    const color = ARMY_MARKER_COLOR[ALLIANCE[army.race]] || '#a9926a';
-    const marker = document.createElementNS(ns, "path");
-    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
+    const alliance = ALLIANCE[army.race];
     // Half-width scales (mildly, clamped) with the army's own strength — see mergeArmies — so a
     // merged, reinforced force actually reads as a bigger army on the map, not just a bigger
     // number nobody sees.
     const hw = Math.max(3, Math.min(9, 3 + Math.sqrt(army.strength || 0) * 2.5));
+    const pool = ARMY_ICON_POOLS[alliance];
+    if(pool && pool.length){
+      // Falls back to variant 0 for an army saved before iconVariant existed, or if the index is
+      // ever out of range (the pool shrinking below a previously-assigned index).
+      const variant = pool[army.iconVariant] || pool[0];
+      const w = hw * 2.4; // the real emblem's own silhouette reads smaller than the old wedge at the same hw, so it gets a mild size boost to stay just as visible
+      const h = w * variant.aspect;
+      const icon = document.createElementNS(ns, "image");
+      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
+      icon.setAttribute("href", variant.href);
+      icon.setAttribute("x", army.x - w/2);
+      icon.setAttribute("y", army.y - h/2);
+      icon.setAttribute("width", w);
+      icon.setAttribute("height", h);
+      g.appendChild(icon);
+      return;
+    }
+    const marker = document.createElementNS(ns, "path");
+    // A small diamond/wedge, distinct at a glance from the round settlement dots/city-icon coins.
     marker.setAttribute("d", `M${army.x},${army.y-hw} L${army.x+hw*0.8},${army.y} L${army.x},${army.y+hw} L${army.x-hw*0.8},${army.y} Z`);
-    marker.setAttribute("fill", color);
+    marker.setAttribute("fill", ARMY_MARKER_COLOR[alliance] || '#a9926a');
     marker.setAttribute("stroke", "#1c150c");
     marker.setAttribute("stroke-width", "0.8");
     g.appendChild(marker);

@@ -2390,6 +2390,10 @@ const CHANGELOG = [
   { id:130, date:"2026-09-30", changes:[
     "The crossed-swords marker for an active field battle is a real pixel-art clashing-weapons icon again — four variants in the rotation, including a circular medallion design."
   ]},
+  { id:131, date:"2026-09-30", changes:[
+    "Joining a field battle now shows a real pixel-art battlefield backdrop again — a trampled no-man's-land between two lines of planted spears and banners, three lighting variants.",
+    "The map's supply-cut marker over a cut-off settlement is a real pixel-art roped supply crate again, in place of the dashed amber ring."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4445,8 +4449,13 @@ const BIOME_ART = {
 };
 // Field Battle's own dedicated backdrop — a fight *context* (see triggerFieldBattleEngagement),
 // not a terrain biome, so it lives outside BIOME_ART even though it's the same "wide painted
-// combat plate" shape.
-const FIELD_BATTLE_ART = [];
+// combat plate" shape. Regenerated in the new pixel-art style — a trampled, empty battlefield
+// between two converged lines of banners/spears, three lighting variants.
+const FIELD_BATTLE_ART = [
+  "assets/biomes/field-battle-daylight.jpg",
+  "assets/biomes/field-battle-overcast.jpg",
+  "assets/biomes/field-battle-dusk.jpg",
+];
 // Under Siege's own backdrop (triggerSiegeDefenseFight) — a besieged settlement's own wall under
 // attack at dusk, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside BIOME_ART.
 const SIEGE_ART = [];
@@ -6206,10 +6215,16 @@ function buildFrontlineMarkers(){
 // Rebuilt from scratch (same pattern as buildFrontlineMarkers/buildArmyMarkers) whenever
 // territorial control could have changed: on load and after the weekly tick, alongside every other
 // marker layer that reads getControllerKingdom.
-// Placeholder ring, real art pending — the Scene Backdrops tracker's art direction pivoted to
-// pixel art (see context/roadmap.md's "Combat environment backgrounds"); the painted-style
-// "supply-cut" icon that briefly lived here was pulled since it no longer matches.
+// Real pixel-art icon now — a bound, roped supply crate, regenerated in the project's new pixel-art
+// direction (see context/roadmap.md's "Combat environment backgrounds"). Only one of two generated
+// variants survived: the other had a decorative black frame border baked into the canvas edge (the
+// same defect category as one of the four Field Battle backdrop candidates below) — a one-item
+// pool for now, same `pool.length` guard precedent ARMY_ICON_POOLS/BATTLE_MARKER_ICONS already set,
+// so it degrades to the dashed-ring placeholder if it ever shrinks to empty rather than crashing.
 const SUPPLY_CUT_MARKER_COLOR = '#c9862e';
+const SUPPLY_CUT_ICONS = [ // 512 wide, transparent outside the emblem
+  { href:"assets/icons/Map/supply-cut-1.png", aspect:304/512 },
+];
 function buildSupplyMarkers(){
   const g = document.getElementById('supply-markers');
   if(!g) return;
@@ -6220,10 +6235,25 @@ function buildSupplyMarkers(){
   cutBurgs.forEach(id=>{
     const b = graph.burgs[id];
     if(!b) return;
+    const r = (HIT_R[b.tier] || 10) + 3;
+    if(SUPPLY_CUT_ICONS.length){
+      const variant = SUPPLY_CUT_ICONS[0];
+      const w = r * 1.8, h = w * variant.aspect;
+      const icon = document.createElementNS(ns, "image");
+      icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
+      icon.setAttribute("href", variant.href);
+      icon.setAttribute("x", b.x - w/2);
+      icon.setAttribute("y", b.y - r - h);
+      icon.setAttribute("width", w);
+      icon.setAttribute("height", h);
+      icon.style.pointerEvents = "none";
+      g.appendChild(icon);
+      return;
+    }
     const ring = document.createElementNS(ns, "circle");
     ring.setAttribute("cx", b.x);
     ring.setAttribute("cy", b.y);
-    ring.setAttribute("r", (HIT_R[b.tier] || 10) + 3);
+    ring.setAttribute("r", r);
     ring.setAttribute("fill", "none");
     ring.setAttribute("stroke", SUPPLY_CUT_MARKER_COLOR);
     ring.setAttribute("stroke-width", "1.6");

@@ -18,7 +18,7 @@ The overworld screen. This is the largest and most complex system in the game �
 The world data and the rendered image use different scales, and the code converts between them constantly:
 
 - **Logical space** (`LOGICAL_W=2560, LOGICAL_H=1277`) — the coordinate system every settlement, road point, and the SVG `#overlay` viewBox use. This is what `travel-graph.json` stores `x`/`y` in.
-- **Raster/stage space** (`STAGE_W=10240, STAGE_H=5108`) — the actual pixel size of `world-raster.jpg` and `#map-stage`, exactly 4× logical space.
+- **Raster/stage space** (`STAGE_W=10240, STAGE_H=5108`) — `#map-img`'s fixed CSS box size and every marker/overlay's coordinate space, exactly 4× logical space. **Not** the actual pixel resolution of the `<canvas>` `renderWorldRaster()` paints any more — see `RASTER_W`/`RASTER_H` (currently `STAGE_W`/`STAGE_H` halved, 5120×2554) just below their definition. iOS/iPadOS Safari enforces a real (undocumented-in-spec) canvas area ceiling around 16.7M pixels; the original 10240×5108 canvas (~52.3M px) blew well past it, so `getContext('2d')` came back `null` and the very next line threw, surfacing as the generic "Could not load the map." on every single load for a Safari player (fixed 2026-09-30). `RASTER_W`/`RASTER_H` is a uniform half-scale specifically so it keeps `STAGE_W`/`STAGE_H`'s exact aspect ratio — `#map-img`'s own CSS box (still pinned to `STAGE_W`/`STAGE_H`) just upscales a slightly softer bitmap rather than distorting it, and every marker/overlay position (still computed in `STAGE_W`/`STAGE_H` space) is completely unaffected.
 
 `STAGE_W/LOGICAL_W` (4) is the conversion factor, used everywhere the camera needs to place something in screen pixels from a logical `x,y`.
 

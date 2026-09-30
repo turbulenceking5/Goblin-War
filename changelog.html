@@ -529,6 +529,9 @@ const CHANGELOG = [
   { id:133, date:"2026-09-30", changes:[
     "The ground you're ambushed on now changes the fight, not just how it looks: boggy swamp terrain throws enemies off their footing, giving every one of their attacks a real chance to miss outright, while fighting from the hills makes Precise Shot hit noticeably harder."
   ]},
+  { id:134, date:"2026-09-30", changes:[
+    "Fixed the map failing to load at all on iPhone/iPad — \"Could not load the map.\" every time — caused by the world map's canvas exceeding Safari's own size limit; it now renders at a safe resolution with no visible quality loss."
+  ]},
 ];
 
 function renderChangelog(){

@@ -15,7 +15,7 @@ Deliberately **identity and status only** now — Level, Strength/Agility/Intell
 
 Text lives directly inside each Equipment slot rather than a `title` tooltip, since tooltips don't fire on touch. Gold is shown once, in its own Purse card lower down (`#gold-value`).
 
-Two fixed display fields with no backing state at all: **Origin** is hardcoded to "Kingdom of Bary" (not derived from anything — there's currently no character-origin selection), and **Current location** is resolved by fetching `assets/travel-graph.json` just to look up `burgId`'s name (the page doesn't need the rest of the graph, just this one lookup).
+Two fixed display fields with no backing state at all: **Origin** is hardcoded to "Kingdom of Bary" (not derived from anything — there's currently no character-origin selection), and **Current location** is resolved by looking up `burgId` in this character's own `generateWorld(seed)` result (`data.burgs[burgId].name`, same procedural-generator call every other page makes — see [data-files.md](data-files.md); this line is stale from before the Realm Forge swap if it still says a `travel-graph.json` fetch anywhere else you're reading it from).
 
 ## skills.html — Skills & Progression
 

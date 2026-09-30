@@ -111,14 +111,30 @@ Per the project owner: two factions at war should be able to hold out indefinite
 supply line stays intact — but if it's cut, that side should falter, lose ground faster than the
 other, and eventually retreat. `getSupplyCutBurgs(kingdom)` is the one new primitive everything else
 here reads: a kingdom's own settlement is "cut off" whenever no path of *that kingdom's own*
-currently-controlled settlements connects it back to its capital through `burgAdjacency` (the same
-real settlement-border graph `getFrontlineEnemyKingdom`/`isFrontlineBurg` already BFS over — purely
-geometric, so it never needs rebuilding, just filtered live via `getControllerKingdom` at traversal
-time). A kingdom that's lost its capital outright has nothing left to be connected to, so *everything*
-it still controls counts as cut off — a real, cascading blow, not softened; that kingdom isn't
-`eliminateKingdom`'d until it loses its *last* settlement, but every one it still holds already fights
-at a steep disadvantage. This can only happen through ordinary conquest — an enemy capturing the one
-settlement linking two parts of a kingdom's territory severs it — no new capture mechanic needed.
+currently-controlled settlements, plus any territory it isn't actively at war with, connects it back
+to its capital through `burgAdjacency` (the same real settlement-border graph
+`getFrontlineEnemyKingdom`/`isFrontlineBurg` already BFS over — purely geometric, so it never needs
+rebuilding, just filtered live via `getControllerKingdom`/`getRelation` at traversal time). A kingdom
+that's lost its capital outright has nothing left to be connected to, so *everything* it still controls
+counts as cut off — a real, cascading blow, not softened; that kingdom isn't `eliminateKingdom`'d until
+it loses its *last* settlement, but every one it still holds already fights at a steep disadvantage.
+
+**Bug fixed 2026-09-30: the path must specifically cross an at-war enemy's territory to actually
+block it, not just any other kingdom's.** The BFS originally only traversed through the querying
+kingdom's own settlements — meaning *any* neighboring kingdom's territory blocked the path, at peace
+or not. Since a settlement's kingdom is assigned purely by straight-line distance to the nearest
+capital during world generation (`generateWorld`'s own settlement-placement pass has no notion of
+terrain or roads), irregular geography routinely produces a kingdom's own settlement geographically
+boxed in by a peaceful (sometimes even allied) neighbor's land, with no war involved anywhere — this
+was caught live, via a real player's screenshot showing supply-cut markers on an entirely fresh,
+still-at-peace game. The original design intent ("this can only happen through ordinary conquest — an
+enemy capturing the one settlement linking two parts of a kingdom's territory severs it") assumed
+territory starts out contiguous, which the generator doesn't actually guarantee. Fixed by letting the
+BFS pass freely through any territory the querying kingdom *isn't* currently at war with
+(`getRelation(kingdom, nKingdom) === 'war'` is the only thing that stops it) — confirmed by testing
+across many fresh seeds (zero false positives at Day 1, before any war) and by forcing every
+opposite-alliance kingdom pair to war (real geographic chokepoints still correctly show up as cut off
+where they exist).
 
 No new resource, currency, or treasury was introduced for this — kingdoms carry none anywhere in this
 codebase, and supply lines plug directly into the three formulas that already decide sieges/attrition
@@ -169,8 +185,10 @@ on armies from before this shipped — `lastSupplyCheckDay` falls back to `spawn
 **Map marker — done.** `buildSupplyMarkers()` (index.html) draws a real pixel-art roped supply-crate
 icon (`#supply-markers`, between `#frontline-markers` and `#army-markers`, `SUPPLY_CUT_ICONS`) above
 every settlement `getSupplyCutBurgs` returns for any kingdom in `ALL_KINGDOMS` — union across all of
-them rather than just kingdoms currently at war, since the cut-off set is a pure function of current
-territorial control, not of an active war or the weekly tick. Falls back to the original dashed amber
+them rather than just kingdoms currently at war, since a kingdom's cut-off set can (correctly) involve
+more than one blocking enemy at once. `getSupplyCutBurgs` itself is now war-gated (see the bug fix
+above), so this union is naturally empty in an all-peace game rather than needing its own separate
+war check. Falls back to the original dashed amber
 ring (deliberately not the look `buildFrontlineMarkers`' retired red rings had — a solid red ring
 there read as "something's broken" per the project owner's own feedback, not "this settlement is at
 war"; the dashed circle reads as "severed" in a muted amber rather than war-red, so it doesn't compete

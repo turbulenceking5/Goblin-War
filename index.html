@@ -2446,6 +2446,9 @@ const CHANGELOG = [
     "Settlement markers and the army/battle/supply-cut icons on the map are 4x bigger and much easier to make out at a glance.",
     "Fixed a real bug in several of those same map icons (army, battle, and supply-cut) where a leftover transparency-preview checkerboard had been baked into the image itself instead of a real transparent background — they now sit cleanly on the map instead of showing a gray/white box behind them."
   ]},
+  { id:137, date:"2026-09-30", changes:[
+    "Fixed the supply-cut marker showing up on settlements that were never actually at war — it was triggering purely from how the map's territory happened to be laid out, not from an actual enemy blocking the way. A settlement now only reads as cut off when a real at-war enemy sits between it and its kingdom's capital."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -2712,7 +2715,7 @@ function getFrontlineEnemyKingdom(burgId){
 function isFrontlineBurg(burgId){ return !!getFrontlineEnemyKingdom(burgId); }
 
 // Supply lines — every settlement a kingdom controls that ISN'T reachable from that kingdom's own
-// capital through its own currently-controlled territory (via burgAdjacency, the same
+// capital by a path that avoids actively-hostile territory (via burgAdjacency, the same
 // settlement-border graph getFrontlineEnemyKingdom BFS's over). A kingdom that's lost its capital
 // outright has nothing left to be connected to, so everything it still holds counts as cut off — a
 // real, cascading blow, not softened. See "Supply lines" in context/factions-and-territory.md for
@@ -2721,6 +2724,16 @@ function isFrontlineBurg(burgId){ return !!getFrontlineEnemyKingdom(burgId); }
 // uncached and recomputed fresh on every call: at this world's scale (~45-65 settlements) a full BFS
 // is cheap even called a few dozen times in the heaviest tick, and every caller below already reads
 // this at most once per kingdom per pass.
+//
+// The path is allowed to cross a neighboring kingdom's own territory as long as that kingdom isn't
+// currently at war with us — peaceful or allied ground is safe to route supply through, only an
+// actively hostile enemy's territory really blocks it. Without this, a settlement could read as
+// "cut off" purely from how the world generator's straight-line-nearest-capital territory
+// assignment (see generateWorld's own settlement/capital placement) carves up irregular terrain —
+// a kingdom's own settlement can end up geographically boxed in by a peaceful neighbor's land with
+// no war involved at all, which isn't the "supply lines fail because of a war" story this feature
+// is telling. (Confirmed live: a fresh, entirely-peacetime game was already showing supply-cut
+// markers before this fix.)
 function getSupplyCutBurgs(kingdom){
   const capital = Object.values(graph.burgs).find(b => b.tier === 'capital' && getControllerKingdom(b.id) === kingdom);
   const owned = Object.keys(graph.burgs).filter(id => getControllerKingdom(id) === kingdom);
@@ -2730,7 +2743,9 @@ function getSupplyCutBurgs(kingdom){
   while(frontier.length){
     const next = [];
     frontier.forEach(id => (burgAdjacency[id] || []).forEach(nid => {
-      if(reached.has(nid) || getControllerKingdom(nid) !== kingdom) return;
+      if(reached.has(nid)) return;
+      const nKingdom = getControllerKingdom(nid);
+      if(nKingdom && nKingdom !== kingdom && getRelation(kingdom, nKingdom) === 'war') return; // only an at-war enemy's territory actually blocks the path
       reached.add(nid);
       next.push(nid);
     }));

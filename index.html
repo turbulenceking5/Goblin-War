@@ -2367,6 +2367,9 @@ const CHANGELOG = [
   { id:123, date:"2026-09-29", changes:[
     "A marching or besieging army now shows as a real heraldic banner on the map instead of a plain colored wedge, on both sides of the war — four different banner designs per alliance in the rotation so several armies in the field at once don't all look identical."
   ]},
+  { id:124, date:"2026-09-30", changes:[
+    "The crossed-swords marker for an active field battle is a real clashing-weapons icon now instead of a plain gold X — two variants in the rotation."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -3573,7 +3576,10 @@ function detectFieldBattles(){
         goodKingdom: good.kingdom, goodArmyId: good.id, goodRace: good.race,
         badKingdom: bad.kingdom, badArmyId: bad.id, badRace: bad.race,
         goodResumeStatus, badResumeStatus,
-        startedDay: gameDay, advantage: 0
+        startedDay: gameDay, advantage: 0,
+        // Picked once and kept for this battle's whole life, same iconVariant precedent
+        // spawnArmy's own ARMY_ICON_POOLS pick set — see buildBattleMarkers.
+        iconVariant: Math.floor(Math.random() * BATTLE_MARKER_ICONS.length)
       });
       saveFieldBattles(battles);
       changed = true;
@@ -6559,13 +6565,21 @@ function buildBorderMarkers(){
   fillPass(warSegments, ()=> "#e2857f", "3.2", null); // thicker, solid, danger-red — a front line, not an administrative one, unaffected by per-kingdom color
 }
 
-// Small crossed-swords marker per active goblinwar_fieldBattles entry — the one truly tappable
+// Small crossed-weapons marker per active goblinwar_fieldBattles entry — the one truly tappable
 // non-settlement marker on the map. Two elements per battle, same "invisible hitzone circle +
 // separate visible mark" split every settlement already uses (see HIT_R/buildHitzones): a
 // `.hitzone.battle-hitzone[data-battle]` circle (interactive — handleTap checks dataset.battle
 // before falling through to the ordinary settlement-hitzone branch) plus a pointer-events:none
-// crossed-line mark on top of it so the visual doesn't intercept its own tap. Placeholder look
-// until real art exists, same precedent buildArmyMarkers' own placeholder wedge sets.
+// icon on top of it so the visual doesn't intercept its own tap. Real art now, from the Scene
+// Backdrops tracker artifact's "battle-marker" icon — its first generation pass had the same
+// wide-scene problem ARMY_ICON_POOLS' own army-good prompt did (multiple banners/an explosion
+// cloud instead of a contained glyph); the corrected regen came back with two usable contained
+// variants, so same "several designs read as a livelier world" choice as the army icons — see
+// context/roadmap.md's "Armies meet and fight in the field".
+const BATTLE_MARKER_ICONS = [ // both 512 wide, transparent outside the emblem
+  { href:"assets/icons/Map/battle-marker-1.png", aspect:304/512 },
+  { href:"assets/icons/Map/battle-marker-2.png", aspect:304/512 },
+];
 function buildBattleMarkers(){
   const g = document.getElementById('battle-markers');
   if(!g) return;
@@ -6579,13 +6593,19 @@ function buildBattleMarkers(){
     hit.setAttribute("r", 10);
     hit.dataset.battle = battle.id;
     g.appendChild(hit);
-    const mark = document.createElementNS(ns, "path");
-    mark.setAttribute("d", `M${battle.x-5},${battle.y-5} L${battle.x+5},${battle.y+5} M${battle.x-5},${battle.y+5} L${battle.x+5},${battle.y-5}`);
-    mark.setAttribute("stroke", "#d1a445");
-    mark.setAttribute("stroke-width", "2.2");
-    mark.setAttribute("stroke-linecap", "round");
-    mark.style.pointerEvents = "none";
-    g.appendChild(mark);
+    // Falls back to variant 0 for a battle saved before iconVariant existed, or if the index is
+    // ever out of range (the pool shrinking below a previously-assigned index).
+    const variant = BATTLE_MARKER_ICONS[battle.iconVariant] || BATTLE_MARKER_ICONS[0];
+    const w = 16, h = w * variant.aspect;
+    const icon = document.createElementNS(ns, "image");
+    icon.setAttributeNS("http://www.w3.org/1999/xlink", "href", variant.href);
+    icon.setAttribute("href", variant.href);
+    icon.setAttribute("x", battle.x - w/2);
+    icon.setAttribute("y", battle.y - h/2);
+    icon.setAttribute("width", w);
+    icon.setAttribute("height", h);
+    icon.style.pointerEvents = "none";
+    g.appendChild(icon);
   });
 }
 

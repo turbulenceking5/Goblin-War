@@ -2397,6 +2397,9 @@ const CHANGELOG = [
   { id:132, date:"2026-09-30", changes:[
     "An ambush while camped for the night now shows a real pixel-art backdrop again — a dying campfire beside a bedroll and travel pack, three variants."
   ]},
+  { id:133, date:"2026-09-30", changes:[
+    "The ground you're ambushed on now changes the fight, not just how it looks: boggy swamp terrain throws enemies off their footing, giving every one of their attacks a real chance to miss outright, while fighting from the hills makes Precise Shot hit noticeably harder."
+  ]},
 ];
 
 // Silent on a brand-new game (nothing to compare against yet); otherwise shows every
@@ -4318,7 +4321,7 @@ function refreshPlayerStatUI(){
   refreshQuestBadge();
 }
 // ===================== COMBAT (minimal turn-based, 1-3 enemies) =====================
-let combat = null; // {enemies:[{name,hp,maxHp,dmgRange,goldRange,xpRange,art}], targetIndex, playerDmgRange, onEnd, usedMoves, race}
+let combat = null; // {enemies:[{name,hp,maxHp,dmgRange,goldRange,xpRange,art}], targetIndex, playerDmgRange, onEnd, usedMoves, race, biome}
 const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest refills it
 
 // ===== Status effects (bleed/stun/fatigue) — see context/combat.md's "Status effects" section =====
@@ -4491,6 +4494,24 @@ function getBiomeBackdrop(burgId){
   const category = (b && b.biome) || 'forest';
   return pickBackdrop(BIOME_ART[category]) || pickBackdrop(BIOME_ART.forest);
 }
+// The same burg->category lookup getBiomeBackdrop uses for art, but returning the category name
+// itself rather than an art path — this is what lets a fight apply a real biome-linked combat
+// modifier (see "Biome combat modifiers" below) even for a category with no backdrop art
+// committed yet, since the mechanic doesn't depend on art existing.
+function getFightBiome(burgId){
+  const b = graph.burgs[burgId];
+  if(b && b.port) return 'coast';
+  return (b && b.biome) || 'forest';
+}
+// ===== Biome combat modifiers — cosmetic-only before this, one mechanical hook per biome so far =====
+// Swamp: the boggy ground throws off the enemy's own footing, giving every enemy attack (against
+// the player or an ally) an extra flat chance to miss entirely, on top of whatever the Evasion
+// perk or armor already does. Skipped under ignoreDefense (Reckless Swing's counter) same as the
+// Evasion-perk dodge already is — that move guarantees its target's counter lands, terrain included.
+const SWAMP_ENEMY_MISS_CHANCE = 0.2;
+// Hills: high ground favors a ranged shot. Precise Shot (agi-gated, always-max-roll) is the one
+// MOVES entry with a ranged flavor, so it's the one that benefits.
+const HILLS_RANGED_DAMAGE_MULT = 1.25;
 // Paints (or clears) a real photo behind #combat-view's own content — combined with a
 // darkening gradient in the same `background` value so the enemy portraits, bars, and log
 // text on top stay legible regardless of how bright the source art is. Cleared back to the
@@ -4512,7 +4533,7 @@ function setCombatBackdrop(url){
 // ambush, 2-3 for a Goblin/Ork raiding party (see triggerEnemyFight below). backdrop is an
 // optional image path from setCombatBackdrop's callers (see triggerAmbushFight) — null/undefined
 // for any combat context with no real environment art yet (sieges, camp).
-function startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop){
+function startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop, biome){
   combat = {
     enemies: enemySpecs.map(s => ({
       name: s.name, hp: s.hp, maxHp: s.hp, dmgRange: s.enemyDmgRange.slice(),
@@ -4520,7 +4541,7 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop){
     })),
     targetIndex: 0,
     allies: buildCombatAllies(), fallenAllies: [],
-    playerDmgRange, onEnd, usedMoves: {}, race, playerEffects: {}
+    playerDmgRange, onEnd, usedMoves: {}, race, playerEffects: {}, biome: biome || null
   };
   const multi = combat.enemies.length > 1;
   document.getElementById('combat-title').textContent = multi ? 'Ambush!' : `${combat.enemies[0].name} Ambush!`;
@@ -4678,6 +4699,10 @@ function rollEnemyInflict(enemy, effects, targetIsPlayer, allyTitle){
 // (Reckless Swing's targeted enemy only) skips Evasion and armor — allies have neither
 // stat, so it only changes anything when the player ends up being the one hit.
 function applyEnemyHit(enemy, defender, ignoreDefense){
+  if(!ignoreDefense && combat.biome === 'swamp' && Math.random() < SWAMP_ENEMY_MISS_CHANCE){
+    combatLog(`The ${enemy.name} loses its footing in the mire and misses entirely.`);
+    return;
+  }
   if(defender.isPlayer){
     if(!ignoreDefense && hasPerk('evasion') && Math.random() < 0.15){
       combatLog(`You dodge the ${enemy.name}'s counter-attack entirely.`);
@@ -4884,11 +4909,14 @@ function combatSpecial(moveId){
         combatLog(`The ${target.name} is bleeding!`);
       }
       break;
-    case 'precise_shot':
-      dmg = Math.round(combat.playerDmgRange[1] * fatigueFactor) + getEquipDamageBonus();
+    case 'precise_shot': {
+      const hillsBonus = combat.biome === 'hills' ? HILLS_RANGED_DAMAGE_MULT : 1;
+      dmg = Math.round(combat.playerDmgRange[1] * fatigueFactor * hillsBonus) + getEquipDamageBonus();
       target.hp -= dmg;
-      combatLog(`Precise Shot! You hit the ${target.name} for ${dmg} damage.`);
+      combatLog(`Precise Shot! You hit the ${target.name} for ${dmg} damage.`
+        + (hillsBonus > 1 ? ` The high ground gives your shot extra bite.` : ''));
       break;
+    }
     case 'adrenaline_rush':
       dmg = Math.round(randRange(combat.playerDmgRange) * fatigueFactor) + getEquipDamageBonus();
       target.hp -= dmg;
@@ -5105,12 +5133,12 @@ const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed reg
 // ambushes stay solo (the documented "easiest fight in the game"); Goblin/Ork raiding-party
 // ambushes spawn 2-3 enemies, each an independently-rolled variant (repeats allowed), matching
 // triggerAmbushFight's plural "raiders" flavor text below.
-function triggerEnemyFight(race, onEnd, backdrop){
+function triggerEnemyFight(race, onEnd, backdrop, biome){
   const variants = ENEMY_VARIANTS[race] || ENEMY_VARIANTS.bandit;
   const count = race === 'bandit' ? 1 : (2 + Math.floor(Math.random()*2)); // 2 or 3
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
-  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), race, backdrop);
+  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), race, backdrop, biome);
 }
 const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
 // Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement
@@ -5135,7 +5163,10 @@ function triggerAmbushFight(burgId, onEnd, context){
   // is the only category with real art committed yet. A camp ambush uses its own dedicated Night
   // Camp art (NIGHT_CAMP_ART) instead of a daytime biome photo, since it's a scene set at night.
   const backdrop = context === 'camp' ? pickBackdrop(NIGHT_CAMP_ART) : getBiomeBackdrop(burgId);
-  triggerEnemyFight(enemy, onEnd, backdrop);
+  // The real terrain still applies its own combat modifier (see getFightBiome/SWAMP_ENEMY_MISS_CHANCE/
+  // HILLS_RANGED_DAMAGE_MULT above) even for a camp ambush, whose backdrop art is Night Camp's own
+  // pool rather than a daytime biome photo — you're still standing on whatever ground that is.
+  triggerEnemyFight(enemy, onEnd, backdrop, getFightBiome(burgId));
 }
 
 // ===================== TRAVEL GRAPH =====================

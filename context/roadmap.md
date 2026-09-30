@@ -322,7 +322,7 @@ Everything below came from the "Goblin War — Expansion Research" doc, a pass t
 
 - **A fourth wildlife/monster enemy category.** This file already flags the lack of one distinct from humanoid raiders (see "Smaller/implicit gaps" above). Wolves/bears/etc., keyed to biome rather than kingdom/race, with their own loot table — just a new enemy-variants entry plus a biome-based trigger.
 - **Ambush composition scaling.** Also already flagged as missing: no scaling by settlement tier, frontline distance, or war duration. Concretely, weight ambushes toward tougher enemy variants the closer a settlement sits to the frontline or the longer its kingdom has been at war.
-- **Biome-linked combat modifiers.** Combat backdrops already key off biome but it's purely cosmetic; give it one mechanical hook (e.g. Swamp reduces enemy accuracy, Hills boosts ranged Specials).
+- **Biome-linked combat modifiers — done, one mechanical hook so far.** Swamp gives every enemy attack a real 20% chance to miss outright (`SWAMP_ENEMY_MISS_CHANCE`); Hills makes Precise Shot hit 25% harder (`HILLS_RANGED_DAMAGE_MULT`) — see [combat.md](combat.md)'s "Biome combat modifiers". Only wired into `triggerAmbushFight` (road and camp) so far, since siege/field-battle fights don't read as open terrain the same way; the other five `BIOME_ART` categories (desert/mountains/snow/forest/coast, plus Plains) still have no mechanical hook, just the cosmetic backdrop.
 - **A combo/momentum meter.** Landing three plain Attacks in a row without a miss grants a bonus on the next hit — a reason to sometimes skip a Special attack.
 
 ### Progression & Character

@@ -378,7 +378,7 @@ Everything below came from the "Goblin War — Expansion Research" doc, a pass t
 ### Meta / UX / Technical
 
 - **A first-run tutorial overlay — done.** A lightweight, three-section modal (Map & Travel, Combat, Survival) shown once on a brand-new character's first map load (`maybeShowTutorial`/`TUTORIAL_SEEN_KEY`), structurally a copy of the existing What's New modal. Gated per-character, not per-account — and only a genuinely new character (created via `freshCharacterData`'s `isNewCharacter` argument) ever sees it; an existing save defaults to already-seen. See [characters.md](characters.md)'s `tutorialSeen`.
-- **A service worker for offline asset caching.** The game already ships a Web App Manifest for "Add to Home Screen"; a service worker caching static assets would make the installed PWA usable with a flaky connection, with zero new infrastructure.
+- **A service worker for offline asset caching — done.** `sw.js`, registered from every page, deliberately network-first (not a precached app-shell) so it never reintroduces the staleness bug the `?_=Date.now()` cache-busting convention already exists to prevent — the cache is a fallback for when the network request fails outright, built up opportunistically from whatever's actually been loaded rather than a hand-maintained asset list. See CLAUDE.md's `sw.js` row.
 - **A Data Saver toggle.** A settings.html option to skip loading heavier equipment/biome/UI-theme art in favor of the generic SVG fallbacks already built for exactly this purpose.
 
 ### Large/risky ideas flagged separately

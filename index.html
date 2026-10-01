@@ -10892,5 +10892,15 @@ function goTo(page){
   location.href = page + '?_=' + Date.now();
 }
 </script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
+}
+</script>
 </body>
 </html>

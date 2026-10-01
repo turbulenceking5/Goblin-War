@@ -74,6 +74,7 @@ These map directly to the "Conventions worth knowing" bullets in [../CLAUDE.md](
 - [ ] **Safe-area insets.** A new fixed/sticky element pinned to a screen edge includes `env(safe-area-inset-*)` padding, checked on an installed iOS home-screen app if possible (not just a desktop browser, which won't show the clipping).
 - [ ] **Dark theme tokens.** New UI uses the existing palette (`#1c150c`/`#2b2115` backgrounds, `var(--parchment)` text, `rgba(209,164,69,.35)` borders) rather than a fresh light card.
 - [ ] **PWA icon cache-buster.** If `assets/icons/icon-*.png` changed, the `?v=` param was bumped in all three `<link>` tags on every page plus `manifest.json`'s two `icons` entries.
+- [ ] **Service worker cache version.** If `version.json`'s `changelogId` was bumped (see above), `sw.js`'s own `CACHE_NAME` was bumped to match, so an update doesn't leave an installed PWA serving a stale mix of old/new cached responses.
 
 ## What this checklist won't catch
 

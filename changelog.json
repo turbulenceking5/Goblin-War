@@ -1088,5 +1088,12 @@
     "changes": [
       "Brand-new characters now get a quick welcome walkthrough covering the map, travel, and combat basics the first time they load in."
     ]
+  },
+  {
+    "id": 147,
+    "date": "2026-10-01",
+    "changes": [
+      "The installed app (Add to Home Screen) can now work with a flaky or dropped connection — pages and art you've already loaded stay available offline."
+    ]
   }
 ]

@@ -1159,5 +1159,12 @@
     "changes": [
       "Recruited companions now react to news from home — a companion's loyalty takes a hit if their home city falls, a bigger one if their whole kingdom is wiped out, and recovers some if their home is reclaimed."
     ]
+  },
+  {
+    "id": 155,
+    "date": "2026-10-01",
+    "changes": [
+      "Abandoning a quest now has a real cost — reputation with the giver's kingdom for a Board or Notable Figure quest, or a companion's own loyalty for one of their personal favors — instead of a free do-over."
+    ]
   }
 ]

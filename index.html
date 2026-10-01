@@ -8461,6 +8461,11 @@ function showQuestBoardPanel(burgId){
       const quests = getQuests();
       quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type:offer.type, source:offer.source,
         giverBurgId:offer.giverBurgId, giverName:offer.giverName, targetBurgId:offer.targetBurgId, targetName:offer.targetName,
+        // Stamped at accept time rather than resolved later — quests.html (where Abandon lives)
+        // never loads the graph, so a real consequence for abandoning needs the kingdom to
+        // penalize already sitting on the quest object itself. See "Real consequences for quest
+        // refusal/abandonment" in context/quests.md.
+        giverKingdom: getControllerKingdom(offer.giverBurgId),
         distanceMiles:offer.distanceMiles, distanceHours:offer.distanceHours,
         reward:offer.reward, acceptedDay:gameDay, status:'active' });
       saveQuests(quests);
@@ -8563,6 +8568,9 @@ function showNotableFigurePanel(burgId){
       quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type, source:'notable_figure',
         giverBurgId:burgId, giverName:figure.name, figureId:figure.id, targetBurgId:null, targetName:null,
         targetKingdom: targetKingdom || null,
+        // See the matching comment on the Board's own accept handler above — stamped now so
+        // quests.html's Abandon can penalize the right kingdom without needing the graph.
+        giverKingdom: getControllerKingdom(figure.homeBurgId),
         reward:{gold, xp}, acceptedDay:gameDay, status:'active',
         isRival, rivalDeadlineDay: isRival ? gameDay + RIVAL_QUEST_DEADLINE_DAYS : null });
       saveQuests(quests);

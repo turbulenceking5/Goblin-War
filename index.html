@@ -338,6 +338,39 @@
   .tutorial-entry p{ margin:0; font-size:14px; color:var(--parchment); line-height:1.5; }
   #tutorial-dismiss{ width:100%; margin-top:6px; }
 
+  /* HUD/toolbar onboarding tooltip pass — the Expansion Research idea of the same name. Chained
+     right after the first-run tutorial modal dismisses (same brand-new-character-only gate, its
+     own TOOLTIP_TOUR_SEEN_KEY defaulting "true" for any pre-existing character the same way
+     TUTORIAL_SEEN_KEY does — see maybeStartOnboardingTour below): that modal covers the big
+     concepts in prose, this points at the actual live elements one at a time. A spotlight ring
+     (#onboarding-highlight, positioned via getBoundingClientRect in JS, dimming everywhere else
+     via a 9999px box-shadow spread rather than an SVG cutout mask) plus a small callout bubble
+     next to it — z-index 93, just above the tutorial modal's own 92, since this only ever starts
+     once that modal's already closed but should still outrank everything else including a stray
+     What's New popup underneath. pointer-events stay blocked on the dimmed backdrop so the player
+     uses Next/Skip rather than fat-fingering a real nav button mid-tour. */
+  #onboarding-overlay{
+    position:fixed; inset:0; z-index:93; display:none;
+  }
+  #onboarding-overlay.show{ display:block; }
+  #onboarding-highlight{
+    position:fixed; border:2px solid var(--gold); border-radius:10px;
+    box-shadow:0 0 0 9999px rgba(8,10,18,.68), 0 0 14px rgba(209,164,69,.6);
+    pointer-events:none; transition:top .2s, left .2s, width .2s, height .2s;
+  }
+  #onboarding-bubble{
+    position:fixed; max-width:280px;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:12px; padding:14px 16px;
+    box-shadow:0 8px 20px rgba(0,0,0,.6);
+  }
+  #onboarding-title{ font-family:'Cinzel', serif; font-size:13px; font-weight:700; color:var(--gold-lt); margin-bottom:6px; }
+  #onboarding-text{ font-size:13px; color:var(--parchment); line-height:1.45; margin-bottom:10px; }
+  #onboarding-footer{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  #onboarding-progress{ font-size:11px; color:#a9926a; }
+  #onboarding-footer .btn{ padding:7px 14px; font-size:12px; }
+  #onboarding-skip{ background:transparent; border:none; color:#a9926a; font-family:'Cinzel', serif; font-size:11.5px; text-decoration:underline; cursor:pointer; padding:4px; }
+
   /* A random road event's choice modal — see triggerWorldEvent/WORLD_EVENTS below. Structurally a
      copy of #whats-new-modal (centered card overlay, not a full-screen page like #combat-view),
      but z-index 75: it can fire the moment travel arrives, before #location-view (60) is even
@@ -716,6 +749,19 @@
         <p>Keep an eye on Health, Stamina, Hunger, and Thirst in the header. Rest at a Tavern or make camp on the road to recover, and visit a settlement's Marketplace to restock.</p>
       </div>
       <button class="btn btn-primary" id="tutorial-dismiss">Let's Go</button>
+    </div>
+  </div>
+
+  <div id="onboarding-overlay">
+    <div id="onboarding-highlight"></div>
+    <div id="onboarding-bubble">
+      <div id="onboarding-title"></div>
+      <div id="onboarding-text"></div>
+      <div id="onboarding-footer">
+        <button id="onboarding-skip">Skip tour</button>
+        <span id="onboarding-progress"></span>
+        <button class="btn btn-primary" id="onboarding-next">Next</button>
+      </div>
     </div>
   </div>
 
@@ -2163,6 +2209,71 @@ function maybeShowTutorial(){
 document.getElementById('tutorial-dismiss').addEventListener('click', ()=>{
   localStorage.setItem(TUTORIAL_SEEN_KEY, 'true');
   document.getElementById('tutorial-modal').classList.remove('show');
+  maybeStartOnboardingTour();
+});
+
+// HUD/toolbar onboarding tooltip pass — the Expansion Research idea of the same name. The welcome
+// modal above covers the big concepts in prose; this points at the real, live elements one at a
+// time right after that modal closes — same brand-new-character-only gate (TOOLTIP_TOUR_SEEN_KEY
+// defaults "true" for any pre-existing character, same as TUTORIAL_SEEN_KEY — see
+// freshCharacterData's isNewCharacter param in characters.html), so an existing player is never
+// retroactively interrupted by a tour covering UI they already know. Deliberately scoped to the
+// HUD/toolbar only (the stat pills, the six nav icons, Find Me, Make Camp) — the map itself and
+// "tap a settlement to travel" are already covered by the welcome modal's own prose.
+const TOOLTIP_TOUR_SEEN_KEY = "goblinwar_tooltipTourSeen";
+const ONBOARDING_STEPS = [
+  { selector:'#player-stats', title:'Your Vitals', text:'Health, Stamina, Hunger, and Thirst. Hunger and Thirst drain as time passes; Health and Stamina recover by resting at a Tavern or making camp.' },
+  { selector:'#nav-icons', title:'Your Toolbar', text:'Inventory, Party, Hero, Skills, Quests, and Settings — everything about your character lives behind these six icons.' },
+  { selector:'#recenter-btn', title:'Find Yourself', text:'Lost on the map? This snaps the view straight back to wherever you currently are.' },
+  { selector:'#camp-here-btn', title:'Make Camp', text:'Tap this to rest right where you stand — handy mid-journey, or when the road ahead looks too risky to travel further.' },
+];
+let onboardingStepIndex = 0;
+function maybeStartOnboardingTour(){
+  if(localStorage.getItem(TOOLTIP_TOUR_SEEN_KEY) === 'true') return;
+  onboardingStepIndex = 0;
+  document.getElementById('onboarding-overlay').classList.add('show');
+  positionOnboardingStep();
+}
+// Positions the spotlight ring + callout bubble against the current step's real element via
+// getBoundingClientRect — re-run on every step change and on resize/orientation change so a
+// mid-tour rotation (or the toolbar simply reflowing) doesn't leave the ring pointing at empty
+// space. A step whose selector can't be found (shouldn't normally happen — every target is
+// permanent chrome, not something that comes and goes) just skips ahead rather than showing a
+// highlight ring around nothing.
+function positionOnboardingStep(){
+  const step = ONBOARDING_STEPS[onboardingStepIndex];
+  const target = step && document.querySelector(step.selector);
+  if(!step || !target){ advanceOnboardingTour(); return; }
+  const r = target.getBoundingClientRect();
+  const pad = 6;
+  const highlight = document.getElementById('onboarding-highlight');
+  highlight.style.top = (r.top - pad) + 'px';
+  highlight.style.left = (r.left - pad) + 'px';
+  highlight.style.width = (r.width + pad*2) + 'px';
+  highlight.style.height = (r.height + pad*2) + 'px';
+  document.getElementById('onboarding-title').textContent = step.title;
+  document.getElementById('onboarding-text').textContent = step.text;
+  document.getElementById('onboarding-progress').textContent = `${onboardingStepIndex + 1} / ${ONBOARDING_STEPS.length}`;
+  document.getElementById('onboarding-next').textContent = onboardingStepIndex === ONBOARDING_STEPS.length - 1 ? 'Got It' : 'Next';
+  const bubble = document.getElementById('onboarding-bubble');
+  const bubbleEstHeight = 140; // rough, before layout — good enough to decide above-vs-below
+  const spaceBelow = window.innerHeight - r.bottom;
+  bubble.style.top = (spaceBelow > bubbleEstHeight + pad*2 ? r.bottom + pad*2 : Math.max(10, r.top - pad*2 - bubbleEstHeight)) + 'px';
+  bubble.style.left = Math.max(10, Math.min(window.innerWidth - 296, r.left)) + 'px';
+}
+function advanceOnboardingTour(){
+  onboardingStepIndex++;
+  if(onboardingStepIndex >= ONBOARDING_STEPS.length){ endOnboardingTour(); return; }
+  positionOnboardingStep();
+}
+function endOnboardingTour(){
+  localStorage.setItem(TOOLTIP_TOUR_SEEN_KEY, 'true');
+  document.getElementById('onboarding-overlay').classList.remove('show');
+}
+document.getElementById('onboarding-next').addEventListener('click', advanceOnboardingTour);
+document.getElementById('onboarding-skip').addEventListener('click', endOnboardingTour);
+window.addEventListener('resize', ()=>{
+  if(document.getElementById('onboarding-overlay').classList.contains('show')) positionOnboardingStep();
 });
 
 // ===================== UPDATE CHECK =====================
@@ -11674,6 +11785,7 @@ function collectCharacterSnapshot(){
     caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
     tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
+    tooltipTourSeen: localStorage.getItem(TOOLTIP_TOUR_SEEN_KEY) || "true",
     landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
     allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})

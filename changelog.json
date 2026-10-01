@@ -1166,5 +1166,12 @@
     "changes": [
       "Abandoning a quest now has a real cost — reputation with the giver's kingdom for a Board or Notable Figure quest, or a companion's own loyalty for one of their personal favors — instead of a free do-over."
     ]
+  },
+  {
+    "id": 156,
+    "date": "2026-10-01",
+    "changes": [
+      "Brand-new characters now get a quick guided tour of the HUD and toolbar right after the welcome screen — a spotlight and a short tip on your vitals, the toolbar icons, Find Me, and Make Camp, skippable at any time."
+    ]
   }
 ]

@@ -784,6 +784,7 @@ const TEMPLE_BLESSING_KEY = "goblinwar_templeBlessing"; // null | {type:'vigor'|
 const CARAVAN_ESCORT_KEY = "goblinwar_caravanEscort"; // "true" | "false" — see index.html's "Caravan Escort"
 const CARTOGRAPHER_KEY = "goblinwar_cartographerScouted"; // [burgId, ...] — see index.html's "Cartographer"
 const TUTORIAL_SEEN_KEY = "goblinwar_tutorialSeen"; // "true" | "false" — see index.html's "First-run tutorial"
+const TOOLTIP_TOUR_SEEN_KEY = "goblinwar_tooltipTourSeen"; // "true" | "false" — see index.html's "HUD/toolbar onboarding tooltip pass"
 const LANDMARK_CLAIMED_KEY = "goblinwar_landmarksClaimed"; // [landmarkId, ...] — see index.html's "Off-road discoverable landmarks"
 const ALLY_EQUIPPED_KEY = "goblinwar_allyEquipped"; // {allyId: itemName} — see index.html's "Let companions/mercenaries equip gear"
 const LEVEL_KEY = "goblinwar_level";
@@ -941,6 +942,7 @@ function collectCharacterSnapshot(){
     caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
     tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
+    tooltipTourSeen: localStorage.getItem(TOOLTIP_TOUR_SEEN_KEY) || "true",
     landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
     allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})

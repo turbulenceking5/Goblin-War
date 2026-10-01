@@ -4059,7 +4059,11 @@ const FIELD_BATTLE_ART = [
   "assets/biomes/field-battle-dusk.jpg",
 ];
 // Under Siege's own backdrop (triggerSiegeDefenseFight) — a besieged settlement's own wall under
-// attack at dusk, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside BIOME_ART.
+// attack in full daylight, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside
+// BIOME_ART. Prompt rewritten to pin down exactly which race appears where (human/dwarf attackers
+// only off the wall — charging the ground, the siege tower, and the ladders; ork/goblin defenders
+// only on the parapet) and to show a chaotic charge of soldiers rushing and climbing rather than a
+// static standing formation.
 const SIEGE_ART = [];
 // Night Camp's own backdrop (triggerAmbushFight's 'camp' context) — a resting camp ambushed after
 // dark, distinct from daytime BIOME_ART since the scene is set at night rather than being a reuse

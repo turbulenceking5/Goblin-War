@@ -681,13 +681,14 @@ const DEFEATED_VARIANTS_KEY = "goblinwar_defeatedVariants";
 const QUESTS_COMPLETED_TOTAL_KEY = "goblinwar_questsCompletedTotal";
 const LEVEL_KEY = "goblinwar_level";
 
-// Every ENEMY_VARIANTS name across all three races (index.html) — duplicated here per the
+// Every ENEMY_VARIANTS name across all four categories (index.html) — duplicated here per the
 // no-modules convention (see CLAUDE.md). Keep this list in sync whenever a new variant is added
 // to index.html's ENEMY_VARIANTS, or "Monster Hunter" below will never be able to complete.
 const ALL_ENEMY_VARIANTS = [
   "Bandit",
   "Goblin Raider", "Goblin Shieldbearer", "Goblin Skirmisher", "Goblin Archer", "Goblin Chieftain", "Goblin Shaman",
   "Ork Raider", "Ork Berserker", "Ork Warlord", "Ork Shaman",
+  "Wolf", "Dire Bear",
 ];
 
 function getKills(){ try{ return JSON.parse(localStorage.getItem(KILLS_KEY)) || {}; }catch(e){ return {}; } }

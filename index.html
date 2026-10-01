@@ -2774,7 +2774,7 @@ function findNearestSettlementOfRace(fromBurgId, race){
 // measurably weakens that kingdom's future ones. A plain ambush has no specific kingdom behind
 // it, so it falls back to the race-wide nearest-settlement search.
 function applyEnemyCasualtyLoss(race, attackerKingdom, nearBurgId, count){
-  if(!race || race === 'bandit' || count <= 0) return;
+  if(!race || race === 'bandit' || race === 'wildlife' || count <= 0) return; // neither has any territory to bleed population from
   const totalLoss = ENEMY_CASUALTY_POP_LOSS * count;
   if(attackerKingdom){
     const ownBurgs = Object.values(graph.burgs).filter(b => getControllerKingdom(b.id) === attackerKingdom);
@@ -4002,6 +4002,8 @@ function refreshPlayerStatUI(){
 // ===================== COMBAT (minimal turn-based, 1-3 enemies) =====================
 let combat = null; // {enemies:[{name,hp,maxHp,dmgRange,goldRange,xpRange,art}], targetIndex, playerDmgRange, onEnd, usedMoves, race, biome}
 const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest refills it
+const COMBO_THRESHOLD = 3; // consecutive plain Attacks needed to empower the next one
+const COMBO_DAMAGE_MULT = 1.3;
 
 // ===== Status effects (bleed/stun/fatigue) — see context/combat.md's "Status effects" section =====
 // Each combatant carries a plain {type: {turns}} map — the player via combat.playerEffects, every
@@ -4061,6 +4063,16 @@ const ENEMY_VARIANTS = {
     // from the rank-and-file nerf above, same as the Warlord.
     { name:"Ork Shaman",     hp:50, enemyDmgRange:[12,20], goldRange:[17,30], xpRange:[17,26], art:"assets/enemies/ork-shaman.png" },
   ],
+  // Wildlife — the Expansion Research idea of the same name: a fourth enemy category distinct
+  // from every humanoid raider above, keyed to biome (see pickAmbushEnemy's WILDLIFE_BIOMES roll)
+  // rather than kingdom/race, so it can show up regardless of who controls the territory. No gold
+  // (an animal carries no purse), own LOOT_TABLES entry below (foraged goods, not gear). No real
+  // portrait art yet — `art` left unset falls back the same way every still-empty BIOME_ART
+  // category already does, pending its own regen.
+  wildlife: [
+    { name:"Wolf",      hp:24, enemyDmgRange:[6,11],  goldRange:[0,0], xpRange:[8,13] },
+    { name:"Dire Bear", hp:55, enemyDmgRange:[10,18], goldRange:[0,0], xpRange:[16,24] },
+  ],
 };
 
 // Loot drops — each defeated enemy independently rolls LOOT_CHANCE for whether it drops
@@ -4076,6 +4088,8 @@ const LOOT_TABLES = {
   bandit: [ { name:"Healing Potion", weight:5 }, { name:"Books", weight:2 }, { name:"Bronze Charm", weight:1 } ],
   goblin: [ { name:"Healing Potion", weight:5 }, { name:"Bronze Helm", weight:2 }, { name:"Bronze Greaves", weight:2 }, { name:"Iron Sword", weight:1 } ],
   ork:    [ { name:"Healing Potion", weight:4 }, { name:"Iron Chestplate", weight:2 }, { name:"Iron Shield", weight:2 }, { name:"Iron Sword", weight:2 }, { name:"Bronze Charm", weight:1 } ],
+  // Foraged goods, not gear — a wolf or bear carries no weapons or armor to loot.
+  wildlife: [ { name:"Food", weight:5 }, { name:"Healing Potion", weight:2 } ],
 };
 // Returns a MARKET_ITEMS entry, or null if this enemy drops nothing.
 function rollLoot(race){
@@ -4279,7 +4293,8 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop, biome){
     })),
     targetIndex: 0,
     allies: buildCombatAllies(), fallenAllies: [],
-    playerDmgRange, onEnd, usedMoves: {}, race, playerEffects: {}, biome: biome || null
+    playerDmgRange, onEnd, usedMoves: {}, race, playerEffects: {}, biome: biome || null,
+    comboCount: 0 // see COMBO_THRESHOLD below — consecutive plain Attacks, reset by a Special
   };
   const multi = combat.enemies.length > 1;
   document.getElementById('combat-title').textContent = multi ? 'Ambush!' : `${combat.enemies[0].name} Ambush!`;
@@ -4321,6 +4336,7 @@ function statusBadgesHTML(effects){
 function renderPlayerStatus(){
   const el = document.getElementById('combat-player-status');
   const labels = Object.keys(combat.playerEffects).map(type => STATUS_LABEL[type]);
+  if(combat.comboCount > 0) labels.push(`Momentum ${combat.comboCount}/${COMBO_THRESHOLD}`);
   el.textContent = labels.join(' · ');
   el.style.display = labels.length ? 'block' : 'none';
 }
@@ -4574,9 +4590,15 @@ function combatAttack(){
     if(!freeAttack) setStamina(playerStamina - STAMINA_COST_PER_ATTACK);
     const playerFatigued = hasStatusEffect(combat.playerEffects, 'fatigue');
     if(playerFatigued) tickEffectTurns(combat.playerEffects, 'fatigue');
-    const dmg = Math.round(randRange(combat.playerDmgRange) * (playerFatigued ? FATIGUE_DAMAGE_MULT : 1)) + getEquipDamageBonus();
+    // Combo/momentum meter — the Expansion Research idea of the same name: three plain Attacks
+    // landed in a row (never broken by a Special — see combatSpecial's own reset) empower the
+    // next hit, then the streak starts over. A reason to sometimes hold off on a Special even
+    // once it's available, not just spend it the instant it's off cooldown.
+    const comboReady = combat.comboCount >= COMBO_THRESHOLD;
+    combat.comboCount = comboReady ? 0 : combat.comboCount + 1;
+    const dmg = Math.round(randRange(combat.playerDmgRange) * (playerFatigued ? FATIGUE_DAMAGE_MULT : 1) * (comboReady ? COMBO_DAMAGE_MULT : 1)) + getEquipDamageBonus();
     target.hp -= dmg;
-    combatLog(`You hit the ${target.name} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : ''));
+    combatLog(`You hit the ${target.name} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : '') + (comboReady ? ` (Momentum!)` : ''));
     if(aliveEnemies().length === 0){
       updateCombatUI();
       endCombat('victory');
@@ -4626,6 +4648,7 @@ function combatSpecial(moveId){
   if(!move || !canUseMove(move)) return;
   combat.usedMoves[moveId] = true;
   setStamina(playerStamina - move.cost);
+  combat.comboCount = 0; // a Special breaks the plain-Attack streak — see COMBO_THRESHOLD above
 
   const playerFatigued = hasStatusEffect(combat.playerEffects, 'fatigue');
   if(playerFatigued) tickEffectTurns(combat.playerEffects, 'fatigue');
@@ -4885,19 +4908,37 @@ const PLAYER_DMG_RANGE = [8,15]; // the player's own weapon damage — fixed reg
 // ambushes stay solo (the documented "easiest fight in the game"); Goblin/Ork raiding-party
 // ambushes spawn 2-3 enemies, each an independently-rolled variant (repeats allowed), matching
 // triggerAmbushFight's plural "raiders" flavor text below.
-function triggerEnemyFight(race, onEnd, backdrop, biome){
+// Ambush composition scaling — the Expansion Research idea of the same name. toughBias (0-1,
+// default 0 for every non-ambush call site — siege/field-battle fights stay exactly as tuned) is
+// the chance any one enemy slot is drawn from the race's tougher half (by hp) instead of a flat
+// uniform pick across the whole variant pool. See getAmbushToughnessBias for how it's computed.
+function pickWeightedVariant(variants, toughBias){
+  if(toughBias > 0 && variants.length > 1 && Math.random() < toughBias){
+    const sorted = [...variants].sort((a,b) => b.hp - a.hp);
+    const toughHalf = sorted.slice(0, Math.max(1, Math.ceil(sorted.length/2)));
+    return toughHalf[Math.floor(Math.random()*toughHalf.length)];
+  }
+  return variants[Math.floor(Math.random()*variants.length)];
+}
+function triggerEnemyFight(race, onEnd, backdrop, biome, toughBias){
   const variants = ENEMY_VARIANTS[race] || ENEMY_VARIANTS.bandit;
   const count = race === 'bandit' ? 1 : (2 + Math.floor(Math.random()*2)); // 2 or 3
   const specs = [];
-  for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+  for(let i=0;i<count;i++) specs.push(pickWeightedVariant(variants, toughBias||0));
   startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), race, backdrop, biome);
 }
 const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement whose kingdom is at war, this fraction are a themed raiding party instead of a plain Bandit
-// Decides what an ambush actually is: a Goblin/Ork raiding party if the relevant settlement
-// belongs to a Good-alliance kingdom currently at war (orks/goblins pressing into human/dwarf
-// land — the game's own "Goblin War" premise), a plain Bandit otherwise. Bad-alliance
-// territory never spawns a themed raid — the game doesn't cast Human/Dwarf as ambush enemies.
+// Decides what an ambush actually is: first a biome-gated chance at Wildlife (see WILDLIFE_BIOMES
+// — the Expansion Research idea of the same name, keyed to terrain rather than kingdom/race, so it
+// can show up regardless of who controls the land), then a Goblin/Ork raiding party if the relevant
+// settlement belongs to a Good-alliance kingdom currently at war (orks/goblins pressing into
+// human/dwarf land — the game's own "Goblin War" premise), a plain Bandit otherwise. Bad-alliance
+// territory never spawns a themed humanoid raid — the game doesn't cast Human/Dwarf as ambush
+// enemies — but Wildlife isn't territory-aligned, so it can still show up there.
+const WILDLIFE_AMBUSH_CHANCE = 0.3;
+const WILDLIFE_BIOMES = ['forest','mountains','snow'];
 function pickAmbushEnemy(burgId){
+  if(WILDLIFE_BIOMES.includes(getFightBiome(burgId)) && Math.random() < WILDLIFE_AMBUSH_CHANCE) return 'wildlife';
   const b = graph.burgs[burgId];
   if(b && b.race && ALLIANCE[b.race] === 'Good' && isAtWarAt(burgId) && Math.random() < RAID_AMBUSH_CHANCE){
     return Math.random() < 0.5 ? 'ork' : 'goblin';
@@ -4907,7 +4948,7 @@ function pickAmbushEnemy(burgId){
 function triggerAmbushFight(burgId, onEnd, context){
   const enemy = pickAmbushEnemy(burgId);
   const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
-  const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? 'Ork raiders' : 'Goblin raiders');
+  const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? 'Ork raiders' : (enemy === 'goblin' ? 'Goblin raiders' : 'Wild beasts'));
   showToast(`${label} ${scene}!`);
   // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — the burg's `biome` field is real,
   // derived from this character's own generated map, so this already reads as whatever terrain
@@ -4918,7 +4959,24 @@ function triggerAmbushFight(burgId, onEnd, context){
   // The real terrain still applies its own combat modifier (see getFightBiome/SWAMP_ENEMY_MISS_CHANCE/
   // HILLS_RANGED_DAMAGE_MULT above) even for a camp ambush, whose backdrop art is Night Camp's own
   // pool rather than a daytime biome photo — you're still standing on whatever ground that is.
-  triggerEnemyFight(enemy, onEnd, backdrop, getFightBiome(burgId));
+  triggerEnemyFight(enemy, onEnd, backdrop, getFightBiome(burgId), getAmbushToughnessBias(burgId));
+}
+// How much tougher an ambush here should skew — the closer a settlement sits to the frontline
+// (isFrontlineBurg) and the longer its kingdom's longest-running war has dragged on (same
+// WAR_TICK_INTERVAL_DAYS "week" unit war exhaustion already uses), the more likely each enemy slot
+// is drawn from the race's tougher half instead of a flat random pick. Capped so even a settlement
+// that's both frontline and deep into a years-long war never guarantees every slot is the hardest
+// variant — see pickWeightedVariant for how the bias is actually applied.
+function getAmbushToughnessBias(burgId){
+  let bias = 0;
+  if(isFrontlineBurg(burgId)) bias += 0.3;
+  const kingdom = getControllerKingdom(burgId);
+  if(kingdom){
+    const enemies = getEnemiesAtWar(kingdom);
+    const maxWeeks = enemies.reduce((max,e) => Math.max(max, Math.floor((gameDay - getWarStartDay(kingdom,e)) / WAR_TICK_INTERVAL_DAYS)), 0);
+    bias += Math.min(0.4, maxWeeks * 0.02);
+  }
+  return Math.min(0.8, bias);
 }
 
 // ===================== TRAVEL GRAPH =====================

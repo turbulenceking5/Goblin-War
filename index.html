@@ -7032,12 +7032,23 @@ function showCampfirePanel(destId, destName, partialHours){
         <b style="color:var(--parchment);">${questTitle(activeQuest)}</b><br>${questDesc(activeQuest)}
       </div>
     ` : '';
+    // Gift-giving — see giveCompanionGift above. Only rendered when there's actually something
+    // in the Bag to give; an empty inventory just shows Talk/the quest card, same "hide the
+    // section when there's nothing to do" pattern the rest of this page already follows.
+    const giftOptions = playerInventory.filter(it => it.qty > 0).map(it => `<option value="${it.name}">${it.name}${it.qty > 1 ? ` (${it.qty})` : ''}</option>`).join('');
+    const giftHTML = giftOptions ? `
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+        <select data-gift-select="${c.id}" style="flex:1; min-width:0; background:rgba(0,0,0,.3); color:var(--parchment); border:1px solid rgba(209,164,69,.35); border-radius:6px; padding:8px; font-size:12.5px;">${giftOptions}</select>
+        <button class="btn btn-secondary" style="flex:none; padding:8px 12px; font-size:11px;" data-gift-give="${c.id}">Gift</button>
+      </div>
+    ` : '';
     return `
       <button class="loc-action campfire-talk-btn" data-companion-id="${c.id}" style="margin-bottom:10px;">
         <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span class="li-text"><b>Talk to ${c.name}</b><span>${c.title} &middot; ${mood}</span></span>
       </button>
       ${questHTML}
+      ${giftHTML}
     `;
   }).join('');
   list.innerHTML = `
@@ -7050,6 +7061,13 @@ function showCampfirePanel(destId, destName, partialHours){
   `;
   document.querySelectorAll('[data-companion-quest-accept]').forEach(btn=>{
     btn.addEventListener('click', ()=> acceptCompanionQuest(btn.dataset.companionQuestAccept, destId, destName, partialHours));
+  });
+  document.querySelectorAll('[data-gift-give]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.giftGive;
+      const select = document.querySelector(`[data-gift-select="${id}"]`);
+      if(select && select.value) giveCompanionGift(id, select.value, destId, destName, partialHours);
+    });
   });
   const portraitEl = document.getElementById('loc-banner-portrait');
   const portraits = party.map(id => COMPANIONS.find(c => c.id === id)).filter(c => c && c.portrait);
@@ -8642,6 +8660,21 @@ function adjustCompanionLoyalty(id, delta){
   saveCompanionLoyalty(loyalty);
   return ` Loyalty ${delta > 0 ? '+' : ''}${delta}.`;
 }
+// Gift-giving at the Campfire — the Expansion Research idea of the same name: give a carried item
+// to a specific companion for an instant loyalty bump, bigger than any single shared-party action
+// (GOOD_ACTION_LOYALTY_GAIN) but well under a companion's own personal quest payoff
+// (COMPANION_QUEST_LOYALTY_GAIN) — a nice personal gesture, not the single biggest moment with
+// them. Reuses consumeItem/adjustCompanionLoyalty verbatim, no new item-consumption machinery.
+const GIFT_LOYALTY_GAIN = 10;
+function giveCompanionGift(companionId, itemName, destId, destName, partialHours){
+  const item = getItem(itemName);
+  if(!item || item.qty <= 0 || !getParty().includes(companionId)){ showCampfirePanel(destId, destName, partialHours); return; }
+  consumeItem(itemName, 1);
+  const c = COMPANIONS.find(c2 => c2.id === companionId);
+  const note = adjustCompanionLoyalty(companionId, GIFT_LOYALTY_GAIN);
+  showToast(`${c ? c.name : 'Your companion'} is touched by the gift of ${itemName}.` + note);
+  showCampfirePanel(destId, destName, partialHours);
+}
 
 // ===================== DIALOGUE TREES =====================
 // A generic multiple-choice conversation engine, shared by three surfaces per the project
@@ -8782,6 +8815,23 @@ function getCompanionForBurg(burgId){
 // difficulty toggle gates them, which storage key and id field to remove them from) while sharing
 // every other bit of combat code — renderAllies/runAllyAttacks/applyEnemyHit don't care which
 // kind an ally is at all.
+// Loyalty payoff at high standing — the Expansion Research idea of the same name: loyalty used to
+// only prevent departure at 0, nothing rewarded climbing it. A companion at Devoted (see
+// loyaltyLabel) now fights a little harder, giving the meter a real reason to climb rather than
+// just avoid hitting bottom.
+const DEVOTED_LOYALTY_THRESHOLD = 80; // matches loyaltyLabel's own "Devoted" cutoff
+const DEVOTED_DAMAGE_MULT = 1.15;
+// Companion synergy pairs — the Expansion Research idea of the same name: a specific two-companion
+// combination unlocks a small shared flat damage bonus while both are in the active party, no new
+// UI, just a lookup over the existing party snapshot. One pair for now (both front-line fighters
+// who cover each other); more are just another array entry later.
+const COMPANION_SYNERGY_PAIRS = [
+  { pair:["brannoc-ward","thrain-emberforge"], dmgBonus:3, desc:"Ser Brannoc and Thrain fight back-to-back, covering each other's blind side." },
+];
+function getActiveSynergyBonus(id, partyIds){
+  const synergy = COMPANION_SYNERGY_PAIRS.find(s => s.pair.includes(id) && s.pair.every(p => partyIds.includes(p)));
+  return synergy ? synergy.dmgBonus : 0;
+}
 function buildCombatAllies(){
   const mercAllies = getMercenaries().map(m => {
     const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
@@ -8791,12 +8841,17 @@ function buildCombatAllies(){
       hp: type.combatHp, maxHp: type.combatHp, dmgRange: type.combatDmgRange.slice(), effects: {}
     };
   }).filter(Boolean);
-  const companionAllies = getParty().map(id => {
+  const partyIds = getParty();
+  const loyalty = getCompanionLoyalty();
+  const companionAllies = partyIds.map(id => {
     const c = COMPANIONS.find(c => c.id === id);
     if(!c) return null;
+    const devoted = (loyalty[id] === undefined ? 50 : loyalty[id]) >= DEVOTED_LOYALTY_THRESHOLD;
+    const synergyBonus = getActiveSynergyBonus(id, partyIds);
+    const dmgRange = c.combatDmgRange.map(d => Math.round(d * (devoted ? DEVOTED_DAMAGE_MULT : 1)) + synergyBonus);
     return {
       kind:'companion', id: c.id, title: c.name, portrait: c.portrait,
-      hp: c.combatHp, maxHp: c.combatHp, dmgRange: c.combatDmgRange.slice(), effects: {}
+      hp: c.combatHp, maxHp: c.combatHp, dmgRange, effects: {}
     };
   }).filter(Boolean);
   return [...mercAllies, ...companionAllies];

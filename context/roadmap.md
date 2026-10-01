@@ -328,7 +328,7 @@ Everything below came from the "Goblin War — Expansion Research" doc, a pass t
 
 ### World Map & Travel
 
-- **Route fork at travel-accept time.** Offer a second "shortcut" itinerary alongside the normal quoted route — same pathfinding math, lower travel hours, higher ambush-chance multiplier. No new pathfinding system needed.
+- **Route fork at travel-accept time — done.** The info-card's travel quote now offers a second "Shortcut" button alongside Travel Here (road routes only) — same route/edges, `SHORTCUT_HOURS_MULT` (25% faster) but `SHORTCUT_AMBUSH_MULT` (60% riskier) fed into `rollAmbush`'s new `extraMult` parameter. No new pathfinding system. See [travel-and-map.md](travel-and-map.md)'s "Route fork."
 - **Caravan escort.** A paid Guard House/Marketplace action that applies a temporary ambush-chance discount to the next trip, with a short arrival conversation using the existing dialogue-tree engine.
 - **A Cartographer purchase per settlement.** A one-time fee that reveals nearby settlements' Quest Board / Notable Figure / companion status, using data the game already computes — gives fog-of-war (once built) or today's static map a reason to scout ahead.
 

@@ -72,6 +72,22 @@ Two small additions to `computeTravel(toId)`, both derived from `routeBetween`'s
 - **Horse** — a `MARKET_ITEMS` entry (index.html, weight `0`, no `slot` — not equippable, just a carried possession like Bedroll) that speeds up road travel. `computeTravel` checks `getItem('Horse')`: whenever the route is `viaRoad` and has no sea leg (`!bySea`), the trip's `hours` is divided by `HORSE_PACE_MULT` (`1.5`) before Hunger/Thirst gain is derived from it — a horse doesn't swim, so it never touches a sea crossing's pace. The returned `mounted` flag drives a small "(riding — faster pace)" note in the info-card's travel quote (`onMapTap`).
 - **Ferry fares** — `routeBetween` now also returns `seaMiles` (the route's sea-`kind` edges' own mileage, summed and scaled by `DISTANCE_SCALE` same as `miles`), and `computeTravel` derives `ferryCost` from it: `Math.max(FERRY_MIN_FARE, Math.round(seaMiles * FERRY_GOLD_PER_MILE))` whenever `seaMiles > 0`, else `0`. Unlike Hunger/Thirst (deliberately never a travel gate — see [player-state.md](player-state.md)), this **is** a real affordability gate: `beginTravel` checks `playerGold` against `t.ferryCost` and refuses (toast, no travel) if short, otherwise deducts it via `setGold` before the journey animation starts. The info-card shows the fare up front (`Travel Here (Nh, Fg)`) so it's never a surprise at departure. A cancelled/interrupted crossing (`stopTravel`/`campMidTravel`) doesn't refund an already-paid fare.
 
+## Route fork — a shortcut offered at travel-accept time
+
+The Expansion Research idea of the same name: `onMapTap`'s info-card can show a second button,
+**Shortcut**, alongside the normal **Travel Here** one, whenever the quoted route is `viaRoad`
+(cross-country travel has no shortcut — it's already the most direct path this game's pathfinding
+finds). `computeShortcutTravel(t)` takes the already-computed `computeTravel` quote `t` and returns
+a second one over the *same* route/edges — same `miles`, same `t.edges` for `drawRoutePreview`/
+`animateTravel` — just with `hours` cut by `SHORTCUT_HOURS_MULT` (`0.75`, so 25% faster). No second
+pathfinding system, no alternate road: it's the same quoted trip, just hurried.
+
+The tradeoff lives entirely in `rollAmbush`'s new third parameter, `extraMult`: `beginTravel(destId,
+viaShortcut)` passes `SHORTCUT_AMBUSH_MULT` (`1.6`) when the player tapped Shortcut, `1` (a no-op)
+otherwise, multiplied in alongside the existing night/perk/Temple-Warding-blessing factors. A
+shortcut trip is never a different event from a normal one — same arrival flow, same ambush/world-
+event roll order in `beginTravel`'s completion callback — just quoted faster and weighted riskier.
+
 ## Calendar and the clock
 
 Two stored time values now, not one: `gameDay` (key `goblinwar_gameDay`, a whole-number day counter, unchanged in meaning) and `gameHour` (key `goblinwar_gameHour`, a real hour-of-day, `0` up to but not including `24`, float-precision so a clock reading like "2:30 PM" is exact, not rounded to the hour). `DAYS_PER_MONTH=30`, `MONTHS_PER_YEAR=12` are fixed constants used to derive day/month/year for display; `timeStr(hour)` formats `gameHour` as a 12-hour clock string. Both — plus `refreshCalendarUI()`, the render function — are duplicated in character.html and settings.html rather than shared, since there's no module system (see root [CLAUDE.md](../CLAUDE.md)); those two pages are static snapshots on load, not live tickers, so they just read the stored value once.

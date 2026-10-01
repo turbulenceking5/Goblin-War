@@ -621,6 +621,7 @@
     <div id="info-travel"></div>
     <div id="info-actions">
       <button class="btn btn-secondary" id="btn-close">Close</button>
+      <button class="btn btn-secondary" id="btn-shortcut" style="display:none; color:#e2857f; border-color:rgba(226,133,127,.4);">Shortcut</button>
       <button class="btn btn-primary" id="btn-travel">Travel Here</button>
     </div>
   </div>
@@ -5069,6 +5070,7 @@ let adjacency = {};     // cellId -> [{to, mi, edge, forward}]
 let currentBurg = localStorage.getItem(LOC_KEY) || "0"; // the guaranteed-Human starting capital every generated world assigns burg id "0"
 let selectedBurg = null;
 let selectedBattleId = null; // the info-card's other selection target — see onBattleMarkerTap
+let shortcutQuote = null; // the current info-card selection's shortcut quote (computeShortcutTravel), if any — see onMapTap/btn-shortcut
 let playerMarkerEl = null;
 let reachableSet = new Set(); // cell ids reachable from currentBurg's cell
 const labelElByBurg = {}; // (unused holdover — no longer needed with tap-zones)
@@ -5197,11 +5199,11 @@ function nightFractionOfTrip(startHour, hours){
   }
   return nightSamples / samples;
 }
-function rollAmbush(hours, startHour){
+function rollAmbush(hours, startHour, extraMult){
   const days = hours/HOURS_PER_DAY;
   const nightFrac = startHour === undefined ? 0 : nightFractionOfTrip(startHour, hours);
   const nightMult = 1 + nightFrac * (NIGHT_AMBUSH_TRAVEL_MULT - 1);
-  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1);
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
 
@@ -5529,6 +5531,18 @@ function computeTravel(toId){
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
+// Route fork — the Expansion Research idea of the same name: a second itinerary offered
+// alongside computeTravel's normal quote, not a second pathfinding system. Same route/edges
+// (same miles, same road), just quoted faster and flagged riskier — a known shortcut off the
+// main way, not a different road. Only offered for an actual road route; cross-country travel is
+// already as direct as this game's pathfinding gets, so there's no "shortcut" version of it.
+const SHORTCUT_HOURS_MULT = 0.75; // 25% faster than the quoted route
+const SHORTCUT_AMBUSH_MULT = 1.6; // but a noticeably riskier ambush roll for the whole trip — see rollAmbush's extraMult param
+function computeShortcutTravel(t){
+  if(!t || !t.viaRoad) return null;
+  const hours = Math.max(1, Math.ceil(t.hours * SHORTCUT_HOURS_MULT));
+  return { ...t, hours, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
+}
 // Giver-to-target distance for a quest offer, independent of where the player actually is right
 // now (they're standing at the giver when a Quest Board panel is open, but this is more robust
 // than assuming that, and reads clearer at the call site) — see generateBoardOffers below.
@@ -5732,6 +5746,8 @@ function closeCard(){
   selectedEl = null;
   selectedBurg = null;
   selectedBattleId = null;
+  shortcutQuote = null;
+  document.getElementById('btn-shortcut').style.display = 'none';
   clearRoutePreview();
 }
 document.getElementById('btn-close').addEventListener('click', closeCard);
@@ -6613,6 +6629,9 @@ function onMapTap(burgId){
 
   const travelDiv = document.getElementById('info-travel');
   const travelBtn = document.getElementById('btn-travel');
+  const shortcutBtn = document.getElementById('btn-shortcut');
+  shortcutQuote = null;
+  shortcutBtn.style.display = 'none';
 
   if(burgId === currentBurg && !campPos){
     travelDiv.textContent = "You are here.";
@@ -6634,6 +6653,11 @@ function onMapTap(burgId){
       travelBtn.style.display = 'block';
       if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, burgId, t.edges);
       travelBtn.textContent = t.ferryCost > 0 ? `Travel Here (${t.hours}h, ${t.ferryCost}g)` : `Travel Here (${t.hours}h)`;
+      shortcutQuote = computeShortcutTravel(t);
+      if(shortcutQuote){
+        shortcutBtn.style.display = 'block';
+        shortcutBtn.textContent = shortcutQuote.ferryCost > 0 ? `Shortcut (${shortcutQuote.hours}h, ${shortcutQuote.ferryCost}g, riskier)` : `Shortcut (${shortcutQuote.hours}h, riskier)`;
+      }
     }
   }
   document.getElementById('info-card').classList.add('open');
@@ -6648,6 +6672,8 @@ function onBattleMarkerTap(battleId){
   if(!battle){ closeCard(); return; }
   selectedBurg = null;
   selectedBattleId = battleId;
+  shortcutQuote = null;
+  document.getElementById('btn-shortcut').style.display = 'none';
   showHighlight(battle.x, battle.y);
 
   document.getElementById('info-name').textContent = "Army Camp";
@@ -6721,10 +6747,17 @@ function updateLiveClockDisplay(startHour, totalHours, frac){
   updateNightOverlay(hour);
 }
 
-function beginTravel(destId){
+function beginTravel(destId, viaShortcut){
   stopWaiting();
-  const t = computeTravel(destId);
+  let t = computeTravel(destId);
   if(!t) return;
+  // Route fork — see computeShortcutTravel above. Same edges/route either way (drawRoutePreview
+  // and animateTravel below both still walk t.edges unchanged); only the quoted hours and the
+  // ambush-chance multiplier passed to rollAmbush differ.
+  if(viaShortcut){
+    const shortcut = computeShortcutTravel(t);
+    if(shortcut) t = shortcut;
+  }
   // The one real affordability gate travel has (see FERRY_GOLD_PER_MILE above) — everything
   // else about this trip (Hunger/Thirst) is allowed to proceed broke, but a sea crossing
   // genuinely can't happen without paying for passage.
@@ -6756,7 +6789,7 @@ function beginTravel(destId){
     addHunger(t.hungerGain);
     addThirst(t.thirstGain);
     refreshReachability();
-    if(rollAmbush(t.hours, startHour)){
+    if(rollAmbush(t.hours, startHour, viaShortcut ? SHORTCUT_AMBUSH_MULT : 1)){
       triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
     } else if(rollWorldEvent()){
       triggerWorldEvent(()=> showLocationView(currentBurg));
@@ -6893,6 +6926,10 @@ document.getElementById('btn-travel').addEventListener('click', ()=>{
     return;
   }
   beginTravel(selectedBurg);
+});
+document.getElementById('btn-shortcut').addEventListener('click', ()=>{
+  if(!selectedBurg || !shortcutQuote) return;
+  beginTravel(selectedBurg, true);
 });
 
 const TIER_ART = {

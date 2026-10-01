@@ -1060,5 +1060,12 @@
     "changes": [
       "The Temple now does something: once a kingdom trusts you enough, the clergy will bless you with either steady health/stamina regeneration or fewer ambushes for 5 days."
     ]
+  },
+  {
+    "id": 143,
+    "date": "2026-10-01",
+    "changes": [
+      "Tapping a destination on the map can now offer a Shortcut alongside the normal route — noticeably faster, but a riskier road."
+    ]
   }
 ]

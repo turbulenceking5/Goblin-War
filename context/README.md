@@ -12,6 +12,7 @@ These files exist so an AI assistant (or a returning human) can load just the sy
 6. **[data-files.md](data-files.md)** — reference material on the world data shape, read on demand rather than up front.
 7. **[roadmap.md](roadmap.md)** — what's intentionally unbuilt, useful before proposing new features so you don't duplicate a stub that already has a planned home.
 8. **[testing-and-qa.md](testing-and-qa.md)** — read on demand, before shipping a change: the manual smoke-test checklist, since there's no automated suite.
+9. **[scene-backdrops.md](scene-backdrops.md)** — reference material, read on demand whenever reviewing or fixing AI-generated art prompts in the separate Scene Backdrops tracker artifact (not part of this repo's code).
 
 ## Dependency notes
 

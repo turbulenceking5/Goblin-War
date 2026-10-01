@@ -61,6 +61,7 @@ Each covers one system in depth — read the relevant one before changing that p
 - [context/data-files.md](context/data-files.md) — the procedural world generator's output shape, where the map assets come from, and the retired hand-authored world's history.
 - [context/roadmap.md](context/roadmap.md) — every "coming soon" stub in the codebase, collected in one place.
 - [context/testing-and-qa.md](context/testing-and-qa.md) — the manual smoke-test checklist to run before shipping a change, since there's no automated test suite.
+- [context/scene-backdrops.md](context/scene-backdrops.md) — the separate Scene Backdrops tracker Artifact (AI-image-generation prompts for backdrops/icons/terrain), its naming conventions (especially the 4-way siege prompt quartet), and its known recurring defects/fixes — read before reviewing or fixing any generated art prompt.
 
 ## Conventions worth knowing before editing
 

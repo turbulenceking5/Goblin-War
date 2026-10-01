@@ -9911,6 +9911,11 @@ function showTavernPanel(burgId){
         <span class="li-text"><b>Rest for the Night</b><span>Restores health &amp; stamina &middot; Passes 1 day</span></span>
       </button>
       ${buildTavernMealHTML()}
+      ${TAVERN_REGULARS.map(regular => `
+      <button class="loc-action" id="tavern-regular-${regular.id}-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>
+        <span class="li-text"><b>Talk to ${regular.name}</b><span>${regular.title}</span></span>
+      </button>`).join('')}
       <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin:14px 0;">
         <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:8px;">Tavern Talk</div>
         <div id="tavern-rumour" style="font-size:14.5px; line-height:1.55; color:var(--parchment); font-style:italic;">"${rumour}"</div>
@@ -9936,8 +9941,76 @@ function showTavernPanel(burgId){
       showToast(`You settle in for a proper meal and a drink.`);
       render();
     });
+    TAVERN_REGULARS.forEach(regular => {
+      const btn = document.getElementById(`tavern-regular-${regular.id}-btn`);
+      if(btn) btn.addEventListener('click', ()=> showTavernRegularChapter(regular.id, burgId));
+    });
   }
   render();
+}
+
+// Two fixed, named regulars present at every Tavern (not settlement-specific) — a minimal real
+// slice of "NPC memory": each has a short dialogue tree that advances one step per calendar day
+// visited (capped once/day, same gameDay-cooldown shape used elsewhere), reusing the existing
+// dialogue engine (renderDialogueBody/wireDialogueChoices) verbatim. Flavor only — no gold/loyalty/
+// reputation payoff, so no DIALOGUE_EFFECT_DAY_KEY gating is needed here.
+const TAVERN_REGULAR_PROGRESS_KEY = "goblinwar_tavernRegularProgress"; // {regularId: {step, lastVisitDay}}
+const TAVERN_REGULARS = [
+  { id:"old-bram", name:"Old Bram", title:"a retired caravan guard who's seen three wars" },
+  { id:"mira-the-barmaid", name:"Mira", title:"the tavern's own barmaid, quick with a rumor" },
+];
+const TAVERN_REGULAR_CHAPTERS = {
+  "old-bram": [
+    "Three wars I've marched in, lad, and buried more mates than I care to count. You get a look about you — reminds me of myself, before the aches set in.",
+    "Caravan work's no life for the faint of heart. Bandits, weather, hunger — and that's before anyone draws a blade. I lasted longer than most. Luck, mostly.",
+    "You know what keeps a man going through all that? Not glory. Just getting the next cart home in one piece. Small things.",
+    "Funny, talking to you. Feels like talking to the fellow I used to be, before the aches set in. Mind how you go out there — the roads don't get kinder.",
+  ],
+  "mira-the-barmaid": [
+    "Pull up a stool. I hear everything that passes through this place — more gossip than ale gets poured here, some nights.",
+    "You'd be surprised what people say when they think the barmaid's not listening. Secrets, mostly. Everyone's got one.",
+    "Between you and me? Half the 'rumors' going round this kingdom started right here, over a tankard. I may have started a few myself.",
+    "You're alright, you know that? Most folks passing through don't bother learning my name. Stop by again sometime — I'll keep the good stories for you.",
+  ],
+};
+function getTavernRegularProgress(){ try{ return JSON.parse(localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY)) || {}; }catch(e){ return {}; } }
+function saveTavernRegularProgress(map){ localStorage.setItem(TAVERN_REGULAR_PROGRESS_KEY, JSON.stringify(map)); }
+// Advances the regular's step by one the first time they're visited on a later calendar day than
+// their last visit (capped at the final chapter); a same-day revisit just replays the current step.
+// The very first-ever visit shows chapter 0 without advancing — entry.lastVisitDay is seeded to
+// gameDay specifically so that visit doesn't look like "a day later" and skip chapter 0 unseen.
+function visitTavernRegular(id){
+  const chapters = TAVERN_REGULAR_CHAPTERS[id] || [];
+  const map = getTavernRegularProgress();
+  let entry = map[id];
+  if(!entry){
+    entry = { step:0, lastVisitDay:gameDay };
+  } else if(gameDay > entry.lastVisitDay && entry.step < chapters.length - 1){
+    entry.step += 1;
+    entry.lastVisitDay = gameDay;
+  } else {
+    entry.lastVisitDay = gameDay;
+  }
+  map[id] = entry;
+  saveTavernRegularProgress(map);
+  return chapters[Math.min(entry.step, chapters.length - 1)] || "";
+}
+function showTavernRegularChapter(regularId, burgId){
+  const regular = TAVERN_REGULARS.find(r => r.id === regularId);
+  if(!regular){ showTavernPanel(burgId); return; }
+  const text = visitTavernRegular(regularId);
+  const list = document.getElementById('loc-action-list');
+  const node = { text, choices:[] };
+  list.innerHTML = `
+    <button class="loc-action" id="tavern-regular-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to the Tavern</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:14px 0 2px;">${regular.name} &middot; ${regular.title}</div>
+    ${renderDialogueBody(node)}
+  `;
+  document.getElementById('tavern-regular-back-btn').addEventListener('click', ()=> showTavernPanel(burgId));
+  wireDialogueChoices(node, ()=> showTavernPanel(burgId));
 }
 
 function showMarketPanel(burgId){
@@ -10377,6 +10450,7 @@ function collectCharacterSnapshot(){
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
+    tavernRegularProgress: localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

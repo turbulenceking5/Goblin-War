@@ -2373,12 +2373,34 @@ function setWarStart(k1, k2){
   const map = getWarStartsMap();
   map[getRelationKey(k1, k2)] = gameDay;
   localStorage.setItem(WARSTART_KEY, JSON.stringify(map));
+  recordWarHistory(k1, k2); // every war declaration, AI or player-incited, goes through this one spot
 }
 function clearWarStart(k1, k2){
   const map = getWarStartsMap();
   delete map[getRelationKey(k1, k2)];
   localStorage.setItem(WARSTART_KEY, JSON.stringify(map));
 }
+// War-history ledger — per the Expansion Research idea of the same name: how many times a kingdom
+// pair has gone to war, a lightweight answer to "no diplomatic memory" without reworking the
+// relations model itself. Sparse, same getRelationKey shape as relations/warStarts, incremented
+// from setWarStart's one shared hook so it's correct for every war regardless of who started it.
+const WAR_HISTORY_KEY = "goblinwar_warHistory"; // {relationKey: count}
+function getWarHistoryMap(){
+  if(_tickCache) return _tickCache.warHistory;
+  try{ return JSON.parse(localStorage.getItem(WAR_HISTORY_KEY)) || {}; }catch(e){ return {}; }
+}
+function getWarHistoryCount(k1, k2){ return getWarHistoryMap()[getRelationKey(k1, k2)] || 0; }
+function recordWarHistory(k1, k2){
+  const map = getWarHistoryMap();
+  const key = getRelationKey(k1, k2);
+  map[key] = (map[key] || 0) + 1;
+  localStorage.setItem(WAR_HISTORY_KEY, JSON.stringify(map));
+}
+// Repeat conflicts make Incite War cheaper (agitators have done this before) and Negotiate Peace
+// pricier (envoys know this truce won't hold) for that specific pair — applied as a multiplier on
+// top of each offer's existing strength-ratio pricing, not a replacement for it.
+function getWarHistoryInciteMultiplier(k1, k2){ return Math.max(0.5, 1 - 0.1 * getWarHistoryCount(k1, k2)); }
+function getWarHistoryPeaceMultiplier(k1, k2){ return Math.min(2.0, 1 + 0.15 * getWarHistoryCount(k1, k2)); }
 
 function getWarCooldownsMap(){
   if(_tickCache) return _tickCache.warCooldowns;
@@ -2459,6 +2481,35 @@ function getLoanDefaultMultiplier(burgId){
   const loan = getLoan();
   if(!loan || getControllerKingdom(burgId) !== loan.kingdom || !isLoanInDefault(loan)) return 1;
   return LOAN_DEFAULT_SURCHARGE;
+}
+// Palace Vault — the inverse of the Loan above, per the Expansion Research idea of the same name.
+// Deposit gold with a kingdom's own court for slow interest; a real gold sink with real risk, not a
+// risk-free bank, since the whole deposit is forfeited for good if that kingdom is ever eliminated
+// (see isKingdomEliminated) — checked lazily in getVaultValue rather than needing its own tick, same
+// "pure function of days elapsed" shape the Loan's own interest already uses. At most one vault at a
+// time, same simplicity precedent as the Loan.
+const VAULT_KEY = "goblinwar_vault"; // null | {kingdom, principal, depositedDay}
+const VAULT_DEPOSIT = 100;
+const VAULT_INTEREST_RATE_PER_DAY = 0.005; // half the Loan's own rate — the bank's cut
+function getVault(){ try{ return JSON.parse(localStorage.getItem(VAULT_KEY)); }catch(e){ return null; } }
+function saveVault(vault){ localStorage.setItem(VAULT_KEY, JSON.stringify(vault)); }
+function getVaultValue(vault){
+  if(!vault || isKingdomEliminated(vault.kingdom)) return 0; // forfeited — that court is gone
+  const daysElapsed = Math.max(0, gameDay - vault.depositedDay);
+  return Math.round(vault.principal * (1 + VAULT_INTEREST_RATE_PER_DAY * daysElapsed));
+}
+// Fealty/Allegiance — a one-time, permanent Palace pledge per the Expansion Research idea of the
+// same name. A single kingdom name (or null), never revocable: a real permanent choice distinct
+// from the fluid war/peace matrix every other Palace action works within. Locks in a lasting price
+// discount at that kingdom's own shops (folded into getBuyPrice below) and takes Incite War off the
+// table everywhere for good (see buildInciteWarHTML) — the cost of a sworn subject never stirring
+// conflict again, anywhere, not just against their own liege.
+const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name
+const FEALTY_PRICE_DISCOUNT = 0.85; // same magnitude as a Trusted reputation discount
+function getFealty(){ return localStorage.getItem(FEALTY_KEY) || null; }
+function hasFealtyTo(kingdom){ return getFealty() === kingdom; }
+function getFealtyPriceMultiplier(burgId){
+  return hasFealtyTo(getControllerKingdom(burgId)) ? FEALTY_PRICE_DISCOUNT : 1;
 }
 // Shared by showMarketPanel/showBlacksmithPanel's own banners, alongside buildTributeNote.
 function buildLoanDefaultNote(burgId){
@@ -2776,7 +2827,7 @@ function getReputationDiscount(burgId){
   return 1;
 }
 function getBuyPrice(mi, burgId){
-  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId) * getTributeMultiplier(burgId) * getLoanDefaultMultiplier(burgId));
+  return Math.round(mi.price * (isAtWarAt(burgId) ? WAR_BUY_MULTIPLIER : 1) * (hasPerk('silver_tongue') ? 0.9 : 1) * getSettlementDiscount(mi, burgId) * getReputationDiscount(burgId) * getTributeMultiplier(burgId) * getLoanDefaultMultiplier(burgId) * getFealtyPriceMultiplier(burgId));
 }
 function getSellPrice(mi, burgId){
   return (isWarRelevant(mi) && isAtWarAt(burgId))
@@ -3338,6 +3389,7 @@ function runFactionAITick(){
     fieldBattles: getFieldBattles(),
     reinforcements: getReinforcements(),
     warStarts: getWarStartsMap(),
+    warHistory: getWarHistoryMap(),
     warCooldowns: getWarCooldownsMap(),
     tribute: getTributeMap(),
     warState: {}, // see getWarState — populated lazily, safe for the whole tick once the declare/peace pass below finishes
@@ -7790,10 +7842,10 @@ function showLocationView(burgId){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', null, TEMPLE_LINES);
       }
       else if(btn.dataset.action === 'guardhouse'){
-        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
+        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
       }
       else if(btn.dataset.action === 'palace'){
-        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
@@ -8205,6 +8257,58 @@ function buildGuardHouseStats(burgId){
   `;
 }
 
+// Espionage — a Guard House action per the Expansion Research idea of the same name. Pays gold for
+// a one-time read on the bordering at-war enemy's own army strength and whether it has a muster
+// underway, entirely off data the game already computes (getArmyStrength/getArmies) — no new state
+// beyond a once-per-settlement-per-day cooldown, same WORK_COOLDOWN_KEY shape hasWorkedToday uses.
+// Only appears where getFrontlineEnemyKingdom actually finds a real bordering enemy at war.
+const ESPIONAGE_COST = 15;
+const ESPIONAGE_COOLDOWN_KEY = "goblinwar_espionageCooldowns"; // {burgId: gameDay}
+function getEspionageCooldowns(){
+  try{ return JSON.parse(localStorage.getItem(ESPIONAGE_COOLDOWN_KEY)) || {}; }catch(e){ return {}; }
+}
+function hasSpiedToday(burgId){ return getEspionageCooldowns()[burgId] === gameDay; }
+function recordSpied(burgId){
+  const cd = getEspionageCooldowns();
+  cd[burgId] = gameDay;
+  localStorage.setItem(ESPIONAGE_COOLDOWN_KEY, JSON.stringify(cd));
+}
+// Bucketed the same chatty, non-numeric way every other rumor in this game reads — the player
+// never sees a raw strength number from any other source either.
+function describeArmyStrength(strength){
+  if(strength > 400) return "an overwhelming host";
+  if(strength > 200) return "a strong, well-fed army";
+  if(strength > 80) return "a modest but real force";
+  return "little more than a scattered garrison";
+}
+function buildEspionageHTML(burgId){
+  const kingdom = getFrontlineEnemyKingdom(burgId);
+  if(!kingdom) return '';
+  const spied = hasSpiedToday(burgId);
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Pay for Intel</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; ${spied ? '' : 'margin-bottom:10px;'}">${spied ? `Today's whispers on ${kingdom} are already spent.` : `A few coins buys word on ${kingdom}'s own strength across the line.`}</div>
+      ${spied ? '' : `
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">-${ESPIONAGE_COST}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="espionage-btn">Pay for Intel</button>
+      </div>`}
+    </div>
+  `;
+}
+function gainEspionage(burgId){
+  const kingdom = getFrontlineEnemyKingdom(burgId);
+  if(!kingdom || hasSpiedToday(burgId) || playerGold < ESPIONAGE_COST){ showLocationView(burgId); return; }
+  setGold(playerGold - ESPIONAGE_COST);
+  recordSpied(burgId);
+  const marching = getArmies().some(a => a.kingdom === kingdom && a.status === 'marching');
+  const strengthLine = describeArmyStrength(getArmyStrength(kingdom));
+  const musterLine = marching ? ` Word is they already have banners on the march.` : ` No muster seems underway, for now.`;
+  showToast(`Your coin buys a rumor: ${kingdom} fields ${strengthLine}.${musterLine}`);
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
+}
+
 // Hire a Mercenary — the first real use of the party roster. Still anonymous per the project
 // owner: a mercenary is a plain cash transaction, not a character — no name, just a role — but
 // each role does now have its own real generic portrait under assets/mercenaries/ (faceless by
@@ -8577,12 +8681,14 @@ function hireMercenary(burgId, typeId){
   mercs.push({ instanceId:`${type.id}_${gameDay}_${Math.floor(Math.random()*100000)}`, typeId:type.id, hiredDay:gameDay, lastUpkeepDay:gameDay });
   saveMercenaries(mercs);
   showToast(`${type.title} joins you — ${type.hireCost}g paid, ${type.upkeep}g/day upkeep from here.`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
 }
 function wireMercenaryButtons(burgId){
   document.querySelectorAll('[data-hire]').forEach(btn=>{
     btn.addEventListener('click', ()=> hireMercenary(burgId, btn.dataset.hire));
   });
+  const espionageBtn = document.getElementById('espionage-btn');
+  if(espionageBtn) espionageBtn.addEventListener('click', ()=> gainEspionage(burgId));
 }
 // The "multiple characters, full body" banner treatment (see #loc-banner-portrait's .lineup CSS)
 // — every hireable role's portrait stands side by side over the settlement art while the Guard
@@ -8682,7 +8788,7 @@ function acceptPetition(burgId){
   const repNote = adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Negotiate Peace — the counterpart to Petition for Troops, and the direct payoff of tracking
@@ -8705,7 +8811,7 @@ function generateNegotiatePeaceOffer(burgId){
   const enemy = enemies[0];
   const enemyStrength = getArmyStrength(enemy);
   const ratio = enemyStrength / ((myStrength + enemyStrength) || 1); // weaker enemy -> lower ratio -> cheaper truce
-  const cost = Math.round(NEGOTIATE_PEACE_BASE_COST * Math.max(0.4, Math.min(1.6, ratio * 2)));
+  const cost = Math.round(NEGOTIATE_PEACE_BASE_COST * Math.max(0.4, Math.min(1.6, ratio * 2)) * getWarHistoryPeaceMultiplier(kingdom, enemy));
   return { kingdom, enemy, cost };
 }
 function buildNegotiatePeaceHTML(burgId){
@@ -8737,7 +8843,7 @@ function acceptNegotiatePeace(burgId){
   const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
   showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.` + loyaltyNote + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Incite War — the direct opposite of Negotiate Peace, per the project owner: instead of bribing
@@ -8763,10 +8869,11 @@ function generateInciteWarOffer(burgId){
   const target = candidates[candidates.length - 1]; // strongest qualifying target — pays the most
   const targetStrength = getArmyStrength(target);
   const ratio = targetStrength / ((myStrength + targetStrength) || 1);
-  const gold = Math.round(INCITE_WAR_BASE_GOLD * Math.max(0.4, Math.min(1.6, ratio * 2)));
+  const gold = Math.round(INCITE_WAR_BASE_GOLD * Math.max(0.4, Math.min(1.6, ratio * 2)) * getWarHistoryInciteMultiplier(kingdom, target));
   return { kingdom, target, gold };
 }
 function buildInciteWarHTML(burgId){
+  if(getFealty()) return ''; // swore off stirring conflict anywhere, permanently — see FEALTY_KEY
   const offer = generateInciteWarOffer(burgId);
   if(!offer) return '';
   return `
@@ -8792,7 +8899,7 @@ function acceptInciteWar(burgId){
   const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
   const repNote = adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
   showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.` + loyaltyNote + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Palace Loans — the fourth Palace card. Shows a borrow offer when nothing's outstanding, or the
@@ -8837,7 +8944,7 @@ function acceptLoan(burgId){
   saveLoan({ kingdom, principal: LOAN_PRINCIPAL, borrowedDay: gameDay, dueDay: gameDay + LOAN_TERM_DAYS });
   setGold(playerGold + LOAN_PRINCIPAL);
   showToast(`${kingdom}'s treasury advances you ${LOAN_PRINCIPAL}g, due within ${LOAN_TERM_DAYS} days.`);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 // A loan repaid before its due date nudges reputation up a little — the same "keeping your word"
 // spirit already worth something everywhere else in this file; a defaulted one that's finally
@@ -8853,10 +8960,111 @@ function repayLoan(burgId){
   localStorage.removeItem(LOAN_KEY);
   const repNote = wasDefaulted ? '' : adjustReputation(loan.kingdom, REP_GAIN_MINOR);
   showToast(`Debt to ${loan.kingdom} cleared — ${owed}g repaid.${repNote}`);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
-// All four Palace cards can appear together in the same panel render, so their click handlers
+// Palace Vault actions — see VAULT_KEY above. Rebuilds the whole Palace panel after either action,
+// same pattern acceptLoan/repayLoan already set.
+function depositVault(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race || getVault() || playerGold < VAULT_DEPOSIT){ showLocationView(burgId); return; }
+  saveVault({ kingdom, principal: VAULT_DEPOSIT, depositedDay: gameDay });
+  setGold(playerGold - VAULT_DEPOSIT);
+  showToast(`${VAULT_DEPOSIT}g deposited with ${kingdom}'s treasury.`);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+}
+function withdrawVault(burgId){
+  const vault = getVault();
+  if(!vault){ showLocationView(burgId); return; }
+  if(isKingdomEliminated(vault.kingdom)){
+    localStorage.removeItem(VAULT_KEY);
+    showToast(`${vault.kingdom}'s court is gone — there's nothing left to withdraw.`);
+  } else {
+    const value = getVaultValue(vault);
+    setGold(playerGold + value);
+    localStorage.removeItem(VAULT_KEY);
+    showToast(`${value}g withdrawn from ${vault.kingdom}'s treasury.`);
+  }
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+}
+// Shows a deposit offer when nothing's outstanding, the current forfeited notice if this vault's
+// kingdom has since fallen, or the growing balance with a Withdraw button otherwise — same
+// never-both shape buildLoanHTML already established.
+function buildVaultHTML(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race) return '';
+  const vault = getVault();
+  if(vault){
+    if(vault.kingdom !== kingdom) return '';
+    if(isKingdomEliminated(vault.kingdom)){
+      return `
+        <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(226,133,127,.5); border-radius:10px; padding:14px; margin-top:12px;">
+          <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Palace Vault</div>
+          <div style="font-size:13px; color:#e2857f; line-height:1.5;">${kingdom}'s court has fallen — your deposit is lost with it.</div>
+        </div>
+      `;
+    }
+    const value = getVaultValue(vault);
+    return `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Palace Vault</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Held safe in ${kingdom}'s own treasury, growing slowly — forfeited for good if this kingdom is ever eliminated.</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${value}g saved</span>
+          <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="withdraw-vault-btn">Withdraw</button>
+        </div>
+      </div>
+    `;
+  }
+  if(playerGold < VAULT_DEPOSIT) return '';
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Palace Vault</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Deposit gold with ${kingdom}'s court for safekeeping and slow interest — real risk, not a free bank, since it's gone for good if this kingdom is ever eliminated.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">-${VAULT_DEPOSIT}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="deposit-vault-btn">Deposit</button>
+      </div>
+    </div>
+  `;
+}
+// Fealty — see FEALTY_KEY above. A one-time, irreversible pledge; buildFealtyHTML only ever offers
+// the Swear action at a court the player hasn't already sworn to, and only ever shows the sworn-to
+// card at the one court they actually swore at.
+function swearFealty(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race || getFealty()){ showLocationView(burgId); return; }
+  localStorage.setItem(FEALTY_KEY, kingdom);
+  showToast(`You swear fealty to ${kingdom} — a bond that can never be undone.`);
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+}
+function buildFealtyHTML(burgId){
+  const b = graph.burgs[burgId];
+  const kingdom = b.state;
+  if(!kingdom || getController(burgId) !== b.race) return '';
+  const fealty = getFealty();
+  if(fealty){
+    if(fealty !== kingdom) return '';
+    return `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Sworn to ${kingdom}</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5;">You pledged fealty here. ${kingdom}'s merchants treat you as one of their own, and you'll never raise a hand against this crown again — a bond that can't be undone.</div>
+      </div>
+    `;
+  }
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Swear Fealty</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Pledge yourself to ${kingdom} for good — a lasting discount at their shops and your word you'll never move against them. In return, you give up stirring conflict anywhere, ever again: Incite War is gone for good, everywhere, the moment you swear.</div>
+      <button class="btn btn-primary" style="width:100%;" id="swear-fealty-btn">Swear Fealty</button>
+    </div>
+  `;
+}
+
+// All six Palace cards can appear together in the same panel render, so their click handlers
 // are wired from one shared place rather than duplicating the "if the button exists, wire it"
 // guard at every call site that re-renders the panel.
 function wirePalaceButtons(burgId){
@@ -8870,6 +9078,12 @@ function wirePalaceButtons(burgId){
   if(borrowBtn) borrowBtn.addEventListener('click', ()=> acceptLoan(burgId));
   const repayBtn = document.getElementById('repay-loan-btn');
   if(repayBtn) repayBtn.addEventListener('click', ()=> repayLoan(burgId));
+  const depositBtn = document.getElementById('deposit-vault-btn');
+  if(depositBtn) depositBtn.addEventListener('click', ()=> depositVault(burgId));
+  const withdrawBtn = document.getElementById('withdraw-vault-btn');
+  if(withdrawBtn) withdrawBtn.addEventListener('click', ()=> withdrawVault(burgId));
+  const swearBtn = document.getElementById('swear-fealty-btn');
+  if(swearBtn) swearBtn.addEventListener('click', ()=> swearFealty(burgId));
 }
 
 // Aid the Refugees — the simplest of the three player-involvement hooks, deliberately: spend
@@ -9831,6 +10045,7 @@ function collectCharacterSnapshot(){
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
     recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
+    warHistory: localStorage.getItem(WAR_HISTORY_KEY) || "{}",
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     armies: localStorage.getItem(ARMY_KEY) || "[]",
@@ -9838,6 +10053,9 @@ function collectCharacterSnapshot(){
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
     loan: localStorage.getItem(LOAN_KEY) || "null",
+    vault: localStorage.getItem(VAULT_KEY) || "null",
+    fealty: localStorage.getItem(FEALTY_KEY) || "",
+    espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

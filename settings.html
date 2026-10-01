@@ -750,6 +750,7 @@ const REFUGEE_ARRIVAL_KEY = "goblinwar_refugeeArrivals";
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns";
 const RECENT_EVENTS_KEY = "goblinwar_recentEvents"; // JSON array of {text} — real siege/attack outcomes, see index.html's recordWorldEvent
 const WARSTART_KEY = "goblinwar_warStarts"; // {"KingdomA::KingdomB": gameDay} — feeds index.html's war exhaustion
+const WAR_HISTORY_KEY = "goblinwar_warHistory"; // {"KingdomA::KingdomB": count} — see index.html's war-history ledger
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty expires} — see index.html's war exhaustion
 const TRIBUTE_KEY = "goblinwar_tribute"; // {kingdomName: {role, counterpart, expiresDay}} — see index.html's war exhaustion
 const ARMY_KEY = "goblinwar_armies"; // JSON array of marching/sieging armies — see index.html's "Armies march before a siege starts"
@@ -757,6 +758,9 @@ const FIELD_BATTLE_KEY = "goblinwar_fieldBattles"; // JSON array of active field
 const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
 const COMPANION_QUEST_DONE_KEY = "goblinwar_companionQuestsCompleted";
 const LOAN_KEY = "goblinwar_loan"; // null | {kingdom, principal, borrowedDay, dueDay} — see index.html's "Palace Loans"
+const VAULT_KEY = "goblinwar_vault"; // null | {kingdom, principal, depositedDay} — see index.html's "Palace Vault"
+const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name — see index.html's "Fealty/Allegiance"
+const ESPIONAGE_COOLDOWN_KEY = "goblinwar_espionageCooldowns"; // {burgId: gameDay} — see index.html's "Espionage"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -891,6 +895,7 @@ function collectCharacterSnapshot(){
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
     recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
+    warHistory: localStorage.getItem(WAR_HISTORY_KEY) || "{}",
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     armies: localStorage.getItem(ARMY_KEY) || "[]",
@@ -898,6 +903,9 @@ function collectCharacterSnapshot(){
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
     loan: localStorage.getItem(LOAN_KEY) || "null",
+    vault: localStorage.getItem(VAULT_KEY) || "null",
+    fealty: localStorage.getItem(FEALTY_KEY) || "",
+    espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

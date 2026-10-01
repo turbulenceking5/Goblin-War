@@ -371,8 +371,8 @@ Everything below came from the "Goblin War — Expansion Research" doc, a pass t
 
 ### Living World & NPCs
 
-- **Tavern Regulars.** Two or three fixed, named NPCs at the Tavern with a short dialogue tree that advances one step per visit (max once/day), reusing the existing dialogue engine — a minimal real slice of "NPC memory."
-- **A memorial/legacy mechanic on permadeath.** When a character's run ends, drop a small "grave" marker at their last settlement, discoverable by a new character on the same account for a one-time bonus — a concrete answer to "death with some form of legacy."
+- **Tavern Regulars — done.** Two fixed, named NPCs (Old Bram, Mira the Barmaid) present at every Tavern, each with a 4-line dialogue tree that advances one step per calendar day visited (capped at the final chapter), reusing the existing dialogue engine (`renderDialogueBody`/`wireDialogueChoices`) verbatim — a minimal real slice of "NPC memory." Flavor only, tracked in `goblinwar_tavernRegularProgress`.
+- **A memorial/legacy mechanic on permadeath — done.** On a permadeath (combat or old age), `recordGrave()` drops a row in a new Supabase `graves` table (not `localStorage` — it has to outlive the character whose death created it) naming the fallen character, their level, and where/how they died. A different character on the same account later finds an "A Weathered Grave" settlement action there for a one-time 75g bonus. See [characters.md](characters.md)'s "Memorial/legacy" and `supabase/schema.sql`.
 - **Temple Blessings.** The Temple is explicitly pure flavor today with no extra content, unlike the Guard House/Palace. Give it one real action: a purchasable temporary buff (regen or ambush-chance reduction) priced or gated by reputation — a genuinely new mechanic for a page that currently has none.
 
 ### Meta / UX / Technical

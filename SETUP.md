@@ -13,7 +13,9 @@ This doc is the step-by-step "make it work" companion to [context/accounts.md](c
 
 1. Open **SQL Editor → New query** in the Supabase dashboard.
 2. Paste the entire contents of [supabase/schema.sql](supabase/schema.sql) and run it.
-3. This creates the single `characters` table (one row per character, not per account — an account can own a roster) with Row Level Security policies scoping every read/write/delete to `auth.uid() = user_id`. Nothing else needs to run — there's no migration tool, this file is applied by hand once.
+3. This creates the `characters` table (one row per character, not per account — an account can own a roster) and the `graves` table (one row per permadeath, see [context/characters.md](context/characters.md)'s "Memorial/legacy"), each with Row Level Security policies scoping every read/write/delete to `auth.uid() = user_id`. Nothing else needs to run — there's no migration tool, this file is applied by hand once.
+
+**Already have a project running from before the `graves` table existed?** Re-open SQL Editor and run just the `graves`-related block of `supabase/schema.sql` (the `create table`/index/RLS-policy statements after the `characters` ones) — every statement in this file is `if not exists`/safe to re-run, so pasting the whole file again works too and won't touch your existing `characters` rows.
 
 If you ever change the save shape (see [context/characters.md](context/characters.md)'s snapshot format), update `supabase/schema.sql` too even though it's `jsonb` and technically doesn't need a migration — it's kept here so the schema stays versioned and reproducible.
 

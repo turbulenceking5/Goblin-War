@@ -1039,5 +1039,19 @@
     "changes": [
       "Defend the Walls now shows a real illustrated battlefield behind the fight instead of a flat background — a besieged wall under attack, matching whichever side is actually besieging you and whether it's day or night."
     ]
+  },
+  {
+    "id": 140,
+    "date": "2026-10-01",
+    "changes": [
+      "Added two Tavern Regulars — Old Bram and Mira the Barmaid — at every Tavern, each with a short conversation that unfolds one new line per day you visit."
+    ]
+  },
+  {
+    "id": 141,
+    "date": "2026-10-01",
+    "changes": [
+      "A permadeath run now leaves a grave behind at your last settlement. Play a different character on the same account and you can find it there to pay your respects for a bit of gold."
+    ]
   }
 ]

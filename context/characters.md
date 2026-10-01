@@ -6,6 +6,14 @@ Replaces the old three-local-save-slot system. An account can own a roster of ch
 
 `characters` (see [supabase/schema.sql](../supabase/schema.sql)): `id` (uuid, primary key), `user_id` (references `auth.users`), `name`, `data` (jsonb — the full character snapshot, same shape described below), `created_at`, `updated_at`. Row Level Security restricts every operation to `auth.uid() = user_id`, same pattern as the old `saves` table it replaces (that table is dropped by the current schema.sql — nothing reads from it anymore).
 
+## Memorial/legacy (the `graves` table)
+
+The Expansion Research idea of the same name: on a permadeath (combat defeat with `permadeathPlayer` on, or old age with `permadeathOldAge` on — see below), index.html's `recordGrave(cause)` inserts one row into a second table, `graves` — `id`, `user_id`, `character_name`, `burg_id`, `burg_name`, `kingdom`, `level`, `died_day`, `cause` (`'fell in battle'` or `'died of old age'`), `claimed` (boolean), `created_at`. Same RLS shape as `characters`, scoped to `auth.uid() = user_id`.
+
+This is deliberately its own table rather than a field on a `characters` row's own `data` jsonb: a grave has to outlive the very character whose death created it, and be discoverable by a *different*, brand-new character on the same account later — the opposite lifetime of everything else in this file, which is scoped to one character's own save. It's never visible across accounts, same single-player-only constraint as everything else here (CLAUDE.md).
+
+`index.html` fetches every unclaimed grave for the signed-in account once per page load (`loadAccountGraves`, called from the same `authGateReady.then(...)` block that already sets up the changelog-seen key) into a module-level `accountGraves` array — not re-fetched per settlement visit, so a grave created in the same session won't show up until the next full page load (the redirect to characters.html after a death already forces one). `showLocationView` shows an "A Weathered Grave" action whenever `accountGraves` has an entry for that `burgId`; `visitGrave(burgId)` grants a flat `GRAVE_BONUS_GOLD` (75g), shows a toast naming the fallen character/level/cause, and marks the row `claimed:true` in Supabase (and drops it from the local `accountGraves` array) so it can't be claimed twice.
+
 ## The gate: login → characters.html → the game
 
 Login no longer drops a player straight into index.html. `login.html`'s `targetPage()` always routes through `characters.html` first, carrying along wherever the player actually wanted to go as `?redirect=` (defaulting to index.html) for characters.html to forward on once a character's picked.

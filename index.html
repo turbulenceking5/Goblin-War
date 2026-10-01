@@ -1952,6 +1952,7 @@ function applyAging(){
 function triggerOldAgeDeath(age){
   playerIsDead = true;
   localStorage.setItem(ISDEAD_KEY, 'true');
+  recordGrave('died of old age');
   showToast(`${localStorage.getItem(NAME_KEY) || 'Your hero'} has died of old age at ${age}. This journey ends here.`);
   saveActiveCharacter().finally(()=>{
     setTimeout(()=>{ location.href = 'characters.html?_=' + Date.now(); }, 1800);
@@ -3583,6 +3584,52 @@ const PERMADEATH_MERCENARIES_KEY = "goblinwar_permadeathMercenaries";
 // die of old age" — off by default like permadeathPlayer, since it's an opt-in harsher difficulty
 // rather than the game's original behavior. See applyAging() below for the actual mechanic.
 const PERMADEATH_OLDAGE_KEY = "goblinwar_permadeathOldAge";
+// Memorial/legacy — the Expansion Research idea of the same name: when a permadeath run ends,
+// drop a small "grave" marker at the settlement the character was last in, discoverable later by
+// a *different* character on the same account for a one-time bonus. This can't live in
+// localStorage like everything else in this file — a grave has to outlive the very character
+// whose death created it, and be readable by a brand-new character's own fresh save — so it's the
+// one piece of real game data backed directly by its own Supabase table (see supabase/schema.sql's
+// `graves`) rather than the `characters` row's jsonb snapshot. Scoped by user_id + the same RLS
+// shape the `characters` table already uses, so a grave is only ever visible to the account that
+// created it — never another player's, consistent with this game's single-player-only constraint.
+const GRAVE_BONUS_GOLD = 75;
+let currentUserId = null; // set once authGateReady resolves — see the authGateReady.then() call site below
+let accountGraves = []; // this account's unclaimed graves, loaded once at world load
+function loadAccountGraves(userId){
+  sb.from('graves').select('*').eq('user_id', userId).eq('claimed', false)
+    .then(({ data, error })=>{ if(!error && data) accountGraves = data; }, ()=>{}); // best-effort — a failed fetch just means no grave shows up this load, not a blocked game
+}
+// Called from both death paths (triggerOldAgeDeath below, and endCombat's permadeathPlayer
+// branch) right before the redirect to characters.html. Best-effort and fire-and-forget, same as
+// every other Supabase write in this file except the final character save itself — a failed
+// grave write shouldn't block or delay a death that's already final either way.
+function recordGrave(cause){
+  if(!currentUserId) return;
+  const burgId = localStorage.getItem(LOC_KEY);
+  const b = graph.burgs[burgId];
+  sb.from('graves').insert({
+    user_id: currentUserId,
+    character_name: localStorage.getItem(NAME_KEY) || 'Unnamed Hero',
+    burg_id: burgId,
+    burg_name: b ? b.name : 'the road',
+    kingdom: getControllerKingdom(burgId) || '',
+    level: playerLevel,
+    died_day: gameDay,
+    cause,
+  }).then(()=>{}, ()=>{});
+}
+// Defensive re-check (same pattern showNotableFigurePanel/triggerSettlementEvent already use):
+// accountGraves could be stale if this exact grave was somehow already claimed elsewhere.
+function visitGrave(burgId){
+  const grave = accountGraves.find(g => g.burg_id === burgId);
+  if(!grave){ showLocationView(burgId); return; }
+  setGold(playerGold + GRAVE_BONUS_GOLD);
+  showToast(`A weathered grave marks where ${grave.character_name}, level ${grave.level}, ${grave.cause} here. You pay your respects and find ${GRAVE_BONUS_GOLD}g left among the stones.`);
+  accountGraves = accountGraves.filter(g => g.id !== grave.id);
+  sb.from('graves').update({ claimed:true }).eq('id', grave.id).then(()=>{}, ()=>{});
+  showLocationView(burgId);
+}
 const AGE_KEY = "goblinwar_age";
 const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
@@ -4880,6 +4927,7 @@ function endCombat(result){
         setHealth(0);
         playerIsDead = true;
         localStorage.setItem(ISDEAD_KEY, 'true');
+        recordGrave('fell in battle');
         showToast(`${localStorage.getItem(NAME_KEY) || 'Your hero'} has fallen. This journey ends here.` + fallenNote);
         saveActiveCharacter().finally(()=>{
           setTimeout(()=>{ location.href = 'characters.html?_=' + Date.now(); }, 1800);
@@ -8000,6 +8048,11 @@ function showLocationView(burgId){
   if(pendingSettlementEvent){
     actions.push({ icon:`<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>`, title: pendingSettlementEvent.title, desc:"Something's happening here", action:'settlement_event' });
   }
+  // Memorial/legacy — see recordGrave/visitGrave above. Only ever shows up for a *different*
+  // character than the one who died here (that character's own save ended at that death).
+  if(accountGraves.some(g => g.burg_id === burgId)){
+    actions.push({ icon:`<path d="M8 21V11a4 4 0 0 1 8 0v10"/><path d="M6 21h12"/><path d="M12 7V3"/><path d="M10 5h4"/>`, title:"A Weathered Grave", desc:"Someone's resting place", action:'grave' });
+  }
   const list = document.getElementById('loc-action-list');
   list.innerHTML = actions.map(a => `
     <button class="loc-action" data-action="${a.action}" ${a.disabled ? 'disabled' : ''}>
@@ -8035,6 +8088,7 @@ function showLocationView(burgId){
         });
       }
       else if(btn.dataset.action === 'settlement_event') triggerSettlementEvent(burgId);
+      else if(btn.dataset.action === 'grave') visitGrave(burgId);
       else if(btn.dataset.action === 'raid_village'){
         showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
         const raidBtn = document.getElementById('raid-village-btn');
@@ -10358,6 +10412,8 @@ Promise.all([
       if(!session) return; // being redirected to login.html
       CHANGELOG_SEEN_KEY = `goblinwar_lastSeenChangelog_${session.user.id}`;
       checkForWhatsNew();
+      currentUserId = session.user.id;
+      loadAccountGraves(currentUserId);
     });
   };
   img.addEventListener('load', finishLoad);

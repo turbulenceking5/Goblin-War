@@ -3706,6 +3706,9 @@ function runFactionAITick(){
     // pass above has already settled every relation for the tick, so this is the right moment to
     // re-check every outstanding Notable Figure kill-quest against it. See reconcileQuestsWithWarState.
     reconcileQuestsWithWarState();
+    // Same reasoning, for a recruited companion's own home settlement/kingdom — see
+    // checkCompanionHomeFates.
+    checkCompanionHomeFates();
     return events;
   } finally {
     _tickCache = null;
@@ -9759,6 +9762,62 @@ function adjustCompanionLoyalty(id, delta){
   saveCompanionLoyalty(loyalty);
   return ` Loyalty ${delta > 0 ? '+' : ''}${delta}.`;
 }
+// Companions react to their home kingdom's fate — the Expansion Research idea of the same name.
+// homeBurgId already existed per companion for recruiting (getCompanionForBurg above) and for
+// Wren's own companion_deliver quest target, but nothing ever checked it again once a companion
+// was actually recruited — their home city could fall, or their whole kingdom could be wiped out,
+// and they'd never so much as mention it. Checked once per weekly tick (called alongside
+// reconcileQuestsWithWarState in runFactionAITick, below — territory only actually changes hands
+// there), scoped to currently-recruited companions only (getParty()). A small persisted status
+// cache is what makes this fire once per real transition rather than every single week a home
+// stays fallen — the same "remember what you already reacted to" shape checkRivalQuestExpiry's
+// rivalDeadlineDay and reconcileQuestsWithWarState's targetKingdom both already use for their own
+// one-shot-per-change reactions.
+const COMPANION_HOME_STATUS_KEY = "goblinwar_companionHomeStatus"; // {companionId: 'intact'|'fallen'|'eliminated'}
+const COMPANION_HOME_FALLEN_LOYALTY_PENALTY = -15;
+const COMPANION_HOME_ELIMINATED_LOYALTY_PENALTY = -30; // bigger than a single captured settlement — their whole people, not just their home town
+const COMPANION_HOME_RECLAIMED_LOYALTY_GAIN = 15;
+function getCompanionHomeStatus(){
+  try{ return JSON.parse(localStorage.getItem(COMPANION_HOME_STATUS_KEY)) || {}; }catch(e){ return {}; }
+}
+function checkCompanionHomeFates(){
+  const party = getParty();
+  if(!party.length) return;
+  const status = getCompanionHomeStatus();
+  let changed = false;
+  party.forEach(companionId=>{
+    const companion = COMPANIONS.find(c => c.id === companionId);
+    const home = companion && companion.homeBurgId ? graph.burgs[companion.homeBurgId] : null;
+    if(!home) return;
+    const kingdom = home.state;
+    const eliminated = isKingdomEliminated(kingdom);
+    // getController, not getControllerKingdom — home.race (the burg's own fixed, original race,
+    // never overwritten by conquest) is what a companion's home is actually supposed to belong
+    // to, same comparison getCompanionForBurg already makes for the pre-recruit "has this place
+    // changed hands" check.
+    const fallen = eliminated || getController(companion.homeBurgId) !== home.race;
+    const current = eliminated ? 'eliminated' : (fallen ? 'fallen' : 'intact');
+    const prior = status[companionId] || 'intact';
+    if(current === prior) return;
+    status[companionId] = current;
+    changed = true;
+    if(current === 'eliminated'){
+      adjustCompanionLoyalty(companionId, COMPANION_HOME_ELIMINATED_LOYALTY_PENALTY);
+      recordWorldEvent(`${companion.name} has gone quiet since word came that ${kingdom} has fallen entirely.`);
+    } else if(current === 'fallen'){
+      adjustCompanionLoyalty(companionId, COMPANION_HOME_FALLEN_LOYALTY_PENALTY);
+      recordWorldEvent(`${companion.name} took the news hard — their home has fallen to another's banners.`);
+    } else {
+      // Back from 'fallen' to 'intact' — the original race retook it. (Can't reach 'intact' from
+      // 'eliminated': isKingdomEliminated only ever reverses if that kingdom somehow regains
+      // territory, which never happens once eliminateKingdom has settled every one of its wars to
+      // peace for good — see that function's own comment on why it's one-way.)
+      adjustCompanionLoyalty(companionId, COMPANION_HOME_RECLAIMED_LOYALTY_GAIN);
+      recordWorldEvent(`${companion.name}'s home has been reclaimed — word of it visibly lifts their spirits.`);
+    }
+  });
+  if(changed) localStorage.setItem(COMPANION_HOME_STATUS_KEY, JSON.stringify(status));
+}
 // Gift-giving at the Campfire — the Expansion Research idea of the same name: give a carried item
 // to a specific companion for an instant loyalty bump, bigger than any single shared-party action
 // (GOOD_ACTION_LOYALTY_GAIN) but well under a companion's own personal quest payoff
@@ -11593,6 +11652,7 @@ function collectCharacterSnapshot(){
     fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
+    companionHomeStatus: localStorage.getItem(COMPANION_HOME_STATUS_KEY) || "{}",
     loan: localStorage.getItem(LOAN_KEY) || "null",
     vault: localStorage.getItem(VAULT_KEY) || "null",
     fealty: localStorage.getItem(FEALTY_KEY) || "",

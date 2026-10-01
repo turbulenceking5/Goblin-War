@@ -770,6 +770,7 @@ const ARMY_KEY = "goblinwar_armies"; // JSON array of marching/sieging armies �
 const FIELD_BATTLE_KEY = "goblinwar_fieldBattles"; // JSON array of active field battles — see index.html's "Field battles"
 const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
 const COMPANION_QUEST_DONE_KEY = "goblinwar_companionQuestsCompleted";
+const COMPANION_HOME_STATUS_KEY = "goblinwar_companionHomeStatus"; // {companionId: 'intact'|'fallen'|'eliminated'} — see index.html's "Companions react to their home kingdom's fate"
 const LOAN_KEY = "goblinwar_loan"; // null | {kingdom, principal, borrowedDay, dueDay} — see index.html's "Palace Loans"
 const VAULT_KEY = "goblinwar_vault"; // null | {kingdom, principal, depositedDay} — see index.html's "Palace Vault"
 const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name — see index.html's "Fealty/Allegiance"
@@ -926,6 +927,7 @@ function collectCharacterSnapshot(){
     fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
+    companionHomeStatus: localStorage.getItem(COMPANION_HOME_STATUS_KEY) || "{}",
     loan: localStorage.getItem(LOAN_KEY) || "null",
     vault: localStorage.getItem(VAULT_KEY) || "null",
     fealty: localStorage.getItem(FEALTY_KEY) || "",

@@ -1152,5 +1152,12 @@
     "changes": [
       "Added the Chronicle of the Realm — a new Settings page with the real history of your world: settlements captured, sieges repelled, wars ending in peace, and more, no longer lost once they scrolled out of Tavern Talk's rumours."
     ]
+  },
+  {
+    "id": 154,
+    "date": "2026-10-01",
+    "changes": [
+      "Recruited companions now react to news from home — a companion's loyalty takes a hit if their home city falls, a bigger one if their whole kingdom is wiped out, and recovers some if their home is reclaimed."
+    ]
   }
 ]

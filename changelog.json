@@ -1053,5 +1053,12 @@
     "changes": [
       "A permadeath run now leaves a grave behind at your last settlement. Play a different character on the same account and you can find it there to pay your respects for a bit of gold."
     ]
+  },
+  {
+    "id": 142,
+    "date": "2026-10-01",
+    "changes": [
+      "The Temple now does something: once a kingdom trusts you enough, the clergy will bless you with either steady health/stamina regeneration or fewer ambushes for 5 days."
+    ]
   }
 ]

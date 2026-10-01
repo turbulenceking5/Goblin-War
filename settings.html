@@ -766,6 +766,7 @@ const SCRAP_KEY = "goblinwar_scrap"; // plain integer — see inventory.html's "
 const RENOWN_TITLE_KEY = "goblinwar_renownTitle"; // plain string — see index.html's "Renown-based titles"
 const NOTABLE_FIGURE_PROGRESS_KEY = "goblinwar_figureProgress"; // {figureId: count} — see index.html's Notable Figure storyline
 const TAVERN_REGULAR_PROGRESS_KEY = "goblinwar_tavernRegularProgress"; // {regularId: {step, lastVisitDay}} — see index.html's "Tavern Regulars"
+const TEMPLE_BLESSING_KEY = "goblinwar_templeBlessing"; // null | {type:'vigor'|'warding', expiresDay} — see index.html's "Temple Blessings"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -916,6 +917,7 @@ function collectCharacterSnapshot(){
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
     tavernRegularProgress: localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY) || "{}",
+    templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

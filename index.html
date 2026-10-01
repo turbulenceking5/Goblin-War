@@ -1894,7 +1894,7 @@ function advanceTime(hours, quiet){
   if(daysCrossed > 0){
     gameDay += daysCrossed;
     localStorage.setItem(CAL_KEY, String(gameDay));
-    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); applyAging(); checkRivalQuestExpiry(); }
+    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); applyAging(); checkRivalQuestExpiry(); applyBlessingRegen(daysCrossed); }
   }
   refreshCalendarUI();
 }
@@ -1913,6 +1913,7 @@ function restThroughNight(){
   maybeRunFactionAI();
   applyAging();
   checkRivalQuestExpiry();
+  applyBlessingRegen(1);
   refreshCalendarUI();
 }
 
@@ -5200,7 +5201,7 @@ function rollAmbush(hours, startHour){
   const days = hours/HOURS_PER_DAY;
   const nightFrac = startHour === undefined ? 0 : nightFractionOfTrip(startHour, hours);
   const nightMult = 1 + nightFrac * (NIGHT_AMBUSH_TRAVEL_MULT - 1);
-  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1);
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
 
@@ -7029,7 +7030,7 @@ function showCampView(destId, destName, partialHours){
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
     }
-    if(Math.random() < NIGHT_AMBUSH_CHANCE * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1)){
+    if(Math.random() < NIGHT_AMBUSH_CHANCE * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
       triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();
@@ -8069,7 +8070,7 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'settlement_investment') acceptSettlementInvestment(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple'){
-        showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildRespecHTML(), TEMPLE_LINES, ()=> wireRespecButton(burgId));
+        showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
       }
       else if(btn.dataset.action === 'guardhouse'){
         showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
@@ -8207,11 +8208,95 @@ function acceptRespec(burgId){
   localStorage.setItem(SKILLS_KEY, JSON.stringify({}));
   localStorage.setItem(SKILLPOINTS_KEY, String(total));
   showToast(`The priests unmake your training — ${total} skill points are yours to spend again.`);
-  showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildRespecHTML(), TEMPLE_LINES, ()=> wireRespecButton());
+  showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
 }
 function wireRespecButton(burgId){
   const btn = document.getElementById('respec-btn');
   if(btn) btn.addEventListener('click', ()=> acceptRespec(burgId));
+}
+// Temple Blessings — the Expansion Research idea of the same name: the Temple was pure flavor
+// with no real action, unlike the Guard House/Palace. One purchasable temporary buff, gated by
+// reputation with the settlement's controlling kingdom (same reputationLabel() tiers Trusted-only
+// actions elsewhere already use) rather than priced out of reach — the clergy simply won't bless
+// a stranger they don't yet trust. Only one blessing active at a time; buying a new one (or the
+// same one again) replaces whatever's currently running rather than stacking or extending it.
+const TEMPLE_BLESSING_KEY = "goblinwar_templeBlessing"; // null | {type:'vigor'|'warding', expiresDay}
+const TEMPLE_BLESSING_COST = 35;
+const TEMPLE_BLESSING_DURATION_DAYS = 5;
+const TEMPLE_BLESSING_WARDING_MULT = 0.7; // 30% fewer ambushes, road and camp alike, while active
+const TEMPLE_BLESSING_VIGOR_HEAL = 8; // flat health+stamina regen per calendar day crossed while active
+function getActiveBlessing(){
+  try{
+    const b = JSON.parse(localStorage.getItem(TEMPLE_BLESSING_KEY));
+    if(b && b.expiresDay >= gameDay) return b;
+  }catch(e){}
+  return null;
+}
+function hasActiveBlessing(type){
+  const b = getActiveBlessing();
+  return !!(b && b.type === type);
+}
+// Called from advanceTime/restThroughNight's existing once-per-day-crossed side-effect block —
+// same call-site shape as applyAging/chargeMercenaryUpkeep. `days` lets a long multi-day trip
+// (advanceTime's daysCrossed can exceed 1) regen proportionally rather than just once regardless
+// of how much time actually passed.
+function applyBlessingRegen(days){
+  if(!hasActiveBlessing('vigor') || days <= 0) return;
+  setHealth(playerHealth + TEMPLE_BLESSING_VIGOR_HEAL * days);
+  setStamina(playerStamina + TEMPLE_BLESSING_VIGOR_HEAL * days);
+}
+function buildTempleBlessingHTML(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  const rep = reputationLabel(getReputation(kingdom));
+  const eligible = rep === 'Friendly' || rep === 'Trusted';
+  const active = getActiveBlessing();
+  if(active){
+    const daysLeft = active.expiresDay - gameDay;
+    const label = active.type === 'vigor' ? 'Blessing of Vigor' : 'Blessing of Warding';
+    return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Blessed</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5;">You carry a <b style="color:var(--parchment);">${label}</b> — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left.</div>
+    </div>`;
+  }
+  if(!eligible){
+    return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Seek a Blessing</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5;">The clergy here don't yet trust you enough to offer a blessing. Build your standing with ${kingdom || 'this kingdom'} first.</div>
+    </div>`;
+  }
+  const afford = playerGold >= TEMPLE_BLESSING_COST;
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Seek a Blessing</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">The clergy will bless you for ${TEMPLE_BLESSING_DURATION_DAYS} days, for an offering.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span style="font-size:12.5px; color:var(--parchment);">Blessing of Vigor <span style="color:#a9926a;">— mends health &amp; stamina daily</span></span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 14px;" id="blessing-vigor-btn" ${afford ? '' : 'disabled'}>-${TEMPLE_BLESSING_COST}g</button>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12.5px; color:var(--parchment);">Blessing of Warding <span style="color:#a9926a;">— fewer ambushes</span></span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 14px;" id="blessing-warding-btn" ${afford ? '' : 'disabled'}>-${TEMPLE_BLESSING_COST}g</button>
+      </div>
+    </div>`;
+}
+function acceptTempleBlessing(burgId, type){
+  if(playerGold < TEMPLE_BLESSING_COST) return;
+  const kingdom = getControllerKingdom(burgId);
+  const rep = reputationLabel(getReputation(kingdom));
+  if(rep !== 'Friendly' && rep !== 'Trusted') return;
+  setGold(playerGold - TEMPLE_BLESSING_COST);
+  localStorage.setItem(TEMPLE_BLESSING_KEY, JSON.stringify({ type, expiresDay: gameDay + TEMPLE_BLESSING_DURATION_DAYS }));
+  showToast(type === 'vigor' ? `You receive a Blessing of Vigor — your wounds will mend a little faster each day.` : `You receive a Blessing of Warding — the road feels a little safer.`);
+  showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
+}
+function wireTempleButtons(burgId){
+  wireRespecButton(burgId);
+  const vigorBtn = document.getElementById('blessing-vigor-btn');
+  if(vigorBtn) vigorBtn.addEventListener('click', ()=> acceptTempleBlessing(burgId, 'vigor'));
+  const wardingBtn = document.getElementById('blessing-warding-btn');
+  if(wardingBtn) wardingBtn.addEventListener('click', ()=> acceptTempleBlessing(burgId, 'warding'));
 }
 const GUARDHOUSE_LINES = [
   "A watch-captain briefs a fresh patrol on the state of the roads.",
@@ -10507,6 +10592,7 @@ function collectCharacterSnapshot(){
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
     tavernRegularProgress: localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY) || "{}",
+    templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

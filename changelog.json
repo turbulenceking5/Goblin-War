@@ -1202,5 +1202,12 @@
     "changes": [
       "Replaced every browser confirmation popup (Dismiss/Part Ways in Party, Abandon in Quests, Delete This Character, deleting a character) with a themed in-game one that actually matches the art style."
     ]
+  },
+  {
+    "id": 161,
+    "date": "2026-10-01",
+    "changes": [
+      "Added a \"While You Were Away\" recap after a week passes — every notable thing that happened (wars, peace treaties, routed armies, a kingdom falling) now shows in one list instead of a single truncated line, plus a note when Quest Boards refresh for the month."
+    ]
   }
 ]

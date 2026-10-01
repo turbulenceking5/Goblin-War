@@ -421,6 +421,30 @@
   #levelup-detail{ font-size:13.5px; color:var(--parchment); line-height:1.5; margin-bottom:18px; }
   #levelup-dismiss{ width:100%; }
 
+  /* "While you were away" summary — the Expansion Research idea of the same name. z-index 77,
+     just above #levelup-modal's 76 — addXp's own level-up moment can fire from inside the same
+     weekly tick this recaps (a Petition for Troops/reinforcement-adjacent action granting XP the
+     same turn a tick crosses is plausible), and the ordering convention (CLAUDE.md) wants every
+     overlay ranked regardless. Still below #toast's 80. */
+  #away-summary-modal{
+    position:fixed; inset:0; z-index:77; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #away-summary-modal.show{ display:flex; }
+  #away-summary-card{
+    max-width:400px; width:100%; max-height:70vh; overflow-y:auto;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #away-summary-title{ font-family:'Cinzel Decorative', serif; font-size:17px; color:var(--gold-lt); margin:0 0 4px; text-align:center; text-shadow:none; }
+  #away-summary-subtitle{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; text-align:center; margin-bottom:14px; }
+  #away-summary-list{ margin:0 0 16px; padding-left:20px; }
+  #away-summary-list li{ font-size:13.5px; color:var(--parchment); line-height:1.5; margin-bottom:8px; }
+  #away-summary-dismiss{ width:100%; }
+
   #location-view{ position:fixed; inset:0; z-index:60; display:none; background:var(--water-dk); }
   #location-view.show{ display:block; }
   #loc-actions{
@@ -807,6 +831,15 @@
       <div id="levelup-level">1</div>
       <div id="levelup-detail"></div>
       <button class="btn btn-primary" id="levelup-dismiss">Nice!</button>
+    </div>
+  </div>
+
+  <div id="away-summary-modal">
+    <div id="away-summary-card">
+      <h2 id="away-summary-title">While You Were Away</h2>
+      <div id="away-summary-subtitle">This week in the realm</div>
+      <ul id="away-summary-list"></ul>
+      <button class="btn btn-primary" id="away-summary-dismiss">Continue</button>
     </div>
   </div>
 
@@ -3876,11 +3909,45 @@ function maybeRunFactionAI(){
   buildKingdomTerritoryLabels();
   buildArmyMarkers();
   buildBattleMarkers();
-  if(events.length){
-    const summary = events.length === 1 ? events[0] : `${events.length} settlements changed hands this week, including ${events[0]}`;
-    showToast(summary);
-  }
+  showAwaySummary(events, checkBoardRefresh());
 }
+// "While you were away" summary — the Expansion Research idea of the same name. The weekly
+// faction tick used to only ever surface a single truncated toast line ("N settlements changed
+// hands, including X") even when a whole week's worth of real events (war declared, a treaty,
+// a field battle routed, a kingdom eliminated — see runFactionAITick) happened silently in the
+// background; everything except a capture was invisible. This shows every one of that week's
+// real event lines in one small recap modal instead, plus a note if the Quest Board refreshed its
+// postings somewhere this month (see checkBoardRefresh below — the Board itself already shows a
+// countdown to this once you're standing at one, via "Quest offer expiry"; this is the proactive
+// heads-up that countdown has no equivalent for). Shown only when there's actually something to
+// say — a quiet week (no captures/treaties/battles, no board refresh) stays exactly as silent as
+// before.
+const BOARD_MONTH_SEEN_KEY = "goblinwar_boardMonthSeen";
+function checkBoardRefresh(){
+  const seen = localStorage.getItem(BOARD_MONTH_SEEN_KEY);
+  const current = getBoardMonthIndex();
+  if(seen === null || seen === ''){
+    // Lazy-init, same pattern applyAging's lastAgedDay uses (see context/characters.md — empty
+    // string, not just absent, since the character snapshot triplet writes "" as this key's
+    // default) — starts tracking from whatever month it currently is rather than assuming a
+    // refresh was missed before this feature existed.
+    localStorage.setItem(BOARD_MONTH_SEEN_KEY, String(current));
+    return false;
+  }
+  if(parseInt(seen, 10) === current) return false;
+  localStorage.setItem(BOARD_MONTH_SEEN_KEY, String(current));
+  return true;
+}
+function showAwaySummary(events, boardRefreshed){
+  const items = events.slice();
+  if(boardRefreshed) items.push('Quest Boards across the realm have new postings this month.');
+  if(!items.length) return;
+  document.getElementById('away-summary-list').innerHTML = items.map(e => `<li>${e}</li>`).join('');
+  document.getElementById('away-summary-modal').classList.add('show');
+}
+document.getElementById('away-summary-dismiss').addEventListener('click', ()=>{
+  document.getElementById('away-summary-modal').classList.remove('show');
+});
 
 // ===================== PLAYER STATE (health / gold / inventory / weight / age) =====================
 const NAME_KEY = "goblinwar_characterName";
@@ -11940,6 +12007,7 @@ function collectCharacterSnapshot(){
     tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
     tooltipTourSeen: localStorage.getItem(TOOLTIP_TOUR_SEEN_KEY) || "true",
     achievementsUnlocked: localStorage.getItem(ACHIEVEMENT_UNLOCKED_KEY) || "{}",
+    boardMonthSeen: localStorage.getItem(BOARD_MONTH_SEEN_KEY) || "",
     landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
     allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})

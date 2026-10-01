@@ -1894,7 +1894,7 @@ function advanceTime(hours, quiet){
   if(daysCrossed > 0){
     gameDay += daysCrossed;
     localStorage.setItem(CAL_KEY, String(gameDay));
-    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); applyAging(); }
+    if(!quiet){ advanceArmies(); chargeMercenaryUpkeep(); maybeRunFactionAI(); applyAging(); checkRivalQuestExpiry(); }
   }
   refreshCalendarUI();
 }
@@ -1912,6 +1912,7 @@ function restThroughNight(){
   chargeMercenaryUpkeep();
   maybeRunFactionAI();
   applyAging();
+  checkRivalQuestExpiry();
   refreshCalendarUI();
 }
 
@@ -4856,6 +4857,7 @@ function endCombat(result){
               msg += ` ${questReward.giverName}'s personal request is fulfilled — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${loyaltyNote}`;
             } else {
               const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
+              if(questReward.figureId) recordNotableFigureProgress(questReward.figureId);
               msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
             }
           });
@@ -7408,15 +7410,65 @@ function getFigureForBurg(burgId){
 // factions-and-territory.md), the real Goblin War threat takes over as the ask, with a bigger
 // reward reflecting the bigger danger. Same reactive-world spirit as Marketplace pricing and
 // pickAmbushEnemy already reacting to war state.
+// Rival Adventurer race — the Expansion Research idea of the same name: a chance any given
+// Notable Figure offer is contested by a competing party, won or lost by the same real-time clock
+// every other deadline in this game uses (gameDay), not a new timer system. A light wrapper on top
+// of the existing race-match check at combat's end (see endCombat above) rather than a new combat
+// shape of its own — the player still just needs a matching kill before the deadline; missing it
+// is what makes it a race instead of an open-ended task.
+const RIVAL_QUEST_CHANCE = 0.3;
+const RIVAL_QUEST_DEADLINE_DAYS = 7;
+// Multi-part Notable Figure storyline — the Expansion Research idea of the same name: completing
+// a figure's task once unlocks a harder, better-paying follow-up from the same figure next time,
+// instead of the flat same-forever offer every figure used to make. A small personal arc per
+// figure, distinct from this file's own kingdom-wide reputation chain idea (that one tracks
+// standing with a whole kingdom; this one tracks one figure's own opinion of the player
+// specifically). Uncapped — a figure the player keeps helping keeps escalating, same spirit
+// RENOWN/reputation values climbing indefinitely already has.
+const NOTABLE_FIGURE_PROGRESS_KEY = "goblinwar_figureProgress"; // {figureId: completedCount}
+function getNotableFigureProgress(figureId){
+  try{ return (JSON.parse(localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY)) || {})[figureId] || 0; }catch(e){ return 0; }
+}
+function recordNotableFigureProgress(figureId){
+  let map;
+  try{ map = JSON.parse(localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY)) || {}; }catch(e){ map = {}; }
+  map[figureId] = (map[figureId] || 0) + 1;
+  localStorage.setItem(NOTABLE_FIGURE_PROGRESS_KEY, JSON.stringify(map));
+}
+const FIGURE_TIER_ASK = [
+  "", // tier 0 — the original ask text supplies its own wording, nothing appended
+  " Having proven yourself once, they ask for something harder this time.",
+  " This is the hardest thing they've ever asked of anyone — and they're asking you.",
+];
 function generateNotableFigureOffer(burgId){
   const figure = getFigureForBurg(burgId);
   if(!figure) return null;
   const atWar = isAtWarAt(figure.homeBurgId);
   const type = atWar ? 'kill_raiders' : 'kill_bandits';
   const seed = hashSeed(`figure_${figure.name}_${gameDay}`);
-  const gold = (atWar ? 35 : 20) + Math.floor(seededRandom(seed+1) * (atWar ? 26 : 21)); // 35-60 raiders, 20-40 bandits
-  const xp = (atWar ? 25 : 18) + Math.floor(seededRandom(seed+2) * (atWar ? 21 : 13));   // 25-45 raiders, 18-30 bandits
-  return { figure, type, gold, xp };
+  const tier = getNotableFigureProgress(figure.id);
+  const tierMult = 1 + Math.min(tier, 2) * 0.5; // caps the payout scaling at tier 2+, the askText keeps escalating in words only past that
+  const gold = Math.round(((atWar ? 35 : 20) + Math.floor(seededRandom(seed+1) * (atWar ? 26 : 21))) * tierMult); // 35-60 raiders, 20-40 bandits
+  const xp = Math.round(((atWar ? 25 : 18) + Math.floor(seededRandom(seed+2) * (atWar ? 21 : 13))) * tierMult);   // 25-45 raiders, 18-30 bandits
+  const isRival = seededRandom(seed+3) < RIVAL_QUEST_CHANCE;
+  const tierAsk = FIGURE_TIER_ASK[Math.min(tier, FIGURE_TIER_ASK.length-1)];
+  return { figure, type, gold, xp, isRival, tier, tierAsk };
+}
+// Checked on every day crossing (see advanceTime/restThroughNight) — any active Notable Figure
+// quest whose rival deadline has passed is lost, no penalty beyond the missed reward, same "soft"
+// framing a war-exhaustion peace's own wording already uses for a loss that isn't the player's own
+// combat defeat.
+function checkRivalQuestExpiry(){
+  const quests = getQuests();
+  const remaining = [];
+  let anyExpired = false;
+  quests.forEach(q => {
+    if(q.status === 'active' && q.source === 'notable_figure' && q.rivalDeadlineDay && gameDay > q.rivalDeadlineDay){
+      anyExpired = true;
+      showToast(`A rival adventuring party beat you to ${q.giverName}'s bounty.`);
+    } else remaining.push(q);
+  });
+  if(anyExpired){ saveQuests(remaining); refreshQuestBadge(); }
 }
 
 // Both delivery types (Deliver a Message, Deliver Cargo) complete identically — the moment the
@@ -7479,6 +7531,11 @@ function showQuestBoardPanel(burgId){
     </div>
   `).join('') : `<div style="font-size:12.5px; color:#a9926a; font-style:italic; text-align:center; padding:6px 0 14px;">No quests in progress.</div>`;
 
+  // Quest offer expiry — the Expansion Research idea of the same name: the Board's offers always
+  // rerolled on the next calendar month (see getBoardMonthIndex), just silently — nothing told the
+  // player these specific postings wouldn't be there forever. Surfacing that existing cycle as a
+  // visible countdown adds real urgency with no new persisted state at all.
+  const daysUntilBoardReroll = DAYS_PER_MONTH - (gameDay % DAYS_PER_MONTH);
   const offersHTML = offers.length ? offers.map(o => `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:10px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(o)}</div>
@@ -7490,6 +7547,7 @@ function showQuestBoardPanel(burgId){
           <button class="btn btn-primary" style="flex:none; padding:8px 16px;" data-offer="${o.offerId}">Accept</button>
         </div>
       </div>
+      <div style="font-size:11px; color:#e0a860; margin-top:6px;">Gone in ${daysUntilBoardReroll} day${daysUntilBoardReroll===1?'':'s'} if left unclaimed.</div>
     </div>
   `).join('') : `<div style="font-size:12.5px; color:#a9926a; font-style:italic; text-align:center; padding:6px 0;">Nothing posted today — check back tomorrow.</div>`;
 
@@ -7552,6 +7610,7 @@ function showNotableFigurePanel(burgId){
         <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(activeFigureQuest)}</div>
         <div style="font-size:13px; color:#a9926a; line-height:1.5;">${questDesc(activeFigureQuest)}</div>
         <div style="font-size:12px; color:#7fbf6a; font-weight:700; margin-top:8px;">${activeFigureQuest.reward.gold}g &middot; ${activeFigureQuest.reward.xp} XP &mdash; paid out on your next ${activeFigureQuest.type === 'kill_raiders' ? 'goblin or ork kill' : 'bandit kill'}</div>
+        ${activeFigureQuest.isRival ? `<div style="font-size:11.5px; color:#e0a860; margin-top:4px;">A rival party is after this too — claim it within ${Math.max(0, activeFigureQuest.rivalDeadlineDay - gameDay)} day${activeFigureQuest.rivalDeadlineDay - gameDay === 1 ? '' : 's'} or lose it.</div>` : ''}
       </div>
     `;
   } else if(activeFigureQuest){
@@ -7561,14 +7620,14 @@ function showNotableFigurePanel(burgId){
       </div>
     `;
   } else {
-    const { type, gold, xp } = generateNotableFigureOffer(burgId);
+    const { type, gold, xp, isRival, tierAsk } = generateNotableFigureOffer(burgId);
     const ask = type === 'kill_raiders'
       ? 'the goblin and ork raiders threatening the region — the war has reached these roads'
       : 'the bandits plaguing the roads';
     bodyHTML = `
       <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px;">
         <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${figure.name}</div>
-        <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${figure.title}, in ${b.name}, asks for your help dealing with ${ask}.</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${figure.title}, in ${b.name}, asks for your help dealing with ${ask}.${tierAsk}${isRival ? ` Word is another party's already on the hunt for the same bounty.` : ''}</div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${gold}g &middot; ${xp} XP</span>
           <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="notable-accept-btn">Accept</button>
@@ -7611,14 +7670,17 @@ function showNotableFigurePanel(burgId){
     acceptBtn.addEventListener('click', ()=>{
       const offer = generateNotableFigureOffer(burgId);
       if(!offer) { showNotableFigurePanel(burgId); return; } // home was captured between render and click
-      const { figure, type, gold, xp } = offer;
+      const { figure, type, gold, xp, isRival } = offer;
       const quests = getQuests();
       quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type, source:'notable_figure',
-        giverBurgId:burgId, giverName:figure.name, targetBurgId:null, targetName:null,
-        reward:{gold, xp}, acceptedDay:gameDay, status:'active' });
+        giverBurgId:burgId, giverName:figure.name, figureId:figure.id, targetBurgId:null, targetName:null,
+        reward:{gold, xp}, acceptedDay:gameDay, status:'active',
+        isRival, rivalDeadlineDay: isRival ? gameDay + RIVAL_QUEST_DEADLINE_DAYS : null });
       saveQuests(quests);
       refreshQuestBadge();
-      showToast(`${figure.name} is counting on you.`);
+      showToast(isRival
+        ? `${figure.name} is counting on you — but a rival party's after the same bounty. Move fast.`
+        : `${figure.name} is counting on you.`);
       showNotableFigurePanel(burgId);
     });
   }
@@ -10314,6 +10376,7 @@ function collectCharacterSnapshot(){
     investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
+    figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

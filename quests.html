@@ -92,6 +92,8 @@
 <script>
 const QUEST_KEY = "goblinwar_quests";
 const COMPLETEDQUEST_KEY = "goblinwar_completedQuests";
+const CAL_KEY = "goblinwar_gameDay";
+const gameDay = parseInt(localStorage.getItem(CAL_KEY) || "0", 10); // for the Rival Adventurer race countdown below
 const HOURS_PER_DAY = 24;
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 
@@ -134,9 +136,15 @@ function questDistanceNote(q){
 function questDesc(q){
   if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
-  if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
-  if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
+  if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.${questRivalNote(q)}`;
+  if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.${questRivalNote(q)}`;
   return '';
+}
+// Rival Adventurer race — see index.html's generateNotableFigureOffer/checkRivalQuestExpiry.
+function questRivalNote(q){
+  if(!q.isRival) return '';
+  const daysLeft = Math.max(0, q.rivalDeadlineDay - gameDay);
+  return ` A rival party is after this too — claim it within ${daysLeft} day${daysLeft===1?'':'s'} or lose it.`;
 }
 
 function getQuests(){ try{ return JSON.parse(localStorage.getItem(QUEST_KEY)) || []; }catch(e){ return []; } }

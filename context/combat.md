@@ -100,6 +100,8 @@ Both share the same tail shape as Attack/Specials (`runAllyAttacks()` → victor
 
 A floating damage number plus a brief shake (`spawnDamageNumber`/`flashHit`, CSS `.dmg-float`/`.hit-shake`) fires on every damage event — player/ally/Special/Cleave hits landing on an enemy, an enemy's counter landing on the player or an ally, and each bleed tick — anchored to that specific slot element (`getEnemySlotEl(idx)`/`getAllySlotEl(id)`/`getPlayerBarEl()`, all already `position:relative`). Pure presentation, no new state; the slot DOM nodes are stable for an entire round (only re-rendered once, at the round's own `updateCombatUI()` call), so this is safe to call mid-round without racing a re-render.
 
+**Haptic feedback on key actions — the Expansion Research idea of the same name.** `flashHit` also fires `vibrate(HAPTIC_HIT)` — a single short pulse on every one of those same hit events, landed or taken, player/ally/enemy alike, for free off this one existing chokepoint. `vibrate(pattern)` (index.html, near `showToast`) wraps `navigator.vibrate` behind an existence check — the Vibration API only exists on Android Chrome (iOS Safari has never implemented it, in or out of an installed home-screen PWA), so every call is a silent no-op there rather than an error. The other three key moments wired up outside combat: `triggerAmbushFight` (`HAPTIC_AMBUSH`, a startled double-pulse the instant an ambush triggers), `showLevelUpMoment` (`HAPTIC_LEVELUP`), and `checkAchievementUnlocks`' own unlock branch, not its near-miss nudge (`HAPTIC_ACHIEVEMENT`) — see [player-state.md](player-state.md) and [roadmap.md](roadmap.md).
+
 ## Status effects
 
 Bleed, stun, and fatigue are modifiers layered on top of Attack/Specials — every combatant carries

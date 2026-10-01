@@ -1209,5 +1209,12 @@
     "changes": [
       "Added a \"While You Were Away\" recap after a week passes — every notable thing that happened (wars, peace treaties, routed armies, a kingdom falling) now shows in one list instead of a single truncated line, plus a note when Quest Boards refresh for the month."
     ]
+  },
+  {
+    "id": 162,
+    "date": "2026-10-01",
+    "changes": [
+      "Added haptic feedback on Android for key moments — every hit in combat, an ambush triggering, leveling up, and unlocking an achievement. (iOS doesn't support this yet, even installed as an app — that's an Apple limitation, not something we can turn on.)"
+    ]
   }
 ]

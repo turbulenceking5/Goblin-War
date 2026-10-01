@@ -4123,7 +4123,7 @@ function checkAchievementUnlocks(){
   });
   localStorage.setItem(ACHIEVEMENT_UNLOCKED_KEY, JSON.stringify(unlocked));
   if(isFirstCheck) localStorage.setItem(ACHIEVEMENT_SEED_DONE_KEY, 'true');
-  if(newlyEarned.length){ showToast(`Achievement unlocked: ${newlyEarned.join(', ')}!`); return; }
+  if(newlyEarned.length){ showToast(`Achievement unlocked: ${newlyEarned.join(', ')}!`); vibrate(HAPTIC_ACHIEVEMENT); return; }
   if(isFirstCheck) return; // no near-miss nudges during the silent seed pass either
   // Only the single closest qualifying near-miss, so getting close to several at once (e.g. a
   // kill that happens to also nudge a quest milestone) never piles up more than one toast.
@@ -4582,6 +4582,7 @@ function showLevelUpMoment(levelsGained){
     ? `+${levelsGained} levels at once — +${levelsGained} Skill Points, +${levelsGained*8} Max Health, +${levelsGained*4} Max Stamina.`
     : `+1 Skill Point, +8 Max Health, +4 Max Stamina.`;
   document.getElementById('levelup-modal').classList.add('show');
+  vibrate(HAPTIC_LEVELUP);
 }
 document.getElementById('levelup-dismiss').addEventListener('click', ()=>{
   document.getElementById('levelup-modal').classList.remove('show');
@@ -5069,6 +5070,7 @@ function spawnDamageNumber(container, text, cls){
   setTimeout(() => el.remove(), 900);
 }
 function flashHit(container){
+  vibrate(HAPTIC_HIT);
   if(!container) return;
   container.classList.remove('hit-shake');
   void container.offsetWidth; // restart the animation if it's still mid-shake from a prior hit
@@ -5803,6 +5805,7 @@ function triggerAmbushFight(burgId, onEnd, context){
   const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
   const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? (attackerKingdom ? `${attackerKingdom}'s ork raiders` : 'Ork raiders') : (enemy === 'goblin' ? (attackerKingdom ? `${attackerKingdom}'s goblin raiders` : 'Goblin raiders') : 'Wild beasts'));
   showToast(`${label} ${scene}!`);
+  vibrate(HAPTIC_AMBUSH);
   // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — the burg's `biome` field is real,
   // derived from this character's own generated map, so this already reads as whatever terrain
   // that burg actually sits in; it still shows as Forest-always in practice only because Forest
@@ -6550,6 +6553,21 @@ function animateTravel(fromPos, toId, edgeSteps, destName, durationMs, onDone, o
   return controller;
 }
 
+
+// Haptic feedback on key actions — the Expansion Research idea of the same name, despite the
+// careful iOS safe-area handling already done elsewhere in this file (see CLAUDE.md). The
+// Vibration API (navigator.vibrate) only exists on Android Chrome — iOS Safari has never
+// implemented it, in or out of an installed home-screen PWA — so this is an Android-only
+// enhancement, not a cross-platform one; the existence check makes every call a silent no-op
+// everywhere else rather than throwing. A bare number is one pulse of that many ms; an array
+// alternates vibrate/pause/vibrate/pause/...
+function vibrate(pattern){
+  if(navigator.vibrate) navigator.vibrate(pattern);
+}
+const HAPTIC_HIT = 15;                 // a blow landed or taken in combat — see flashHit
+const HAPTIC_AMBUSH = [40, 60, 40];    // an ambush just triggered — a startled double-pulse
+const HAPTIC_LEVELUP = [20, 40, 60];   // a short rising pattern for the level-up moment
+const HAPTIC_ACHIEVEMENT = [20, 40, 20, 40, 20]; // a brighter, more "ta-da" pattern for an unlock
 
 // ===================== UI: label selection / info card =====================
 let toastTimer;

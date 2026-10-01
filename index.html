@@ -3688,6 +3688,10 @@ function runFactionAITick(){
       const ally = findAllyNeedingReinforcement(kingdom);
       if(ally) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
     });
+    // Quests & Factions: "accepted quests react to the live war tick" — this week's declare/peace
+    // pass above has already settled every relation for the tick, so this is the right moment to
+    // re-check every outstanding Notable Figure kill-quest against it. See reconcileQuestsWithWarState.
+    reconcileQuestsWithWarState();
     return events;
   } finally {
     _tickCache = null;
@@ -5330,10 +5334,16 @@ function endCombat(result){
       // COMPANION_QUESTS) can be active at the same time as a Notable Figure one though — up to
       // one per recruited companion, each with its own targetRaces — so this now resolves every
       // matching active quest off a single kill, not just the first.
+      // Kingdom-specific kill quests: a Drive Off the Raiders quest with a targetKingdom (see
+      // generateNotableFigureOffer) only credits a kill from that specific attacking kingdom —
+      // attackerKingdom is threaded through combat.attackerKingdom by both pickAmbushEnemy's
+      // raiding-party ambushes and triggerSiegeDefenseFight's Defend the Walls fights. A quest
+      // with no targetKingdom (an older save, or no real enemy to name at accept time) keeps the
+      // old any-raider-anywhere behavior.
       if(enemyRace){
         const questMatchesRace = q =>
           (q.type==='kill_bandits' && enemyRace==='bandit') ||
-          (q.type==='kill_raiders' && (enemyRace==='goblin' || enemyRace==='ork')) ||
+          (q.type==='kill_raiders' && (enemyRace==='goblin' || enemyRace==='ork') && (!q.targetKingdom || q.targetKingdom === attackerKingdom)) ||
           (q.type==='companion_kill' && q.targetRaces && q.targetRaces.includes(enemyRace));
         const quests = getQuests();
         const remaining = [];
@@ -5438,18 +5448,26 @@ const RAID_AMBUSH_CHANCE = 0.5; // of an ambush at a Good-alliance settlement wh
 // enemies — but Wildlife isn't territory-aligned, so it can still show up there.
 const WILDLIFE_AMBUSH_CHANCE = 0.3;
 const WILDLIFE_BIOMES = ['forest','mountains','snow'];
+// Returns {race, kingdom} rather than a bare race string — kingdom-specific kill quests (see
+// generateNotableFigureOffer/endCombat below) need to know not just "an ork raiding party" but
+// which specific Bad-alliance kingdom it's actually from, same as a siege's own attackerKingdom
+// already names its attacker. kingdom is null for wildlife/bandit, which aren't kingdom-aligned.
 function pickAmbushEnemy(burgId){
-  if(WILDLIFE_BIOMES.includes(getFightBiome(burgId)) && Math.random() < WILDLIFE_AMBUSH_CHANCE) return 'wildlife';
+  if(WILDLIFE_BIOMES.includes(getFightBiome(burgId)) && Math.random() < WILDLIFE_AMBUSH_CHANCE) return { race:'wildlife', kingdom:null };
   const b = graph.burgs[burgId];
   if(b && b.race && ALLIANCE[b.race] === 'Good' && isAtWarAt(burgId) && Math.random() < RAID_AMBUSH_CHANCE){
-    return Math.random() < 0.5 ? 'ork' : 'goblin';
+    const defenderKingdom = getControllerKingdom(burgId) || b.state;
+    const enemies = getEnemiesAtWar(defenderKingdom);
+    const kingdom = enemies.length ? enemies[Math.floor(Math.random()*enemies.length)] : null;
+    const race = kingdom ? KINGDOM_RACE[kingdom] : (Math.random() < 0.5 ? 'ork' : 'goblin');
+    return { race, kingdom };
   }
-  return 'bandit';
+  return { race:'bandit', kingdom:null };
 }
 function triggerAmbushFight(burgId, onEnd, context){
-  const enemy = pickAmbushEnemy(burgId);
+  const { race: enemy, kingdom: attackerKingdom } = pickAmbushEnemy(burgId);
   const scene = context === 'camp' ? 'creep into your camp in the night' : 'ambush you on the road';
-  const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? 'Ork raiders' : (enemy === 'goblin' ? 'Goblin raiders' : 'Wild beasts'));
+  const label = enemy === 'bandit' ? 'Bandits' : (enemy === 'ork' ? (attackerKingdom ? `${attackerKingdom}'s ork raiders` : 'Ork raiders') : (enemy === 'goblin' ? (attackerKingdom ? `${attackerKingdom}'s goblin raiders` : 'Goblin raiders') : 'Wild beasts'));
   showToast(`${label} ${scene}!`);
   // Biome-aware now (see BIOME_ART/getBiomeBackdrop above) — the burg's `biome` field is real,
   // derived from this character's own generated map, so this already reads as whatever terrain
@@ -5461,6 +5479,9 @@ function triggerAmbushFight(burgId, onEnd, context){
   // HILLS_RANGED_DAMAGE_MULT above) even for a camp ambush, whose backdrop art is Night Camp's own
   // pool rather than a daytime biome photo — you're still standing on whatever ground that is.
   triggerEnemyFight(enemy, onEnd, backdrop, getFightBiome(burgId), getAmbushToughnessBias(burgId));
+  // Kingdom-specific kill quests — same ad-hoc field, set right after startCombat, that
+  // triggerSiegeDefenseFight already uses for its own attacker (see endCombat's questMatchesRace).
+  if(combat) combat.attackerKingdom = attackerKingdom;
 }
 // How much tougher an ambush here should skew — the closer a settlement sits to the frontline
 // (isFrontlineBurg) and the longer its kingdom's longest-running war has dragged on (same
@@ -8075,7 +8096,7 @@ function questTitle(q){
   if(q.type === 'deliver_message') return 'Deliver a Message';
   if(q.type === 'deliver_cargo') return 'Deliver Cargo';
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
-  if(q.type === 'kill_raiders') return 'Drive Off the Raiders';
+  if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
   return 'Quest';
 }
@@ -8088,7 +8109,9 @@ function questDesc(q){
   if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
-  if(q.type === 'kill_raiders') return `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
+  if(q.type === 'kill_raiders') return q.targetKingdom
+    ? `${q.giverName} asked you to drive off ${q.targetKingdom}'s raiders threatening the region.`
+    : `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`;
   if(q.type === 'companion_deliver') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'companion_kill') return `${q.giverName} ${(COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].ask) || 'asked for your help.'}`;
   return '';
@@ -8226,7 +8249,19 @@ function generateNotableFigureOffer(burgId){
   const xp = Math.round(((atWar ? 25 : 18) + Math.floor(seededRandom(seed+2) * (atWar ? 21 : 13))) * tierMult);   // 25-45 raiders, 18-30 bandits
   const isRival = seededRandom(seed+3) < RIVAL_QUEST_CHANCE;
   const tierAsk = FIGURE_TIER_ASK[Math.min(tier, FIGURE_TIER_ASK.length-1)];
-  return { figure, type, gold, xp, isRival, tier, tierAsk };
+  // Kingdom-specific kill quests — the Expansion Research idea of the same name. Drive Off the
+  // Raiders used to just want "a goblin or ork," satisfied by any raiding-party kill anywhere;
+  // now it names one specific Bad-alliance kingdom actually at war with the figure's own home
+  // kingdom, picked the same deterministic way the reward numbers above are. null when there's no
+  // real enemy to name (not at war, or — defensively — a war flag with no enemy on record), in
+  // which case the quest falls back to its old any-raider wording everywhere it's shown.
+  let targetKingdom = null;
+  if(atWar){
+    const homeKingdom = getControllerKingdom(figure.homeBurgId) || graph.burgs[figure.homeBurgId].state;
+    const enemies = getEnemiesAtWar(homeKingdom);
+    if(enemies.length) targetKingdom = enemies[Math.floor(seededRandom(seed+4) * enemies.length)];
+  }
+  return { figure, type, gold, xp, isRival, tier, tierAsk, targetKingdom };
 }
 // Checked on every day crossing (see advanceTime/restThroughNight) — any active Notable Figure
 // quest whose rival deadline has passed is lost, no penalty beyond the missed reward, same "soft"
@@ -8243,6 +8278,68 @@ function checkRivalQuestExpiry(){
     } else remaining.push(q);
   });
   if(anyExpired){ saveQuests(remaining); refreshQuestBadge(); }
+}
+
+// Quests & Factions: "accepted quests react to the live war tick" — the Expansion Research idea
+// of the same name. generateNotableFigureOffer above picks kill_bandits vs kill_raiders from
+// whether a figure's home kingdom is at war *at offer time*, but an already-accepted quest's own
+// `type` field used to freeze there forever, even as that war later ended — or a new one broke
+// out — while the quest just sat active in goblinwar_quests. Called once per weekly tick, from
+// the tail of runFactionAITick, right after that week's declare/peace pass has already settled
+// every relation, so an outstanding kill-quest's threat always tracks the kingdom's *current* war
+// state rather than a stale snapshot from whenever it was accepted. questTitle/questDesc and
+// endCombat's own race-match check (see "Turn-in" in context/quests.md) all key off q.type
+// already, so flipping it here is the only change needed — the quest's title, description, and
+// which enemy race actually completes it all follow automatically, everywhere it's shown.
+//
+// Also re-checks targetKingdom (see "Kingdom-specific kill quests" above) on every active
+// kill_raiders quest, not just the ones whose type is flipping: the kingdom the quest originally
+// named can make its own separate peace with the figure's home kingdom while a *different*
+// Bad-alliance enemy keeps the overall war state (and so q.type) at kill_raiders — without this,
+// the quest would keep demanding a kill from a kingdom that's no longer actually fighting anyone.
+function reconcileQuestsWithWarState(){
+  const quests = getQuests();
+  let changed = false;
+  quests.forEach(q=>{
+    if(q.status !== 'active' || q.source !== 'notable_figure') return;
+    if(q.type !== 'kill_bandits' && q.type !== 'kill_raiders') return;
+    const figure = NOTABLE_FIGURES.find(f => f.id === q.figureId);
+    const homeBurgId = figure ? figure.homeBurgId : q.giverBurgId;
+    const atWar = isAtWarAt(homeBurgId);
+    const shouldBe = atWar ? 'kill_raiders' : 'kill_bandits';
+    if(q.type !== shouldBe){
+      q.type = shouldBe;
+      changed = true;
+      recordWorldEvent(shouldBe === 'kill_raiders'
+        ? `Word has it war has reached ${q.giverName}'s door — the task you accepted has shifted to driving off raiders instead.`
+        : `Word has it the fighting near ${q.giverName}'s door has quieted — the task you accepted is a simpler matter now.`);
+    }
+    if(shouldBe === 'kill_raiders'){
+      const homeKingdom = getControllerKingdom(homeBurgId) || (graph.burgs[homeBurgId] && graph.burgs[homeBurgId].state);
+      const enemies = homeKingdom ? getEnemiesAtWar(homeKingdom) : [];
+      if(q.targetKingdom && !enemies.includes(q.targetKingdom)){
+        const newTarget = enemies.length ? enemies[Math.floor(Math.random()*enemies.length)] : null;
+        if(newTarget !== q.targetKingdom){
+          const oldTarget = q.targetKingdom;
+          q.targetKingdom = newTarget;
+          changed = true;
+          recordWorldEvent(newTarget
+            ? `Word has it ${oldTarget} has made its own peace — ${q.giverName}'s task now points you at ${newTarget} instead.`
+            : `Word has it ${oldTarget} has made its own peace — ${q.giverName}'s task is simply "drive off raiders" again now.`);
+        }
+      } else if(!q.targetKingdom && enemies.length){
+        // An older quest (or one accepted before an enemy kingdom existed to name) catching up
+        // to a real target now that one exists — no toast/world-event needed, this one's a quiet
+        // upgrade rather than a change the player would've noticed anything shift away from.
+        q.targetKingdom = enemies[Math.floor(Math.random()*enemies.length)];
+        changed = true;
+      }
+    } else if(q.targetKingdom){
+      q.targetKingdom = null;
+      changed = true;
+    }
+  });
+  if(changed){ saveQuests(quests); refreshQuestBadge(); }
 }
 
 // Both delivery types (Deliver a Message, Deliver Cargo) complete identically — the moment the
@@ -8383,7 +8480,7 @@ function showNotableFigurePanel(burgId){
       <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px;">
         <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">${questTitle(activeFigureQuest)}</div>
         <div style="font-size:13px; color:#a9926a; line-height:1.5;">${questDesc(activeFigureQuest)}</div>
-        <div style="font-size:12px; color:#7fbf6a; font-weight:700; margin-top:8px;">${activeFigureQuest.reward.gold}g &middot; ${activeFigureQuest.reward.xp} XP &mdash; paid out on your next ${activeFigureQuest.type === 'kill_raiders' ? 'goblin or ork kill' : 'bandit kill'}</div>
+        <div style="font-size:12px; color:#7fbf6a; font-weight:700; margin-top:8px;">${activeFigureQuest.reward.gold}g &middot; ${activeFigureQuest.reward.xp} XP &mdash; paid out on your next ${activeFigureQuest.type === 'kill_raiders' ? (activeFigureQuest.targetKingdom ? `kill against ${activeFigureQuest.targetKingdom}` : 'goblin or ork kill') : 'bandit kill'}</div>
         ${activeFigureQuest.isRival ? `<div style="font-size:11.5px; color:#e0a860; margin-top:4px;">A rival party is after this too — claim it within ${Math.max(0, activeFigureQuest.rivalDeadlineDay - gameDay)} day${activeFigureQuest.rivalDeadlineDay - gameDay === 1 ? '' : 's'} or lose it.</div>` : ''}
       </div>
     `;
@@ -8394,9 +8491,9 @@ function showNotableFigurePanel(burgId){
       </div>
     `;
   } else {
-    const { type, gold, xp, isRival, tierAsk } = generateNotableFigureOffer(burgId);
+    const { type, gold, xp, isRival, tierAsk, targetKingdom } = generateNotableFigureOffer(burgId);
     const ask = type === 'kill_raiders'
-      ? 'the goblin and ork raiders threatening the region — the war has reached these roads'
+      ? (targetKingdom ? `${targetKingdom}'s raiders threatening the region — the war has reached these roads` : 'the goblin and ork raiders threatening the region — the war has reached these roads')
       : 'the bandits plaguing the roads';
     bodyHTML = `
       <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px;">
@@ -8444,10 +8541,11 @@ function showNotableFigurePanel(burgId){
     acceptBtn.addEventListener('click', ()=>{
       const offer = generateNotableFigureOffer(burgId);
       if(!offer) { showNotableFigurePanel(burgId); return; } // home was captured between render and click
-      const { figure, type, gold, xp, isRival } = offer;
+      const { figure, type, gold, xp, isRival, targetKingdom } = offer;
       const quests = getQuests();
       quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type, source:'notable_figure',
         giverBurgId:burgId, giverName:figure.name, figureId:figure.id, targetBurgId:null, targetName:null,
+        targetKingdom: targetKingdom || null,
         reward:{gold, xp}, acceptedDay:gameDay, status:'active',
         isRival, rivalDeadlineDay: isRival ? gameDay + RIVAL_QUEST_DEADLINE_DAYS : null });
       saveQuests(quests);

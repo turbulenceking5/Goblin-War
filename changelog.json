@@ -1137,5 +1137,13 @@
       "Ork Warlords now have a chance to drop a Runic Sword — a new top-tier weapon above Mithril, found only in battle.",
       "Added the Berserker's Totem, a belt accessory whose damage bonus grows the lower your health drops."
     ]
+  },
+  {
+    "id": 152,
+    "date": "2026-10-01",
+    "changes": [
+      "A Notable Figure's kill-quest now tracks the war in real time — accept it during peace and it'll shift to Drive Off the Raiders if war breaks out before you turn it in, and back again if peace holds.",
+      "Drive Off the Raiders now names the specific enemy kingdom behind the raids, and only a kill against that kingdom's own raiders completes it — ordinary ambushes, not just a siege's Defend the Walls, can now satisfy it too."
+    ]
   }
 ]

@@ -1181,5 +1181,12 @@
       "Leveling up now gets its own moment — a popup showing your new level and exactly what you gained, on top of the usual toast.",
       "The Skills toolbar icon now shows a badge when you have an unspent skill point waiting."
     ]
+  },
+  {
+    "id": 158,
+    "date": "2026-10-01",
+    "changes": [
+      "Earning an achievement (Capitals visited, every enemy variant beaten, kill/quest/level milestones) now shows a toast the moment it happens, instead of only ever showing up next time you opened the Achievements page."
+    ]
   }
 ]

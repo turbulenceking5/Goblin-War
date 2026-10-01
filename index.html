@@ -3980,6 +3980,7 @@ function recordVisitedBurg(burgId){
   if(visited.includes(burgId)) return;
   visited.push(burgId);
   localStorage.setItem(VISITED_BURGS_KEY, JSON.stringify(visited));
+  checkAchievementUnlocks();
 }
 function getDefeatedVariants(){ try{ return JSON.parse(localStorage.getItem(DEFEATED_VARIANTS_KEY)) || {}; }catch(e){ return {}; } }
 function recordDefeatedVariant(name){
@@ -3987,8 +3988,70 @@ function recordDefeatedVariant(name){
   if(defeated[name]) return;
   defeated[name] = true;
   localStorage.setItem(DEFEATED_VARIANTS_KEY, JSON.stringify(defeated));
+  checkAchievementUnlocks();
 }
 function getQuestsCompletedTotal(){ return parseInt(localStorage.getItem(QUESTS_COMPLETED_TOTAL_KEY) || "0", 10); }
+
+// Achievement unlock toast feedback — the Expansion Research idea of the same name.
+// achievements.html's own earned/locked state is derived live (current >= target, nothing stored
+// — see that page's own render()) — correct for that page, but it meant actually crossing a
+// threshold during real play was completely silent until the next time that page happened to be
+// opened. This mirrors achievements.html's own milestone list (ids/names/targets only — none of
+// its rendering logic) and is checked right at each of the handful of places one of these counters
+// can actually change, showing a toast the instant one is first crossed.
+// ACHIEVEMENT_UNLOCKED_KEY tracks which ids have already been announced — a one-time "don't toast
+// this again" gate layered on top of achievements.html's own live check, not a replacement for it.
+// Unlike achievements.html's "Grand Tour"/"Monster Hunter", which duplicate ALL_ENEMY_VARIANTS and
+// re-fetch travel-graph.json's capital list separately, this derives both targets straight from
+// index.html's own live ENEMY_VARIANTS/graph instead — the authoritative source, not a copy that
+// could drift (achievements.html's own comment on ALL_ENEMY_VARIANTS already flags that risk).
+const ACHIEVEMENT_UNLOCKED_KEY = "goblinwar_achievementsUnlocked";
+// Deliberately NOT part of the character snapshot triplet — a pure local migration marker, not
+// save data. It only ever needs to answer "has this device already run the one-time silent seed
+// pass for whichever character is currently loaded" (see checkAchievementUnlocks below); checking
+// ACHIEVEMENT_UNLOCKED_KEY's own presence instead wouldn't work, since characters.html's
+// applyCharacterData/freshCharacterData triplet (same pattern as tutorialSeen) always writes
+// *something* ("{}" for an old save with no such field yet) into it before any gameplay runs, so
+// it would never actually read as "absent" the way a real first-run check needs. Re-seeding after
+// a storage clear or on a new device is harmless — it only ever silently marks already-true
+// entries, never un-marks or re-toasts one that's already recorded.
+const ACHIEVEMENT_SEED_DONE_KEY = "goblinwar_achievementSeedDone";
+function getUnlockedAchievements(){ try{ return JSON.parse(localStorage.getItem(ACHIEVEMENT_UNLOCKED_KEY)) || {}; }catch(e){ return {}; } }
+function getAchievementDefs(){
+  const capitalIds = graph ? Object.keys(graph.burgs).filter(id => graph.burgs[id].tier === 'capital') : [];
+  const totalKills = Object.values(getKills()).reduce((sum,n) => sum+n, 0);
+  const totalVariants = graph ? Object.values(ENEMY_VARIANTS).reduce((sum,list) => sum+list.length, 0) : 1;
+  return [
+    { id:'grand_tour', name:'Grand Tour', current: getVisitedBurgs().filter(id => capitalIds.includes(id)).length, target: capitalIds.length || 1 },
+    { id:'monster_hunter', name:'Monster Hunter', current: Object.keys(getDefeatedVariants()).length, target: totalVariants },
+    { id:'kills_10', name:'Blooded', current: totalKills, target: 10 },
+    { id:'kills_50', name:'Battle-Hardened', current: totalKills, target: 50 },
+    { id:'kills_150', name:'Legend of the Realm', current: totalKills, target: 150 },
+    { id:'quests_5', name:'Errand Runner', current: getQuestsCompletedTotal(), target: 5 },
+    { id:'quests_15', name:'Reliable Hand', current: getQuestsCompletedTotal(), target: 15 },
+    { id:'quests_40', name:'Hero for Hire', current: getQuestsCompletedTotal(), target: 40 },
+    { id:'level_5', name:'Rising Star', current: playerLevel, target: 5 },
+    { id:'level_10', name:'Seasoned Adventurer', current: playerLevel, target: 10 },
+    { id:'level_20', name:'Master of the Realm', current: playerLevel, target: 20 },
+  ];
+}
+function checkAchievementUnlocks(){
+  // The very first time this ever runs on this device, silently seed anything already true (an
+  // existing character picking this feature up for the first time, possibly already well past
+  // several thresholds) rather than dumping a long, backdated "Achievement unlocked" list on the
+  // next ordinary kill — only a genuine future crossing toasts from here on.
+  const isFirstCheck = localStorage.getItem(ACHIEVEMENT_SEED_DONE_KEY) !== 'true';
+  const unlocked = getUnlockedAchievements();
+  const newlyEarned = [];
+  getAchievementDefs().forEach(a => {
+    if(unlocked[a.id] || a.current < a.target) return;
+    unlocked[a.id] = true;
+    if(!isFirstCheck) newlyEarned.push(a.name);
+  });
+  localStorage.setItem(ACHIEVEMENT_UNLOCKED_KEY, JSON.stringify(unlocked));
+  if(isFirstCheck) localStorage.setItem(ACHIEVEMENT_SEED_DONE_KEY, 'true');
+  if(newlyEarned.length) showToast(`Achievement unlocked: ${newlyEarned.join(', ')}!`);
+}
 const FOOD_NAME = "Food";
 const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACITY
 const FOOD_PRICE = 2;     // gold per unit of Food at the Marketplace
@@ -4276,6 +4339,7 @@ function addKills(race, count){
   const kills = getKills();
   kills[race] = (kills[race] || 0) + count;
   localStorage.setItem(KILLS_KEY, JSON.stringify(kills));
+  checkAchievementUnlocks();
 }
 function getCarryCapacity(){ return CARRY_CAPACITY + (hasPerk('pack_mule') ? 10 : 0); }
 
@@ -4420,7 +4484,7 @@ function addXp(amount){
   localStorage.setItem(HEALTH_KEY, String(playerHealth));
   localStorage.setItem(STAMINA_KEY, String(playerStamina));
   refreshPlayerStatUI();
-  if(leveledUp) showLevelUpMoment(levelsGained);
+  if(leveledUp){ showLevelUpMoment(levelsGained); checkAchievementUnlocks(); }
   return leveledUp;
 }
 // Real level-up moment — the Expansion Research idea of the same name. Centralized here, the one
@@ -8208,6 +8272,7 @@ function recordCompletedQuest(q){
   history.unshift({ type:q.type, giverName:q.giverName, targetName:q.targetName, reward:q.reward, completedDay:gameDay });
   localStorage.setItem(COMPLETEDQUEST_KEY, JSON.stringify(history.slice(0, COMPLETED_QUESTS_MAX)));
   localStorage.setItem(QUESTS_COMPLETED_TOTAL_KEY, String(getQuestsCompletedTotal() + 1));
+  checkAchievementUnlocks();
 }
 // Drives the small count badge on the map toolbar's Quests button (quests.html has no live map
 // to update, so this only ever needs to run here) — called after anything that adds or removes
@@ -11857,6 +11922,7 @@ function collectCharacterSnapshot(){
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
     tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
     tooltipTourSeen: localStorage.getItem(TOOLTIP_TOUR_SEEN_KEY) || "true",
+    achievementsUnlocked: localStorage.getItem(ACHIEVEMENT_UNLOCKED_KEY) || "{}",
     landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
     allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})

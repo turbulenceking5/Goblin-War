@@ -10261,6 +10261,87 @@ function showTavernRegularChapter(regularId, burgId){
   wireDialogueChoices(node, ()=> showTavernPanel(burgId));
 }
 
+// Cartographer — the Expansion Research idea of the same name: a one-time, per-settlement fee
+// (Marketplace) that reveals this settlement's road-graph neighbors' Quest Board / Notable
+// Figure / companion status — all data the game already computes (generateBoardOffers/
+// getFigureForBurg/getCompanionForBurg, the same accessors showLocationView itself calls to gate
+// those three actions), just not otherwise visible without physically visiting each one. No new
+// map layer or fog-of-war system — surfaced as a plain report panel instead, reusing the same
+// "overwrite #loc-action-list, Back returns to the real panel" pattern showTavernRegularChapter
+// already established. Paying once unlocks the (live, not a frozen snapshot) report for that
+// settlement's neighbors for good — burgAdjacency is purely geometric, so which settlements count
+// as "nearby" never changes even as who controls them does.
+const CARTOGRAPHER_KEY = "goblinwar_cartographerScouted"; // [burgId, ...] — settlements already paid for
+const CARTOGRAPHER_COST = 50;
+function getCartographerScouted(){
+  try{ return JSON.parse(localStorage.getItem(CARTOGRAPHER_KEY)) || []; }catch(e){ return []; }
+}
+function hasScoutedFrom(burgId){ return getCartographerScouted().includes(burgId); }
+function buildCartographerHTML(burgId){
+  if(hasScoutedFrom(burgId)){
+    return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Cartographer</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">You already have a scout's report on the roads near here.</div>
+      <button class="btn btn-secondary" style="width:100%;" id="cartographer-report-btn">View Report</button>
+    </div>`;
+  }
+  const afford = playerGold >= CARTOGRAPHER_COST;
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:14px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Hire a Cartographer</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">For a fee, a local cartographer will mark what's known of the roads nearby — quests posted, notable figures, and anyone looking to join your cause.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">-${CARTOGRAPHER_COST}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="cartographer-btn" ${afford ? '' : 'disabled'}>Hire Cartographer</button>
+      </div>
+    </div>`;
+}
+function acceptCartographer(burgId){
+  if(playerGold < CARTOGRAPHER_COST || hasScoutedFrom(burgId)) return;
+  setGold(playerGold - CARTOGRAPHER_COST);
+  const scouted = getCartographerScouted();
+  scouted.push(burgId);
+  localStorage.setItem(CARTOGRAPHER_KEY, JSON.stringify(scouted));
+  showToast(`A cartographer draws up what's known of the roads nearby.`);
+  showCartographerReport(burgId);
+}
+function wireCartographerButtons(burgId){
+  const hireBtn = document.getElementById('cartographer-btn');
+  if(hireBtn) hireBtn.addEventListener('click', ()=> acceptCartographer(burgId));
+  const reportBtn = document.getElementById('cartographer-report-btn');
+  if(reportBtn) reportBtn.addEventListener('click', ()=> showCartographerReport(burgId));
+}
+function showCartographerReport(burgId){
+  const b = graph.burgs[burgId];
+  const neighborIds = burgAdjacency[burgId] || [];
+  const rows = neighborIds.map(nid=>{
+    const nb = graph.burgs[nid];
+    if(!nb) return '';
+    const tags = [];
+    if(generateBoardOffers(nid).length) tags.push('Quest Board');
+    if(getFigureForBurg(nid)) tags.push('Notable Figure');
+    if(getCompanionForBurg(nid)) tags.push('Companion');
+    return `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid rgba(209,164,69,.2);">
+      <span style="font-size:13px; color:var(--parchment);">${nb.name}</span>
+      <span style="font-size:11.5px; color:${tags.length ? '#8fb3a8' : '#a9926a'};">${tags.length ? tags.join(' &middot; ') : 'Nothing of note'}</span>
+    </div>`;
+  }).join('');
+  const list = document.getElementById('loc-action-list');
+  list.innerHTML = `
+    <button class="loc-action" id="cartographer-back-btn">
+      <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+      <span class="li-text"><b>Back</b><span>Return to Marketplace</span></span>
+    </button>
+    <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:14px 0 2px;">Scout's Report &middot; roads near ${b.name}</div>
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:4px 14px;">
+      ${rows || `<div style="padding:10px 0; font-size:13px; color:#a9926a;">No roads lead anywhere from here.</div>`}
+    </div>
+  `;
+  document.getElementById('cartographer-back-btn').addEventListener('click', ()=> showMarketPanel(burgId));
+}
+
 function showMarketPanel(burgId){
   const b = graph.burgs[burgId];
   const list = document.getElementById('loc-action-list');
@@ -10312,9 +10393,11 @@ function showMarketPanel(burgId){
         ${buildTributeNote(burgId)}
         ${buildLoanDefaultNote(burgId)}
       </div>
+      ${buildCartographerHTML(burgId)}
       ${itemRows}
     `;
     document.getElementById('market-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    wireCartographerButtons(burgId);
     list.querySelectorAll('.qty-slider').forEach(slider=>{
       slider.addEventListener('input', ()=>{
         const i = parseInt(slider.dataset.slider, 10);
@@ -10703,6 +10786,7 @@ function collectCharacterSnapshot(){
     tavernRegularProgress: localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY) || "{}",
     templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
     caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
+    cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

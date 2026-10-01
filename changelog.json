@@ -1074,5 +1074,12 @@
     "changes": [
       "The Guard House can now hire you a Caravan Escort — armed guards for your very next road trip, cutting the odds of an ambush along the way."
     ]
+  },
+  {
+    "id": 145,
+    "date": "2026-10-01",
+    "changes": [
+      "The Marketplace can now hire a Cartographer, a one-time fee that draws up a Scout's Report on the nearby settlements — which ones have a quest posted, a notable figure, or someone looking to join your cause."
+    ]
   }
 ]

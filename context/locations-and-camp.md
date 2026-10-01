@@ -12,7 +12,7 @@ Reached by tapping "Enter Settlement" / "Travel Here" on a burg you're already a
 - `checkQuestTurnIns(burgId)` (see [quests.md](quests.md)) runs first, before anything renders — so arriving at (or re-entering) a settlement that completes a Deliver a Message quest pays out immediately.
 - The action list is a small array of `{icon, title, desc, action}` objects rendered identically. Every settlement gets the same base six:
   - **The Tavern** (`action:'tavern'`) → `showTavernPanel(burgId)` — see "The Tavern" below.
-  - **Marketplace** (`action:'market'`) → `showMarketPanel(burgId)`.
+  - **Marketplace** (`action:'market'`) → `showMarketPanel(burgId)`. Also where the Cartographer purchase lives (`buildCartographerHTML`/`acceptCartographer`, see [roadmap.md](roadmap.md)) — a one-time per-settlement fee that unlocks a "Scout's Report" (`showCartographerReport`) on this settlement's road-graph neighbors' Quest Board/Notable Figure/companion status, overwriting `#loc-action-list` the same way `showTavernRegularChapter` does, with its own Back button returning to `showMarketPanel(burgId)`.
   - **Work** (`action:'work'`) → `doWork()`, straight from the action list with no sub-panel — see "Work" below.
   - **Talk to Townsfolk** (`action:'talk'`) → `showFlavorPanel(burgId, 'Talk to Townsfolk', getTownsfolkLines(burgId))` — see below and [roadmap.md](roadmap.md).
   - **Quest Board** (`action:'questboard'`) → `showQuestBoardPanel(burgId)` — see [quests.md](quests.md).

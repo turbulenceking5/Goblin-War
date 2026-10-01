@@ -1102,5 +1102,18 @@
     "changes": [
       "Added a Data Saver option in Settings — switches equipment icons and battle backdrops to simple icons to cut down on data usage."
     ]
+  },
+  {
+    "id": 149,
+    "date": "2026-10-01",
+    "changes": [
+      "Combat got a lot more tactile: floating damage numbers and a hit-shake on every blow landed or taken.",
+      "Hitting a staggered enemy now deals bonus damage — and so does your party, not just you.",
+      "You can now tap an ally mid-fight to send them after a different enemy than your own target.",
+      "Added a Guard action — brace instead of attacking to take half damage this round and recover some stamina.",
+      "Added a Protect option (in the Specials menu) to shield one ally — the next hit meant for them lands on you instead.",
+      "Goblin/Ork Chieftains, Warlords, Shamans, and Dire Bears now specifically target whoever's weakest, player included, instead of attacking at random.",
+      "Finishing off a bleeding or staggered enemy now has a better chance at extra loot."
+    ]
   }
 ]

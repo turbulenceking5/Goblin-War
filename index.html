@@ -459,6 +459,7 @@
   .combat-enemy-slot{
     display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; max-width:140px;
     padding:8px; border-radius:10px; border:1.5px solid transparent; cursor:pointer; transition:opacity .2s, border-color .2s;
+    position:relative;
   }
   .combat-enemy-slot .combat-enemy-icon{ filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)); display:flex; align-items:center; justify-content:center; }
   .combat-enemy-slot .combat-enemy-icon img{ display:block; width:auto; height:auto; max-width:110px; max-height:130px; object-fit:contain; }
@@ -474,13 +475,36 @@
      ring (they're never a target, only enemies are) and no click handler, just a live HP bar
      per ally that empties out and grays if they fall in the fight. */
   #combat-allies{ display:flex; gap:10px; justify-content:center; align-items:flex-end; flex-wrap:wrap; width:100%; max-width:340px; }
-  .combat-ally-slot{ display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; max-width:100px; }
+  .combat-ally-slot{ display:flex; flex-direction:column; align-items:center; gap:4px; width:100%; max-width:100px; position:relative; cursor:pointer; }
   .combat-ally-slot .combat-ally-icon{ filter:drop-shadow(0 3px 6px rgba(0,0,0,.5)); display:flex; align-items:center; justify-content:center; }
   .combat-ally-slot .combat-ally-icon img{ display:block; width:auto; height:auto; max-width:52px; max-height:64px; object-fit:contain; }
   .combat-ally-slot .combat-name{ font-size:10px; margin-bottom:0; }
   .combat-ally-slot .combat-bar-track{ width:100%; height:8px; }
-  .combat-ally-slot.dead{ opacity:.35; filter:grayscale(1); }
-  .combat-bar-row{ width:100%; max-width:320px; }
+  .combat-ally-slot.dead{ opacity:.35; filter:grayscale(1); cursor:default; }
+  .ally-target-note{ font-size:9px; color:#8fb3a8; text-align:center; }
+  .combat-bar-row{ width:100%; max-width:320px; position:relative; }
+  /* Hit feedback/juice — a floating damage number and a brief shake on whichever slot (enemy,
+     ally, or the player's own bar row — every anchor below gets position:relative for this)
+     just took a hit. Pure CSS/JS, no new dependency; see spawnDamageNumber/flashHit below. */
+  .dmg-float{
+    position:absolute; left:50%; top:4px; transform:translate(-50%,0);
+    font-family:'Cinzel', serif; font-weight:700; font-size:15px; pointer-events:none;
+    text-shadow:0 2px 3px rgba(0,0,0,.8); animation:dmgFloat .9s ease-out forwards; z-index:5;
+  }
+  .dmg-float.hit{ color:#f0d080; }
+  .dmg-float.hurt{ color:#e2857f; }
+  @keyframes dmgFloat{
+    0%{ opacity:1; transform:translate(-50%,0); }
+    100%{ opacity:0; transform:translate(-50%,-30px); }
+  }
+  .hit-shake{ animation:hitShake .32s ease-in-out; }
+  @keyframes hitShake{
+    0%,100%{ transform:translateX(0); }
+    20%{ transform:translateX(-4px); }
+    40%{ transform:translateX(4px); }
+    60%{ transform:translateX(-3px); }
+    80%{ transform:translateX(3px); }
+  }
   .combat-name{ font-family:'Cinzel', serif; font-size:12px; color:var(--parchment); margin-bottom:4px; display:flex; justify-content:space-between; letter-spacing:.5px; }
   .status-badge{ display:inline-block; font-size:9px; font-weight:bold; padding:1px 4px; margin-left:4px; border-radius:3px; letter-spacing:.5px; vertical-align:middle; }
   .status-badge.bleed{ background:rgba(192,82,79,.35); color:#e88888; }
@@ -516,8 +540,8 @@
   }
   #combat-log div{ margin-bottom:4px; }
   #combat-log .combat-intro-line{ font-style:italic; color:#a9926a; border-bottom:1px solid rgba(209,164,69,.25); padding-bottom:6px; margin-bottom:8px; }
-  #combat-actions{ display:flex; gap:10px; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); }
-  .combat-btn{ flex:1; font-family:'Cinzel', serif; font-size:13.5px; letter-spacing:.5px; padding:13px; border-radius:10px; cursor:pointer; border:none; }
+  #combat-actions{ display:flex; gap:8px; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .combat-btn{ flex:1; font-family:'Cinzel', serif; font-size:12px; letter-spacing:.3px; padding:12px 6px; border-radius:10px; cursor:pointer; border:none; }
   .combat-btn:active{ transform:scale(.97); }
   #combat-attack-btn{ background:linear-gradient(180deg,#c0524f,#8c3a3a); color:#fff; border:1.5px solid #6e2626; font-weight:700; box-shadow:0 3px 0 #5a1f1f; }
   #combat-attack-btn:disabled{ opacity:.4; box-shadow:none; cursor:not-allowed; }
@@ -712,7 +736,7 @@
     <div id="combat-stage">
       <div id="combat-enemies"></div>
       <div id="combat-allies"></div>
-      <div class="combat-bar-row">
+      <div class="combat-bar-row" id="combat-player-bar-row">
         <div class="combat-name"><span>You</span><span id="combat-player-hp-text">100/100</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill player" id="combat-player-hp-bar" style="width:100%"></div></div>
       </div>
@@ -726,6 +750,7 @@
     <div id="combat-specials-panel"></div>
     <div id="combat-actions">
       <button class="combat-btn" id="combat-flee-btn">Flee</button>
+      <button class="combat-btn" id="combat-guard-btn">Guard</button>
       <button class="combat-btn" id="combat-special-btn">Specials</button>
       <button class="combat-btn" id="combat-attack-btn">Attack</button>
     </div>
@@ -4117,6 +4142,21 @@ let combat = null; // {enemies:[{name,hp,maxHp,dmgRange,goldRange,xpRange,art}],
 const STAMINA_COST_PER_ATTACK = 20; // spent on every Attack; only Inn/camp rest refills it
 const COMBO_THRESHOLD = 3; // consecutive plain Attacks needed to empower the next one
 const COMBO_DAMAGE_MULT = 1.3;
+// Stun-to-bonus-damage combo — hitting a target that's currently staggered (see the Status
+// Effects system's 'stun' below) deals extra damage, on top of whatever else is stacking that
+// hit (combo/fatigue/biome). Reuses the existing per-unit .effects data; no new state.
+const STUN_BONUS_DAMAGE_MULT = 1.25;
+function stunDamageMult(target){ return hasStatusEffect(target.effects, 'stun') ? STUN_BONUS_DAMAGE_MULT : 1; }
+// Brace/Guard — a reactive defensive action alongside Attack/Specials/Flee (see combatGuard
+// below): spends the player's round raising their guard instead of swinging, halving damage
+// from every enemy counter that round and recovering a little stamina for the trouble.
+const GUARD_DAMAGE_REDUCTION = 0.5;
+const GUARD_STAMINA_RECOVER = 15;
+// Loot bonus for finishing a staggered/bled enemy — see endCombat's victory branch. An enemy
+// that's still bleeding or stunned at the moment the fight ends gets a second independent loot
+// roll instead of one, same LOOT_CHANCE either roll — status effects matter for the kill too,
+// not just mid-fight.
+const STATUS_FINISH_LOOT_ROLLS = 2;
 
 // ===== Status effects (bleed/stun/fatigue) — see context/combat.md's "Status effects" section =====
 // Each combatant carries a plain {type: {turns}} map — the player via combat.playerEffects, every
@@ -4160,21 +4200,26 @@ const ENEMY_VARIANTS = {
     // headdress, ceremonial blade, gold jewelry befitting rank), the goblin-side counterpart
     // to Ork Warlord's "toughest fight" role, with the best goblin payout to match. Exempt from
     // the rank-and-file nerf above.
-    { name:"Goblin Chieftain",    hp:50, enemyDmgRange:[8,15],  goldRange:[14,26], xpRange:[14,20], art:"assets/enemies/goblin-chieftain.png" },
+    // smart:true — Minimal enemy AI (see pickDefender below): instead of the usual uniform random
+    // pick among {player, alive allies}, a `smart` enemy always targets whoever has the lowest
+    // current HP, player included — a real tactical edge that makes the handful of named "boss"
+    // variants (every kingdom's Chieftain/Warlord/Shaman, plus Dire Bear) feel meaningfully
+    // different to fight, not just a bigger damage/HP number.
+    { name:"Goblin Chieftain",    hp:50, enemyDmgRange:[8,15],  goldRange:[14,26], xpRange:[14,20], art:"assets/enemies/goblin-chieftain.png", smart:true },
     // A frail caster rather than a melee brute — lowest HP of any goblin (even under Archer),
     // but its bone-staff bolt hits harder than a Raider's blade to compensate. Exempt from the
     // rank-and-file nerf above, same as the Chieftain.
-    { name:"Goblin Shaman",       hp:28, enemyDmgRange:[8,15],  goldRange:[10,20], xpRange:[10,16], art:"assets/enemies/goblin-shaman.png" },
+    { name:"Goblin Shaman",       hp:28, enemyDmgRange:[8,15],  goldRange:[10,20], xpRange:[10,16], art:"assets/enemies/goblin-shaman.png", smart:true },
   ],
   ork: [
     { name:"Ork Raider",     hp:47, enemyDmgRange:[9,17],  goldRange:[13,25], xpRange:[13,20], art:"assets/enemies/ork-raider.png" },
     { name:"Ork Berserker",  hp:38, enemyDmgRange:[10,19], goldRange:[13,24], xpRange:[13,20], art:"assets/enemies/ork-berserker.png" },
     // The toughest fight in the game, best payout — exempt from the rank-and-file nerf above.
-    { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], xpRange:[20,30], art:"assets/enemies/ork-warlord.png", inflicts:{ type:'stun', chance:0.2, turns:1 } },
+    { name:"Ork Warlord",    hp:70, enemyDmgRange:[13,22], goldRange:[20,35], xpRange:[20,30], art:"assets/enemies/ork-warlord.png", inflicts:{ type:'stun', chance:0.2, turns:1 }, smart:true },
     // Sits between Raider and Warlord — a caster's totem-staff bolt hits ork-tier hard, but an
     // Ork Shaman isn't built for melee like a Warlord, so its own HP stays well under it. Exempt
     // from the rank-and-file nerf above, same as the Warlord.
-    { name:"Ork Shaman",     hp:50, enemyDmgRange:[12,20], goldRange:[17,30], xpRange:[17,26], art:"assets/enemies/ork-shaman.png" },
+    { name:"Ork Shaman",     hp:50, enemyDmgRange:[12,20], goldRange:[17,30], xpRange:[17,26], art:"assets/enemies/ork-shaman.png", smart:true },
   ],
   // Wildlife — the Expansion Research idea of the same name: a fourth enemy category distinct
   // from every humanoid raider above, keyed to biome (see pickAmbushEnemy's WILDLIFE_BIOMES roll)
@@ -4184,7 +4229,7 @@ const ENEMY_VARIANTS = {
   // category already does, pending its own regen.
   wildlife: [
     { name:"Wolf",      hp:24, enemyDmgRange:[6,11],  goldRange:[0,0], xpRange:[8,13] },
-    { name:"Dire Bear", hp:55, enemyDmgRange:[10,18], goldRange:[0,0], xpRange:[16,24] },
+    { name:"Dire Bear", hp:55, enemyDmgRange:[10,18], goldRange:[0,0], xpRange:[16,24], smart:true },
   ],
 };
 
@@ -4423,7 +4468,9 @@ function startCombat(enemySpecs, playerDmgRange, onEnd, race, backdrop, biome){
     targetIndex: 0,
     allies: buildCombatAllies(), fallenAllies: [],
     playerDmgRange, onEnd, usedMoves: {}, race, playerEffects: {}, biome: biome || null,
-    comboCount: 0 // see COMBO_THRESHOLD below — consecutive plain Attacks, reset by a Special
+    comboCount: 0, // see COMBO_THRESHOLD below — consecutive plain Attacks, reset by a Special
+    playerGuarding: false, // this round only — see combatGuard
+    protectedAllyId: null, // this round only — see combatProtect
   };
   const multi = combat.enemies.length > 1;
   document.getElementById('combat-title').textContent = multi ? 'Ambush!' : `${combat.enemies[0].name} Ambush!`;
@@ -4498,9 +4545,10 @@ function renderEnemies(){
   });
 }
 
-// Your allies' HP (hired mercenaries and recruited companions alike), if any — not clickable,
-// they're never a target, only shown so a falling ally reads as a real loss rather than a silent
-// stat change. See "Party in combat" in context/combat.md.
+// Your allies' HP (hired mercenaries and recruited companions alike), if any. Clickable now —
+// Ally targeting control (see cycleAllyTarget below): tapping a living ally cycles which enemy
+// *they* attack this round, independent of your own selected target — real party coordination,
+// not just passive stats. A dead ally is inert, same as a dead enemy slot.
 function renderAllies(){
   const wrap = document.getElementById('combat-allies');
   // #combat-stage lays its children out with a flex `gap` — an empty-but-present div would
@@ -4511,14 +4559,58 @@ function renderAllies(){
   wrap.innerHTML = combat.allies.map(a => {
     const dead = a.hp <= 0;
     const pct = Math.max(0, Math.round((a.hp / a.maxHp) * 100));
+    const targetNote = (!dead && a.targetOverride && a.targetOverride.hp > 0) ? `<div class="ally-target-note">&rarr; ${a.targetOverride.name}</div>` : '';
     return `
-      <div class="combat-ally-slot${dead?' dead':''}">
+      <div class="combat-ally-slot${dead?' dead':''}" data-ally-id="${a.id}">
         <div class="combat-ally-icon"><img src="${a.portrait}" alt="${a.title}"></div>
         <div class="combat-name"><span>${a.title}${dead ? '' : statusBadgesHTML(a.effects)}</span><span>${Math.max(0,a.hp)}/${a.maxHp}</span></div>
         <div class="combat-bar-track"><div class="combat-bar-fill ally" style="width:${pct}%"></div></div>
+        ${targetNote}
       </div>
     `;
   }).join('');
+  wrap.querySelectorAll('.combat-ally-slot').forEach(slot => {
+    slot.addEventListener('click', () => cycleAllyTarget(slot.dataset.allyId));
+  });
+}
+// Cycles ally.targetOverride through every currently-alive enemy, then back to null ("auto" —
+// mirrors the player's own selected target, the original behavior). Tapping costs nothing and
+// can be done any time between actions, same as tapping an enemy slot to change your own target.
+function cycleAllyTarget(allyId){
+  if(!combat) return;
+  const ally = combat.allies.find(a => String(a.id) === String(allyId));
+  if(!ally || ally.hp <= 0) return;
+  const alive = combat.enemies.filter(e => e.hp > 0);
+  if(!alive.length) return;
+  if(!ally.targetOverride){
+    ally.targetOverride = alive[0];
+  } else {
+    const idx = alive.indexOf(ally.targetOverride);
+    ally.targetOverride = (idx === -1 || idx === alive.length - 1) ? null : alive[idx + 1];
+  }
+  renderAllies();
+}
+// ===== Hit feedback/juice — a floating damage number plus a brief shake on whichever slot just
+// took the hit (see the .dmg-float/.hit-shake CSS above). container is the actual DOM element
+// (already in the page from the last render — a round's many hits all land between re-renders,
+// so these are safe to query once per hit rather than needing their own render pass).
+function getEnemySlotEl(idx){ return document.querySelector(`#combat-enemies .combat-enemy-slot[data-idx="${idx}"]`); }
+function getAllySlotEl(id){ return document.querySelector(`#combat-allies .combat-ally-slot[data-ally-id="${id}"]`); }
+function getPlayerBarEl(){ return document.getElementById('combat-player-bar-row'); }
+function spawnDamageNumber(container, text, cls){
+  if(!container) return;
+  const el = document.createElement('div');
+  el.className = `dmg-float ${cls}`;
+  el.textContent = text;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 900);
+}
+function flashHit(container){
+  if(!container) return;
+  container.classList.remove('hit-shake');
+  void container.offsetWidth; // restart the animation if it's still mid-shake from a prior hit
+  container.classList.add('hit-shake');
+  setTimeout(() => container.classList.remove('hit-shake'), 320);
 }
 
 function combatLog(msg){
@@ -4562,10 +4654,34 @@ function allyFalls(ally){
 // alive ally (mercenary or companion, indistinguishable here). A fuller party now has real
 // defensive value — every extra sword in your roster is one more chance an enemy swings at them
 // instead of you. See "Party in combat" in context/combat.md.
-function pickDefender(){
-  const aliveAllies = combat.allies.filter(a => a.hp > 0);
-  const pool = [{ isPlayer:true }, ...aliveAllies.map(a => ({ isPlayer:false, ally:a }))];
-  return pool[Math.floor(Math.random()*pool.length)];
+// Minimal enemy AI (see ENEMY_VARIANTS' smart:true) — a "smart" enemy (every kingdom's named
+// boss variant, plus Dire Bear) always targets whoever currently has the lowest HP, player
+// included, instead of the usual uniform random pick. redirectForProtect then has the final say
+// either way — see combatProtect below.
+function pickDefender(enemy){
+  let defender;
+  if(enemy && enemy.smart){
+    const candidates = [
+      { isPlayer:true, hp:playerHealth },
+      ...combat.allies.filter(a => a.hp > 0).map(a => ({ isPlayer:false, ally:a, hp:a.hp })),
+    ];
+    candidates.sort((a, b) => a.hp - b.hp);
+    defender = candidates[0];
+  } else {
+    const aliveAllies = combat.allies.filter(a => a.hp > 0);
+    const pool = [{ isPlayer:true }, ...aliveAllies.map(a => ({ isPlayer:false, ally:a }))];
+    defender = pool[Math.floor(Math.random()*pool.length)];
+  }
+  return redirectForProtect(defender);
+}
+// Protect stance (see combatProtect below) — if the chosen defender is the ally the player is
+// protecting this round, the hit lands on the player instead. A no-op whenever
+// combat.protectedAllyId isn't set (the common case).
+function redirectForProtect(defender){
+  if(!defender.isPlayer && combat.protectedAllyId && String(defender.ally.id) === String(combat.protectedAllyId)){
+    return { isPlayer:true };
+  }
+  return defender;
 }
 
 // Rolls an enemy's optional `inflicts` field (ENEMY_VARIANTS — {type, chance, turns}) against
@@ -4585,7 +4701,9 @@ function rollEnemyInflict(enemy, effects, targetIsPlayer, allyTitle){
 
 // Resolves one enemy's hit against whichever defender pickDefender chose. ignoreDefense
 // (Reckless Swing's targeted enemy only) skips Evasion and armor — allies have neither
-// stat, so it only changes anything when the player ends up being the one hit.
+// stat, so it only changes anything when the player ends up being the one hit. Brace/Guard
+// (combat.playerGuarding) halves whatever the player ends up taking this round, on top of armor,
+// but doesn't block ignoreDefense's armor-bypass (a guard stance isn't armor).
 function applyEnemyHit(enemy, defender, ignoreDefense){
   if(!ignoreDefense && combat.biome === 'swamp' && Math.random() < SWAMP_ENEMY_MISS_CHANCE){
     combatLog(`The ${enemy.name} loses its footing in the mire and misses entirely.`);
@@ -4596,17 +4714,22 @@ function applyEnemyHit(enemy, defender, ignoreDefense){
       combatLog(`You dodge the ${enemy.name}'s counter-attack entirely.`);
       return;
     }
-    const edmg = ignoreDefense ? randRange(enemy.dmgRange) : Math.max(1, randRange(enemy.dmgRange) - getEquipDefenseBonus());
+    let edmg = ignoreDefense ? randRange(enemy.dmgRange) : Math.max(1, randRange(enemy.dmgRange) - getEquipDefenseBonus());
+    if(combat.playerGuarding) edmg = Math.max(1, Math.round(edmg * GUARD_DAMAGE_REDUCTION));
     setHealth(playerHealth - edmg);
     combatLog(ignoreDefense
       ? `The ${enemy.name} makes you pay for it — ${edmg} damage, ignoring your armor.`
-      : `The ${enemy.name} hits you for ${edmg} damage.`);
+      : (combat.playerGuarding ? `The ${enemy.name} hits your raised guard for ${edmg} damage.` : `The ${enemy.name} hits you for ${edmg} damage.`));
+    spawnDamageNumber(getPlayerBarEl(), `-${edmg}`, 'hurt');
+    flashHit(getPlayerBarEl());
     rollEnemyInflict(enemy, combat.playerEffects, true);
   } else {
     const ally = defender.ally;
     const edmg = Math.max(1, randRange(enemy.dmgRange));
     ally.hp -= edmg;
     combatLog(`The ${enemy.name} hits your ${ally.title} for ${edmg} damage.`);
+    spawnDamageNumber(getAllySlotEl(ally.id), `-${edmg}`, 'hurt');
+    flashHit(getAllySlotEl(ally.id));
     if(ally.hp <= 0) allyFalls(ally);
     else rollEnemyInflict(enemy, ally.effects, false, ally.title);
   }
@@ -4625,14 +4748,17 @@ function runEnemyCounters(bypassEnemy){
       tickEffectTurns(enemy.effects, 'stun');
       continue;
     }
-    applyEnemyHit(enemy, pickDefender(), enemy === bypassEnemy);
+    applyEnemyHit(enemy, pickDefender(enemy), enemy === bypassEnemy);
   }
 }
 
 // Every alive ally (mercenary or companion) swings once per round too, right after the player's
-// own action — automatic, no extra UI, always at whichever enemy is currently targeted
-// (retargeting mid-loop if an earlier ally's hit just finished it off). See "Party in combat" in
-// context/combat.md.
+// own action — automatic, no extra UI beyond Ally targeting control (see cycleAllyTarget/
+// renderAllies above): an ally with no targetOverride set still mirrors whichever enemy the
+// player has selected (retargeting mid-loop if an earlier ally's hit just finished it off), but
+// an ally the player has explicitly aimed elsewhere goes after that enemy instead, independent
+// of the player's own target — real party coordination, not passive stats. See "Party in combat"
+// in context/combat.md.
 function runAllyAttacks(){
   for(const ally of combat.allies){
     if(ally.hp <= 0) continue;
@@ -4643,10 +4769,12 @@ function runAllyAttacks(){
     }
     if(aliveEnemies().length === 0) return;
     autoAdvanceTarget();
-    const target = combat.enemies[combat.targetIndex];
-    const dmg = randRange(ally.dmgRange);
+    const target = (ally.targetOverride && ally.targetOverride.hp > 0) ? ally.targetOverride : combat.enemies[combat.targetIndex];
+    const dmg = Math.round(randRange(ally.dmgRange) * stunDamageMult(target));
     target.hp -= dmg;
-    combatLog(`Your ${ally.title} hits the ${target.name} for ${dmg} damage.`);
+    combatLog(`Your ${ally.title} hits the ${target.name} for ${dmg} damage.` + (hasStatusEffect(target.effects,'stun') ? ` (Staggered!)` : ''));
+    spawnDamageNumber(getEnemySlotEl(combat.enemies.indexOf(target)), `-${dmg}`, 'hit');
+    flashHit(getEnemySlotEl(combat.enemies.indexOf(target)));
   }
   autoAdvanceTarget();
 }
@@ -4685,19 +4813,22 @@ function tickBleed(){
   if(hasStatusEffect(combat.playerEffects, 'bleed')){
     setHealth(playerHealth - BLEED_DAMAGE_PER_TURN);
     combatLog(`You lose ${BLEED_DAMAGE_PER_TURN} health to bleeding.`);
+    spawnDamageNumber(getPlayerBarEl(), `-${BLEED_DAMAGE_PER_TURN}`, 'hurt');
     tickEffectTurns(combat.playerEffects, 'bleed');
   }
   combat.allies.forEach(ally => {
     if(ally.hp <= 0 || !hasStatusEffect(ally.effects, 'bleed')) return;
     ally.hp -= BLEED_DAMAGE_PER_TURN;
     combatLog(`Your ${ally.title} loses ${BLEED_DAMAGE_PER_TURN} health to bleeding.`);
+    spawnDamageNumber(getAllySlotEl(ally.id), `-${BLEED_DAMAGE_PER_TURN}`, 'hurt');
     tickEffectTurns(ally.effects, 'bleed');
     if(ally.hp <= 0) allyFalls(ally);
   });
-  combat.enemies.forEach(enemy => {
+  combat.enemies.forEach((enemy, i) => {
     if(enemy.hp <= 0 || !hasStatusEffect(enemy.effects, 'bleed')) return;
     enemy.hp -= BLEED_DAMAGE_PER_TURN;
     combatLog(`The ${enemy.name} loses ${BLEED_DAMAGE_PER_TURN} health to bleeding.`);
+    spawnDamageNumber(getEnemySlotEl(i), `-${BLEED_DAMAGE_PER_TURN}`, 'hit');
     tickEffectTurns(enemy.effects, 'bleed');
   });
   autoAdvanceTarget(); // bleed can kill the currently-targeted enemy
@@ -4725,9 +4856,12 @@ function combatAttack(){
     // once it's available, not just spend it the instant it's off cooldown.
     const comboReady = combat.comboCount >= COMBO_THRESHOLD;
     combat.comboCount = comboReady ? 0 : combat.comboCount + 1;
-    const dmg = Math.round(randRange(combat.playerDmgRange) * (playerFatigued ? FATIGUE_DAMAGE_MULT : 1) * (comboReady ? COMBO_DAMAGE_MULT : 1)) + getEquipDamageBonus();
+    const staggered = hasStatusEffect(target.effects, 'stun'); // Stun-to-bonus-damage combo — see STUN_BONUS_DAMAGE_MULT
+    const dmg = Math.round(randRange(combat.playerDmgRange) * (playerFatigued ? FATIGUE_DAMAGE_MULT : 1) * (comboReady ? COMBO_DAMAGE_MULT : 1) * (staggered ? STUN_BONUS_DAMAGE_MULT : 1)) + getEquipDamageBonus();
     target.hp -= dmg;
-    combatLog(`You hit the ${target.name} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : '') + (comboReady ? ` (Momentum!)` : ''));
+    combatLog(`You hit the ${target.name} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : '') + (comboReady ? ` (Momentum!)` : '') + (staggered ? ` (Staggered — extra damage!)` : ''));
+    spawnDamageNumber(getEnemySlotEl(combat.targetIndex), `-${dmg}`, 'hit');
+    flashHit(getEnemySlotEl(combat.targetIndex));
     if(aliveEnemies().length === 0){
       updateCombatUI();
       endCombat('victory');
@@ -4784,12 +4918,19 @@ function combatSpecial(moveId){
   const fatigueFactor = playerFatigued ? FATIGUE_DAMAGE_MULT : 1;
 
   const target = combat.enemies[combat.targetIndex];
+  // Stun-to-bonus-damage combo — checked once, before any of these moves' own hit (crushing_blow
+  // applies stun only *after* its hit, so this never self-triggers off its own stagger).
+  const targetStaggered = hasStatusEffect(target.effects, 'stun');
+  const stunMult = targetStaggered ? STUN_BONUS_DAMAGE_MULT : 1;
+  const staggerNote = targetStaggered ? ` (Staggered — extra damage!)` : '';
   let dmg = 0;
   switch(moveId){
     case 'crushing_blow':
-      dmg = Math.round(randRange(combat.playerDmgRange)*2 * fatigueFactor) + getEquipDamageBonus();
+      dmg = Math.round(randRange(combat.playerDmgRange)*2 * fatigueFactor * stunMult) + getEquipDamageBonus();
       target.hp -= dmg;
-      combatLog(`Crushing Blow! You hit the ${target.name} for ${dmg} damage.`);
+      combatLog(`Crushing Blow! You hit the ${target.name} for ${dmg} damage.` + staggerNote);
+      spawnDamageNumber(getEnemySlotEl(combat.targetIndex), `-${dmg}`, 'hit');
+      flashHit(getEnemySlotEl(combat.targetIndex));
       if(target.hp > 0){
         const stunTurns = STUN_DEFAULT_TURNS + (combat.biome === 'desert' ? DESERT_STUN_BONUS_TURNS : 0);
         applyStatusEffect(target.effects, 'stun', stunTurns);
@@ -4797,9 +4938,11 @@ function combatSpecial(moveId){
       }
       break;
     case 'reckless_swing':
-      dmg = Math.round(randRange(combat.playerDmgRange)*2.5 * fatigueFactor) + getEquipDamageBonus();
+      dmg = Math.round(randRange(combat.playerDmgRange)*2.5 * fatigueFactor * stunMult) + getEquipDamageBonus();
       target.hp -= dmg;
-      combatLog(`Reckless Swing! You hit the ${target.name} for ${dmg} damage, leaving yourself wide open.`);
+      combatLog(`Reckless Swing! You hit the ${target.name} for ${dmg} damage, leaving yourself wide open.` + staggerNote);
+      spawnDamageNumber(getEnemySlotEl(combat.targetIndex), `-${dmg}`, 'hit');
+      flashHit(getEnemySlotEl(combat.targetIndex));
       if(target.hp > 0){
         const bleedTurns = BLEED_DEFAULT_TURNS + (combat.biome === 'snow' ? SNOW_BLEED_BONUS_TURNS : 0);
         applyStatusEffect(target.effects, 'bleed', bleedTurns);
@@ -4808,16 +4951,20 @@ function combatSpecial(moveId){
       break;
     case 'precise_shot': {
       const hillsBonus = combat.biome === 'hills' ? HILLS_RANGED_DAMAGE_MULT : 1;
-      dmg = Math.round(combat.playerDmgRange[1] * fatigueFactor * hillsBonus) + getEquipDamageBonus();
+      dmg = Math.round(combat.playerDmgRange[1] * fatigueFactor * hillsBonus * stunMult) + getEquipDamageBonus();
       target.hp -= dmg;
       combatLog(`Precise Shot! You hit the ${target.name} for ${dmg} damage.`
-        + (hillsBonus > 1 ? ` The high ground gives your shot extra bite.` : ''));
+        + (hillsBonus > 1 ? ` The high ground gives your shot extra bite.` : '') + staggerNote);
+      spawnDamageNumber(getEnemySlotEl(combat.targetIndex), `-${dmg}`, 'hit');
+      flashHit(getEnemySlotEl(combat.targetIndex));
       break;
     }
     case 'adrenaline_rush': {
-      dmg = Math.round(randRange(combat.playerDmgRange) * fatigueFactor) + getEquipDamageBonus();
+      dmg = Math.round(randRange(combat.playerDmgRange) * fatigueFactor * stunMult) + getEquipDamageBonus();
       target.hp -= dmg;
-      combatLog(`Adrenaline Rush! A free extra strike hits the ${target.name} for ${dmg} damage.`);
+      combatLog(`Adrenaline Rush! A free extra strike hits the ${target.name} for ${dmg} damage.` + staggerNote);
+      spawnDamageNumber(getEnemySlotEl(combat.targetIndex), `-${dmg}`, 'hit');
+      flashHit(getEnemySlotEl(combat.targetIndex));
       const fatigueTurns = Math.max(1, FATIGUE_DEFAULT_TURNS - (combat.biome === 'coast' ? COAST_FATIGUE_REDUCTION_TURNS : 0));
       applyStatusEffect(combat.playerEffects, 'fatigue', fatigueTurns);
       combatLog(`The exertion catches up with you — you're fatigued.` + (combat.biome === 'coast' ? ` The sea air helps you shake it off faster than usual.` : ''));
@@ -4834,10 +4981,14 @@ function combatSpecial(moveId){
     case 'cleave': {
       const plainsBonus = combat.biome === 'plains' ? PLAINS_CLEAVE_DAMAGE_MULT : 1;
       if(plainsBonus > 1) combatLog(`The open ground gives your swing more room to connect.`);
-      aliveEnemies().forEach(e => {
-        const hit = Math.round(randRange(combat.playerDmgRange)*0.6 * fatigueFactor * plainsBonus) + getEquipDamageBonus();
+      combat.enemies.forEach((e, i) => {
+        if(e.hp <= 0) return;
+        const eStaggered = hasStatusEffect(e.effects, 'stun');
+        const hit = Math.round(randRange(combat.playerDmgRange)*0.6 * fatigueFactor * plainsBonus * (eStaggered ? STUN_BONUS_DAMAGE_MULT : 1)) + getEquipDamageBonus();
         e.hp -= hit;
-        combatLog(`Cleave! You strike the ${e.name} for ${hit} damage.`);
+        combatLog(`Cleave! You strike the ${e.name} for ${hit} damage.` + (eStaggered ? ` (Staggered — extra damage!)` : ''));
+        spawnDamageNumber(getEnemySlotEl(i), `-${hit}`, 'hit');
+        flashHit(getEnemySlotEl(i));
       });
       break;
     }
@@ -4869,15 +5020,19 @@ function combatSpecial(moveId){
   updateCombatUI();
   if(playerHealth <= 0){ endCombat('defeat'); }
 }
+// Protect stance — the Specials panel's buttons aren't only Specials anymore: a "Protect
+// [Ally]" entry per living ally shares the same panel/markup, since both are round-spending
+// tactical choices rather than a basic Attack. See combatProtect below.
 function renderSpecialsPanel(){
   const panel = document.getElementById('combat-specials-panel');
   if(!combat){ panel.innerHTML = ''; return; }
   const usable = MOVES.filter(m => hasPerk(m.id));
-  if(usable.length === 0){
+  const protectable = combat.allies.filter(a => a.hp > 0);
+  if(usable.length === 0 && protectable.length === 0){
     panel.innerHTML = `<div class="special-empty-note">No special attacks unlocked yet — spend skill points on the Character sheet.</div>`;
     return;
   }
-  panel.innerHTML = usable.map(m => {
+  const movesHTML = usable.length ? usable.map(m => {
     const used = combat.usedMoves[m.id];
     const disabled = !canUseMove(m);
     const status = used ? ' (used this fight)' : '';
@@ -4890,10 +5045,77 @@ function renderSpecialsPanel(){
         <span class="special-move-cost">${m.cost} STA</span>
       </button>
     `;
-  }).join('');
-  panel.querySelectorAll('.special-move-btn').forEach(btn=>{
+  }).join('') : `<div class="special-empty-note">No special attacks unlocked yet — spend skill points on the Character sheet.</div>`;
+  const protectHTML = protectable.map(a => `
+    <button class="special-move-btn" data-protect="${a.id}">
+      <div>
+        <div class="special-move-name">Protect ${a.title}</div>
+        <div class="special-move-desc">Redirect the next hit meant for them onto you instead.</div>
+      </div>
+      <span class="special-move-cost">FREE</span>
+    </button>
+  `).join('');
+  panel.innerHTML = movesHTML + protectHTML;
+  panel.querySelectorAll('.special-move-btn[data-move]').forEach(btn=>{
     btn.addEventListener('click', ()=> combatSpecial(btn.dataset.move));
   });
+  panel.querySelectorAll('.special-move-btn[data-protect]').forEach(btn=>{
+    btn.addEventListener('click', ()=> combatProtect(btn.dataset.protect));
+  });
+}
+
+// Brace/Guard — a reactive defensive action alongside Attack/Specials/Flee: spends the player's
+// round raising their guard instead of swinging. Halves whatever damage they take this round
+// (applyEnemyHit's combat.playerGuarding check) and recovers a little stamina for the trouble —
+// a real option when low on stamina or just weathering a tough round rather than always pressing
+// the attack. Same stunned-player handling as combatAttack/combatSpecial: a stunned player can't
+// even raise their guard, but the round still advances.
+function combatGuard(){
+  if(!combat) return;
+  if(hasStatusEffect(combat.playerEffects, 'stun')){
+    combatLog(`You're stunned and can't brace this round!`);
+    tickEffectTurns(combat.playerEffects, 'stun');
+  } else {
+    setStamina(playerStamina + GUARD_STAMINA_RECOVER);
+    combat.playerGuarding = true;
+    combatLog(`You raise your guard, bracing for whatever comes next.`);
+  }
+  runAllyAttacks();
+  if(aliveEnemies().length === 0){ updateCombatUI(); endCombat('victory'); return; }
+  runEnemyCounters(null);
+  combat.playerGuarding = false; // only lasts the round it was raised
+  tickBleed();
+  if(aliveEnemies().length === 0){ updateCombatUI(); endCombat('victory'); return; }
+  updateCombatUI();
+  if(playerHealth <= 0){ endCombat('defeat'); }
+}
+
+// Protect stance — spends the player's round shielding one specific ally: any hit that would
+// have landed on them this round lands on the player instead (see pickDefender/
+// redirectForProtect above). Lives in the Specials panel (renderSpecialsPanel) rather than a 5th
+// top-level button, since it's per-ally and the choice of who to protect only makes sense once
+// you can see your own party.
+function combatProtect(allyId){
+  if(!combat) return;
+  const ally = combat.allies.find(a => String(a.id) === String(allyId) && a.hp > 0);
+  if(!ally) return;
+  document.getElementById('combat-specials-panel').classList.remove('show');
+  document.getElementById('combat-special-btn').classList.remove('active');
+  if(hasStatusEffect(combat.playerEffects, 'stun')){
+    combatLog(`You're stunned and can't protect anyone this round!`);
+    tickEffectTurns(combat.playerEffects, 'stun');
+  } else {
+    combat.protectedAllyId = ally.id;
+    combatLog(`You move to shield ${ally.title} — the next blow meant for them will land on you instead.`);
+  }
+  runAllyAttacks();
+  if(aliveEnemies().length === 0){ updateCombatUI(); endCombat('victory'); return; }
+  runEnemyCounters(null);
+  combat.protectedAllyId = null; // only lasts the round it was raised
+  tickBleed();
+  if(aliveEnemies().length === 0){ updateCombatUI(); endCombat('victory'); return; }
+  updateCombatUI();
+  if(playerHealth <= 0){ endCombat('defeat'); }
 }
 
 function combatFlee(){
@@ -4928,15 +5150,23 @@ function endCombat(result){
       ? ` ${fallenAllies.join(', ')} fell in the fight and won't be coming back.`
       : '';
     if(result === 'victory'){
-      let goldTotal = 0, xpTotal = 0;
+      let goldTotal = 0, xpTotal = 0, statusFinishCount = 0;
       const lootFound = [], lootLeftBehind = [];
       enemies.forEach(e => {
         goldTotal += randRange(e.goldRange);
         xpTotal += randRange(e.xpRange);
-        const drop = rollLoot(enemyRace);
-        if(drop){
-          if(addItem(drop.name, 1, drop.weight, drop.price)) lootFound.push(drop.name);
-          else lootLeftBehind.push(drop.name);
+        // Loot bonus for finishing a staggered/bled enemy — an enemy whose last-known status
+        // (bleed or stun) is still on it when the fight ends gets a second independent loot
+        // roll instead of one, same LOOT_CHANCE either roll. Status effects matter for the kill
+        // too, not just mid-fight.
+        const afflicted = hasStatusEffect(e.effects, 'bleed') || hasStatusEffect(e.effects, 'stun');
+        if(afflicted) statusFinishCount++;
+        for(let roll = 0; roll < (afflicted ? STATUS_FINISH_LOOT_ROLLS : 1); roll++){
+          const drop = rollLoot(enemyRace);
+          if(drop){
+            if(addItem(drop.name, 1, drop.weight, drop.price)) lootFound.push(drop.name);
+            else lootLeftBehind.push(drop.name);
+          }
         }
       });
       if(hasPerk('scavenger')) goldTotal = Math.round(goldTotal * 1.2);
@@ -4953,6 +5183,7 @@ function endCombat(result){
       let msg = `Victory! You defeated ${names}, found ${goldTotal} gold, and gained ${xpTotal} XP.`;
       if(lootFound.length) msg += ` Looted: ${lootFound.join(', ')}.`;
       if(lootLeftBehind.length) msg += ` (Too heavy to carry, left behind: ${lootLeftBehind.join(', ')}.)`;
+      if(statusFinishCount) msg += ` Finishing off a staggered foe turned up extra loot chances.`;
 
       // Notable Figure kill-quests complete on the next matching victory anywhere — Kill
       // Bandits wants a Bandit, Drive Off the Raiders wants a Goblin or Ork (see
@@ -5028,6 +5259,7 @@ function endCombat(result){
 
 document.getElementById('combat-attack-btn').addEventListener('click', combatAttack);
 document.getElementById('combat-flee-btn').addEventListener('click', combatFlee);
+document.getElementById('combat-guard-btn').addEventListener('click', combatGuard);
 document.getElementById('combat-special-btn').addEventListener('click', ()=>{
   document.getElementById('combat-specials-panel').classList.toggle('show');
   document.getElementById('combat-special-btn').classList.toggle('active');
@@ -9227,7 +9459,8 @@ function buildCombatAllies(){
     if(!type) return null;
     return {
       kind:'mercenary', id: m.instanceId, title: type.title, portrait: type.portrait,
-      hp: type.combatHp, maxHp: type.combatHp, dmgRange: type.combatDmgRange.slice(), effects: {}
+      hp: type.combatHp, maxHp: type.combatHp, dmgRange: type.combatDmgRange.slice(), effects: {},
+      targetOverride: null // see cycleAllyTarget — this ally's own chosen target, if any
     };
   }).filter(Boolean);
   const partyIds = getParty();
@@ -9240,7 +9473,8 @@ function buildCombatAllies(){
     const dmgRange = c.combatDmgRange.map(d => Math.round(d * (devoted ? DEVOTED_DAMAGE_MULT : 1)) + synergyBonus);
     return {
       kind:'companion', id: c.id, title: c.name, portrait: c.portrait,
-      hp: c.combatHp, maxHp: c.combatHp, dmgRange, effects: {}
+      hp: c.combatHp, maxHp: c.combatHp, dmgRange, effects: {},
+      targetOverride: null // see cycleAllyTarget — this ally's own chosen target, if any
     };
   }).filter(Boolean);
   return [...mercAllies, ...companionAllies];

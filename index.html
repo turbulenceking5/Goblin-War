@@ -4377,12 +4377,28 @@ const MOUNTAINS_WARCRY_CUT_MULT = 0.6; // replaces the flat 0.7 War Cry normally
 const SNOW_BLEED_BONUS_TURNS = 1;
 // Coast: sea air helps you recover from a reckless burst of speed faster than usual.
 const COAST_FATIGUE_REDUCTION_TURNS = 1;
+// Data Saver — the Expansion Research idea of the same name: skip loading the heaviest art
+// (equipment item photos, combat/siege/night-camp backdrops) in favor of the generic SVG/plain-
+// background fallbacks already built for exactly this purpose (see each MARKET_ITEMS row below
+// and setCombatBackdrop right after this). Deliberately device-local, not part of the character
+// snapshot/save-sync triplet: this is a statement about *this device's* connection, not a trait
+// of the character, so it doesn't travel with the save the way everything else in that triplet
+// does — set independently per browser/device in settings.html, same as e.g. this browser's own
+// CHAR_VERIFY_CACHE_KEY is session-local rather than character-level. Deliberately scoped to just
+// those two asset categories, not every UI-theme texture (border-frame.png, the health/stamina
+// bar art, header's bg-dither.jpg) — those are small, shared, single files the browser's own HTTP
+// cache already keeps cheap after the first load, unlike the many distinct, full-size equipment/
+// biome photos, which are the real, repeated cost on a slow connection.
+const DATA_SAVER_KEY = "goblinwar_dataSaver";
+function isDataSaverOn(){ return localStorage.getItem(DATA_SAVER_KEY) === 'true'; }
 // Paints (or clears) a real photo behind #combat-view's own content — combined with a
 // darkening gradient in the same `background` value so the enemy portraits, bars, and log
 // text on top stay legible regardless of how bright the source art is. Cleared back to the
 // stylesheet's plain radial-gradient by passing null, same "reset by the next screen that
-// draws" convention #loc-banner-art's own reset uses.
+// draws" convention #loc-banner-art's own reset uses. Data Saver forces this to the cleared
+// path unconditionally, regardless of what backdrop a caller asked for.
 function setCombatBackdrop(url){
+  if(isDataSaverOn()) url = null;
   const el = document.getElementById('combat-view');
   if(url){
     el.style.backgroundImage = `linear-gradient(rgba(15,8,8,.55), rgba(10,5,5,.82)), url("${url}")`;
@@ -10427,7 +10443,7 @@ function showMarketPanel(burgId){
       const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
-        ${mi.icon ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>`}
+        ${(mi.icon && !isDataSaverOn()) ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>`}
         <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">
@@ -10594,7 +10610,7 @@ function showBlacksmithPanel(burgId){
       const equipTag = mi.slot ? ` &middot; <span style="color:#8fb3a8;">Equips: ${EQUIP_SLOT_LABELS[mi.slot]}</span>` : '';
       return `
       <div class="loc-action" style="cursor:default;">
-        ${mi.icon ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>`}
+        ${(mi.icon && !isDataSaverOn()) ? `<img class="li-icon li-icon-img" src="${mi.icon}" alt="${mi.name}">` : `<svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3l3 3-8 8-3-3z"/><path d="M13 10l3-3 5 5-3 3z"/><path d="M6 18l3-3"/></svg>`}
         <span class="li-text"><b>${mi.name}</b><span>${mi.desc} &middot; ${buyPrice}g each &middot; ${mi.weight} weight each &middot; carrying ${carried ? carried.qty : 0}${equipTag}</span></span>
       </div>
       <div class="buy-row">

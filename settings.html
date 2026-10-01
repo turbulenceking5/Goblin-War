@@ -109,6 +109,14 @@
       <div id="current-difficulty" style="font-size:11px; font-style:italic;">—</div>
     </div>
 
+    <div class="section-label">Display</div>
+    <div class="account-card">
+      <label style="display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:var(--parchment); line-height:1.4; cursor:pointer;">
+        <input type="checkbox" id="data-saver-toggle" style="width:auto; flex:none; margin-top:2px; accent-color:var(--gold);">
+        <span>Data Saver — load simple icons instead of the heavier equipment and battle-scene art. Takes effect from your next visit or fight. This device only — it doesn't travel with the save.</span>
+      </label>
+    </div>
+
     <div class="section-label">Account</div>
     <div class="account-card" id="account-card">
       <div class="account-status" id="account-status">Checking login status…</div>
@@ -967,6 +975,16 @@ authGateReady.then(session=>{
 
 document.getElementById('switch-character-btn').addEventListener('click', ()=>{
   location.href = 'characters.html?_=' + Date.now();
+});
+
+// Data Saver — device-local, not part of the character snapshot/save-sync triplet (see index.html's
+// isDataSaverOn for the full reasoning on why this one setting deliberately doesn't travel with
+// the save). Read/written straight off localStorage, no account/character plumbing needed.
+const DATA_SAVER_KEY = "goblinwar_dataSaver";
+const dataSaverToggle = document.getElementById('data-saver-toggle');
+dataSaverToggle.checked = localStorage.getItem(DATA_SAVER_KEY) === 'true';
+dataSaverToggle.addEventListener('change', ()=>{
+  localStorage.setItem(DATA_SAVER_KEY, String(dataSaverToggle.checked));
 });
 
 document.getElementById('logout-btn').addEventListener('click', async ()=>{

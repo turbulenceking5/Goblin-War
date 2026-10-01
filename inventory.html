@@ -155,6 +155,10 @@ const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const DURABILITY_KEY = "goblinwar_durability";
+// Data Saver — device-local, not part of the save, see index.html's own isDataSaverOn for the
+// full reasoning. Here it just skips ITEM_ICONS in favor of the generic SVG already built for it.
+const DATA_SAVER_KEY = "goblinwar_dataSaver";
+function isDataSaverOn(){ return localStorage.getItem(DATA_SAVER_KEY) === 'true'; }
 // Gear salvage/scrap — the Expansion Research idea of the same name: a plain integer count,
 // spent at the Blacksmith toward gear repairs (see index.html's "Scrap & Repair"). Gives surplus
 // low-tier gear a use instead of being dropped for nothing.
@@ -348,7 +352,7 @@ function render(){
         : '';
       return `
       <div class="item-row ${isEquipped ? 'equipped' : ''}">
-        ${ITEM_ICONS[it.name] ? `<img class="item-icon item-icon-img" src="${ITEM_ICONS[it.name]}" alt="${it.name}">` : `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        ${(ITEM_ICONS[it.name] && !isDataSaverOn()) ? `<img class="item-icon item-icon-img" src="${ITEM_ICONS[it.name]}" alt="${it.name}">` : `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>
         </svg>`}
         <div class="item-info">

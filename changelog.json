@@ -1095,5 +1095,12 @@
     "changes": [
       "The installed app (Add to Home Screen) can now work with a flaky or dropped connection — pages and art you've already loaded stay available offline."
     ]
+  },
+  {
+    "id": 148,
+    "date": "2026-10-01",
+    "changes": [
+      "Added a Data Saver option in Settings — switches equipment icons and battle backdrops to simple icons to cut down on data usage."
+    ]
   }
 ]

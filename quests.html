@@ -69,6 +69,33 @@
     max-width:80vw; text-align:center;
   }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  /* Themed confirm modal — the Expansion Research idea of the same name: replaces the native
+     browser confirm() dialog (breaks the pixel-art theme, per the project owner) with one that
+     matches it. Self-contained (own button styling, not .btn/.btn-danger) since this page has no
+     such generic classes of its own — see showConfirm below. */
+  #confirm-modal{
+    position:fixed; inset:0; z-index:45; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #confirm-modal.show{ display:flex; }
+  #confirm-card{
+    max-width:340px; width:100%;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #confirm-message{ font-size:14px; color:var(--parchment); line-height:1.5; margin-bottom:18px; text-align:center; }
+  #confirm-actions{ display:flex; gap:10px; }
+  #confirm-actions button{
+    flex:1; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
+    border-radius:8px; padding:10px 14px; cursor:pointer;
+  }
+  #confirm-cancel{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
+  #confirm-ok{ background:transparent; color:#e2857f; border:1.5px solid #a9433a; font-weight:700; }
+  #confirm-cancel:active, #confirm-ok:active{ transform:scale(.97); }
 </style>
 </head>
 <body>
@@ -86,6 +113,16 @@
     <div id="completed-list"></div>
   </main>
   <div id="toast"></div>
+
+  <div id="confirm-modal">
+    <div id="confirm-card">
+      <div id="confirm-message"></div>
+      <div id="confirm-actions">
+        <button id="confirm-cancel">Cancel</button>
+        <button id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
@@ -105,6 +142,28 @@ function showToast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
 }
+
+// Themed confirm modal — the Expansion Research idea of the same name. showConfirm(message,
+// onConfirm) is the async-callback equivalent of the native `if(!confirm(message)) return; ...`
+// pattern it replaces — every call site below wraps its own "rest of the function" in the
+// callback instead. Only one at a time; Cancel (or a second call) just discards whatever was
+// pending.
+let confirmResolve = null;
+function showConfirm(message, onConfirm){
+  document.getElementById('confirm-message').textContent = message;
+  confirmResolve = onConfirm;
+  document.getElementById('confirm-modal').classList.add('show');
+}
+document.getElementById('confirm-cancel').addEventListener('click', ()=>{
+  confirmResolve = null;
+  document.getElementById('confirm-modal').classList.remove('show');
+});
+document.getElementById('confirm-ok').addEventListener('click', ()=>{
+  document.getElementById('confirm-modal').classList.remove('show');
+  const fn = confirmResolve;
+  confirmResolve = null;
+  if(fn) fn();
+});
 
 // Mirrors index.html's formatDuration exactly (duplicated per the no-modules convention) — used
 // here to render the distanceHours a quest was accepted with (see index.html's
@@ -232,21 +291,22 @@ function abandonQuest(id){
   const quests = getQuests();
   const q = quests.find(x => x.id === id);
   if(!q) return;
-  if(!confirm(`Abandon "${questTitle(q)}"? This cannot be undone.`)) return;
-  saveQuests(quests.filter(x => x.id !== id));
-  let note = '';
-  if(q.source === 'companion'){
-    adjustCompanionLoyalty(q.companionId, QUEST_ABANDON_LOYALTY_PENALTY, q.giverName);
-    note = ` ${q.giverName} won't soon forget it.`;
-  } else if(q.source === 'notable_figure'){
-    adjustReputation(q.giverKingdom, QUEST_ABANDON_REP_PENALTY_FIGURE);
-    if(q.giverKingdom) note = ` Word of it will reach ${q.giverKingdom}.`;
-  } else if(q.source === 'board'){
-    adjustReputation(q.giverKingdom, QUEST_ABANDON_REP_PENALTY);
-    if(q.giverKingdom) note = ` Word of it will reach ${q.giverKingdom}.`;
-  }
-  showToast(`Quest abandoned.${note}`);
-  render();
+  showConfirm(`Abandon "${questTitle(q)}"? This cannot be undone.`, ()=>{
+    saveQuests(quests.filter(x => x.id !== id));
+    let note = '';
+    if(q.source === 'companion'){
+      adjustCompanionLoyalty(q.companionId, QUEST_ABANDON_LOYALTY_PENALTY, q.giverName);
+      note = ` ${q.giverName} won't soon forget it.`;
+    } else if(q.source === 'notable_figure'){
+      adjustReputation(q.giverKingdom, QUEST_ABANDON_REP_PENALTY_FIGURE);
+      if(q.giverKingdom) note = ` Word of it will reach ${q.giverKingdom}.`;
+    } else if(q.source === 'board'){
+      adjustReputation(q.giverKingdom, QUEST_ABANDON_REP_PENALTY);
+      if(q.giverKingdom) note = ` Word of it will reach ${q.giverKingdom}.`;
+    }
+    showToast(`Quest abandoned.${note}`);
+    render();
+  });
 }
 
 function render(){

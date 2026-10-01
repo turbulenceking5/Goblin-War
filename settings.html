@@ -88,6 +88,26 @@
     opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
   }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  /* Themed confirm modal — the Expansion Research idea of the same name: replaces the native
+     browser confirm() dialog (breaks the pixel-art theme, per the project owner) with one that
+     matches it, reusing this page's own .btn/.btn-primary/.btn-secondary classes. */
+  #confirm-modal{
+    position:fixed; inset:0; z-index:45; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #confirm-modal.show{ display:flex; }
+  #confirm-card{
+    max-width:340px; width:100%;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #confirm-message{ font-size:14px; color:var(--parchment); line-height:1.5; margin-bottom:18px; text-align:center; }
+  #confirm-actions{ display:flex; gap:10px; }
+  #confirm-ok{ background:transparent; color:var(--bad); border:1.5px solid var(--bad); font-weight:700; }
 </style>
 </head>
 <body>
@@ -149,6 +169,16 @@
   </main>
 
   <div id="toast"></div>
+
+  <div id="confirm-modal">
+    <div id="confirm-card">
+      <div id="confirm-message"></div>
+      <div id="confirm-actions">
+        <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+        <button class="btn" id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
@@ -849,6 +879,28 @@ function showToast(msg){
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
 }
 
+// Themed confirm modal — the Expansion Research idea of the same name. showConfirm(message,
+// onConfirm) is the async-callback equivalent of the native `if(!confirm(message)) return; ...`
+// pattern it replaces — every call site below wraps its own "rest of the function" in the
+// callback instead (an async one, for Delete This Character's own await). Only one at a time;
+// Cancel (or a second call) just discards whatever was pending.
+let confirmResolve = null;
+function showConfirm(message, onConfirm){
+  document.getElementById('confirm-message').textContent = message;
+  confirmResolve = onConfirm;
+  document.getElementById('confirm-modal').classList.add('show');
+}
+document.getElementById('confirm-cancel').addEventListener('click', ()=>{
+  confirmResolve = null;
+  document.getElementById('confirm-modal').classList.remove('show');
+});
+document.getElementById('confirm-ok').addEventListener('click', ()=>{
+  document.getElementById('confirm-modal').classList.remove('show');
+  const fn = confirmResolve;
+  confirmResolve = null;
+  if(fn) fn();
+});
+
 function renderCurrent(){
   const burgId = localStorage.getItem(LOC_KEY) || "0";
   const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
@@ -1007,13 +1059,14 @@ document.getElementById('logout-btn').addEventListener('click', async ()=>{
   await sb.auth.signOut(); // assets/auth-client.js's SIGNED_OUT listener redirects to login.html
 });
 
-document.getElementById('delete-character-btn').addEventListener('click', async ()=>{
+document.getElementById('delete-character-btn').addEventListener('click', ()=>{
   const name = localStorage.getItem(NAME_KEY) || "this character";
-  if(!confirm(`Delete ${name}? This cannot be undone.`)) return;
-  const { error } = await sb.from('characters').delete().eq('id', activeCharId);
-  if(error){ showToast(`Delete failed: ${error.message}`); return; }
-  localStorage.removeItem(ACTIVE_CHAR_KEY);
-  location.href = 'characters.html?_=' + Date.now();
+  showConfirm(`Delete ${name}? This cannot be undone.`, async ()=>{
+    const { error } = await sb.from('characters').delete().eq('id', activeCharId);
+    if(error){ showToast(`Delete failed: ${error.message}`); return; }
+    localStorage.removeItem(ACTIVE_CHAR_KEY);
+    location.href = 'characters.html?_=' + Date.now();
+  });
 });
 
 try{

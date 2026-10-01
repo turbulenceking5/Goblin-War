@@ -1195,5 +1195,12 @@
     "changes": [
       "Added near-miss nudges for achievements — getting within 2 of a milestone (\"2 more to go for Battle-Hardened!\") now gets a quick heads-up."
     ]
+  },
+  {
+    "id": 160,
+    "date": "2026-10-01",
+    "changes": [
+      "Replaced every browser confirmation popup (Dismiss/Part Ways in Party, Abandon in Quests, Delete This Character, deleting a character) with a themed in-game one that actually matches the art style."
+    ]
   }
 ]

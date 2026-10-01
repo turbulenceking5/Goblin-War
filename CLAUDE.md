@@ -62,6 +62,9 @@ Each covers one system in depth — read the relevant one before changing that p
 - [context/roadmap.md](context/roadmap.md) — every "coming soon" stub in the codebase, collected in one place.
 - [context/testing-and-qa.md](context/testing-and-qa.md) — the manual smoke-test checklist to run before shipping a change, since there's no automated test suite.
 - [context/scene-backdrops.md](context/scene-backdrops.md) — the separate Scene Backdrops tracker Artifact (AI-image-generation prompts for backdrops/icons/terrain), its naming conventions (especially the 4-way siege prompt quartet), and its known recurring defects/fixes — read before reviewing or fixing any generated art prompt.
+- [context/ui-forge.md](context/ui-forge.md), [context/item-forge.md](context/item-forge.md), [context/character-forge.md](context/character-forge.md), [context/realm-forge.md](context/realm-forge.md) — the rest of the art-prompt-tracker Artifact family (UI reskin, weapons/items, character/enemy portraits, and the procedural-world-generator prototype + its terrain sprite prompts, respectively) — each covers that tracker's own structure, editing quirks, and status.
+- [context/war-room.md](context/war-room.md) — a non-art Claude Artifact that mirrors this file's roadmap.md as a clickable status board for the project owner; not automatically synced with roadmap.md, so update both when a tracked feature's status changes.
+- [context/known-issues.md](context/known-issues.md) — a non-art Claude Artifact logging known bugs and standing things worth re-verifying (notably a cross-character save-key-bleed rule that reinforces this file's own localStorage-key convention below) — skim it before touching an area it covers.
 
 ## Conventions worth knowing before editing
 

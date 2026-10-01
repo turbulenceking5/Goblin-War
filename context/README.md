@@ -12,7 +12,9 @@ These files exist so an AI assistant (or a returning human) can load just the sy
 6. **[data-files.md](data-files.md)** — reference material on the world data shape, read on demand rather than up front.
 7. **[roadmap.md](roadmap.md)** — what's intentionally unbuilt, useful before proposing new features so you don't duplicate a stub that already has a planned home.
 8. **[testing-and-qa.md](testing-and-qa.md)** — read on demand, before shipping a change: the manual smoke-test checklist, since there's no automated suite.
-9. **[scene-backdrops.md](scene-backdrops.md)** — reference material, read on demand whenever reviewing or fixing AI-generated art prompts in the separate Scene Backdrops tracker artifact (not part of this repo's code).
+9. **[scene-backdrops.md](scene-backdrops.md)**, **[ui-forge.md](ui-forge.md)**, **[item-forge.md](item-forge.md)**, **[character-forge.md](character-forge.md)**, **[realm-forge.md](realm-forge.md)** — reference material for the family of separate Claude Artifacts (not part of this repo's code) that track AI-image-generation prompts for this game's art. Read the relevant one on demand whenever reviewing or fixing generated art, or adding a new prompt/image to one of these trackers.
+10. **[war-room.md](war-room.md)** — a non-art Claude Artifact that mirrors this repo's own roadmap.md as a clickable status board; read it when the project owner references "the tracker"/"War Room" by name, or when you need to keep it in sync after a roadmap.md update.
+11. **[known-issues.md](known-issues.md)** — a non-art Claude Artifact logging bugs found and standing things worth re-verifying; skim it before a session touching Party/Mercenaries or the character-save system, and before shipping any change to an area it covers.
 
 ## Dependency notes
 

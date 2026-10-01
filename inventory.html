@@ -126,6 +126,11 @@
       <b id="weight-value">0 / 0</b>
     </div>
 
+    <div class="weight-card">
+      <span>Scrap &middot; spend it on gear repairs at the Blacksmith</span>
+      <b id="scrap-value">0</b>
+    </div>
+
     <div class="weight-card meter-card">
       <span>Hunger</span>
       <b id="hunger-value">100 / 100</b>
@@ -150,6 +155,20 @@ const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const DURABILITY_KEY = "goblinwar_durability";
+// Gear salvage/scrap — the Expansion Research idea of the same name: a plain integer count,
+// spent at the Blacksmith toward gear repairs (see index.html's "Scrap & Repair"). Gives surplus
+// low-tier gear a use instead of being dropped for nothing.
+const SCRAP_KEY = "goblinwar_scrap";
+function getScrap(){ return parseInt(localStorage.getItem(SCRAP_KEY) || "0", 10); }
+function setScrap(n){ localStorage.setItem(SCRAP_KEY, String(Math.max(0, n))); }
+// Only the 6 tiered Equipment-ladder slots (DURABILITY_SLOTS) are salvageable — Accessories have
+// no Bronze/Iron/Steel/Mithril ladder to scrap from. Yield scales with the tier the item's own
+// name carries, same "read the tier off the name" simplicity already used elsewhere for these.
+const SCRAP_YIELD_BY_TIER_PREFIX = { "Bronze": 1, "Iron": 2, "Steel": 4, "Mithril": 8 };
+function scrapYieldFor(itemName){
+  const prefix = Object.keys(SCRAP_YIELD_BY_TIER_PREFIX).find(p => itemName.startsWith(p));
+  return prefix ? SCRAP_YIELD_BY_TIER_PREFIX[prefix] : 1;
+}
 const CARRY_CAPACITY = 40;
 const SKILLS_KEY = "goblinwar_skills";
 const HUNGER_KEY = "goblinwar_hunger";
@@ -211,6 +230,8 @@ const ITEM_STATS = {
   "Iron Bracers": { slot:"bracers", dmg:0, def:1 },
   "Silver Earring": { slot:"earring", dmg:1, def:0 },
   "Sigil Charm": { slot:"charm", dmg:1, def:0 },
+  "Dwarven Clan-Ring": { slot:"ring_left", dmg:2, def:0 },
+  "Ork War-Totem": { slot:"belt", dmg:3, def:0 },
 };
 // Mirrors index.html's MARKET_ITEMS icon field for the items that have real generated art —
 // most entries have none yet and fall back to the generic item-icon SVG (see render() below).
@@ -303,6 +324,7 @@ function render(){
   const capacity = getCarryCapacity();
   document.getElementById('weight-value').textContent = `${carriedWeight} / ${capacity}`;
   weightCard.classList.toggle('over', carriedWeight > capacity);
+  document.getElementById('scrap-value').textContent = getScrap();
   document.getElementById('hunger-value').textContent = `${playerHunger} / 100`;
   document.getElementById('thirst-value').textContent = `${playerThirst} / 100`;
 
@@ -321,6 +343,9 @@ function render(){
       const actionHTML = stats
         ? `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`
         : '';
+      const salvageHTML = (stats && DURABILITY_SLOTS.includes(stats.slot) && !isEquipped)
+        ? `<button class="drop-btn" data-salvage-name="${it.name}">Salvage</button>`
+        : '';
       return `
       <div class="item-row ${isEquipped ? 'equipped' : ''}">
         ${ITEM_ICONS[it.name] ? `<img class="item-icon item-icon-img" src="${ITEM_ICONS[it.name]}" alt="${it.name}">` : `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -335,6 +360,7 @@ function render(){
         <span class="item-qty">&times;${it.qty}</span>
         ${it.value ? `<span class="item-value">${it.value}g each</span>` : ''}
         ${actionHTML}
+        ${salvageHTML}
         <button class="drop-btn" data-drop-name="${it.name}">Drop</button>
       </div>
     `;
@@ -350,6 +376,16 @@ function render(){
           unequipped = true;
         }
         showToast(`Dropped 1 ${name}.${unequipped ? ' Unequipped — none left.' : ''}`);
+        render();
+      });
+    });
+    list.querySelectorAll('[data-salvage-name]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const name = btn.dataset.salvageName;
+        const yield_ = scrapYieldFor(name);
+        consumeItem(name, 1);
+        setScrap(getScrap() + yield_);
+        showToast(`Salvaged 1 ${name} for ${yield_} Scrap.`);
         render();
       });
     });

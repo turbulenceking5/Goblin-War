@@ -3680,6 +3680,12 @@ const MARKET_ITEMS = [
   { name:"Iron Bracers", price:12, weight:1, desc:"Simple forearm guards", slot:"bracers", def:1 },
   { name:"Silver Earring", price:9, weight:0, desc:"Said to sharpen a wearer's focus", slot:"earring", dmg:1 },
   { name:"Sigil Charm", price:14, weight:0, desc:"A small trinket etched with an old ward", slot:"charm", dmg:1 },
+  // Race-exclusive accessory tier — the Expansion Research idea of the same name: an alternate,
+  // stronger option for an existing slot, sold only at a home-race's own settlements via raceOnly
+  // (checked in showMarketPanel), distinct from the race-agnostic Bronze/Iron/Steel/Mithril ladder
+  // above, which every race sells the same way everywhere.
+  { name:"Dwarven Clan-Ring", price:22, weight:0, desc:"Passed down a Dwarf clan line, said to steady the striking arm better than any Human-forged band", slot:"ring_left", dmg:2, raceOnly:["dwarf"] },
+  { name:"Ork War-Totem", price:20, weight:1, desc:"Bound to the belt, carved with old raiding marks — favored by Ork and Goblin warbands alike", slot:"belt", dmg:3, raceOnly:["ork","goblin"] },
   { name:"Healing Potion", price:5, weight:1, desc:"A restorative tonic" },
   { name:"Books", price:7, weight:2, desc:"Lore and local history" },
   { name:"Firewood", price:3, weight:2, desc:"Fuel for a camp fire" },
@@ -3771,6 +3777,31 @@ function degradeEquippedGear(){
 // without hand-maintaining a second price list alongside MARKET_ITEMS.
 function getRepairCost(mi, durability){
   return Math.max(1, Math.ceil((100 - durability) * mi.price / 200));
+}
+// Gear salvage/scrap — the Expansion Research idea of the same name: an alternate repair currency
+// from inventory.html's Salvage button (see that page's "Gear salvage/scrap"), spent here instead
+// of gold. Cheaper than gold-repair for low-tier gear (1 scrap per 25% missing — a salvaged Bronze
+// item alone covers a full repair), pricier in practice for Mithril since that tier salvages for
+// much more scrap than it costs to repair, same tier-scaling spirit getRepairCost's own price-tied
+// formula already has.
+const SCRAP_KEY = "goblinwar_scrap";
+function getScrap(){ return parseInt(localStorage.getItem(SCRAP_KEY) || "0", 10); }
+function setScrap(n){ localStorage.setItem(SCRAP_KEY, String(Math.max(0, n))); }
+function getScrapRepairCost(durability){ return Math.max(1, Math.ceil((100 - durability) / 25)); }
+function repairSlotWithScrap(slot){
+  const eq = getEquipped();
+  const itemName = eq[slot];
+  if(!itemName) return false;
+  const durability = getSlotDurability(slot, itemName);
+  if(durability >= 100) return false;
+  const cost = getScrapRepairCost(durability);
+  if(getScrap() < cost){ showToast("Not enough Scrap to repair that."); return false; }
+  setScrap(getScrap() - cost);
+  const map = getDurabilityMap();
+  map[slot] = { name: itemName, value: 100 };
+  localStorage.setItem(DURABILITY_KEY, JSON.stringify(map));
+  showToast(`Repaired ${itemName} using ${cost} Scrap.`);
+  return true;
 }
 function repairSlot(slot){
   const eq = getEquipped();
@@ -7784,6 +7815,13 @@ function showLocationView(burgId){
     { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'talk' },
     { icon:`<path d="M6 3h12v4H6z"/><path d="M9 7v14M9 9h6M9 12h6M9 15h4"/>`, title:"Quest Board", desc:"See what work needs doing", action:'questboard' },
     { icon:`<path d="M12 2l3 6 6 1-4.5 4 1 6-5.5-3-5.5 3 1-6L3 9l6-1z"/>`, title:"Raid the Village", desc: hasRaidedToday(burgId) ? "You've already raided here today — come back tomorrow" : "Take what you can by force", action:'raid_village', disabled: hasRaidedToday(burgId) },
+    // Settlement Investment — the Expansion Research idea of the same name, a proactive
+    // counterpart to Aid the Refugees (below): no crisis needed, any settlement, any tier, spend
+    // gold to nudge its population upward directly via the same setPopulation primitive the war
+    // system's own losses already use. Gated once per settlement per day, same hasWorkedToday
+    // cooldown shape, so it's a real but modest sink rather than a way to inflate a settlement
+    // arbitrarily in one sitting.
+    { icon:`<path d="M12 2v3M12 19v3M7 7a5 5 0 0 1 5-2c3 0 5 1.5 5 3.5S15 12 12 12s-5 1-5 3.5S9 19 12 19a5 5 0 0 0 5-2"/>`, title:"Settlement Investment", desc: hasInvestedToday(burgId) ? "You've already invested here today — come back tomorrow" : "Put gold into the local economy", action:'settlement_investment', disabled: hasInvestedToday(burgId) },
   ];
   // City/Capital settlements get extra actions on top of the base five, so a big
   // settlement actually feels bigger rather than just carrying a fancier building icon.
@@ -7837,9 +7875,10 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'market') showMarketPanel(burgId);
       else if(btn.dataset.action === 'blacksmith') showBlacksmithPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
+      else if(btn.dataset.action === 'settlement_investment') acceptSettlementInvestment(burgId);
       else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
       else if(btn.dataset.action === 'temple'){
-        showFlavorDialoguePanel(burgId, 'Temple', 'temple', null, TEMPLE_LINES);
+        showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildRespecHTML(), TEMPLE_LINES, ()=> wireRespecButton(burgId));
       }
       else if(btn.dataset.action === 'guardhouse'){
         showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
@@ -7941,6 +7980,47 @@ const TEMPLE_LINES = [
   "A novice presses a small token into your hand and asks for nothing in return.",
   "The bell tower tolls the hour as you step inside.",
 ];
+// Respec service — the Expansion Research idea of the same name: a rare, expensive Temple action
+// that resets Strength/Agility/Intelligence and every unlocked perk/special-attack node back to
+// nothing, refunding every skill point ever earned (spent-on-stats + spent-on-skills + whatever's
+// still unspent) so the player can rebuild from scratch — a self-contained fix for an early build
+// mistake, no changes to the underlying skill tree itself. Flat gold cost regardless of how much is
+// actually refunded, same "rare and expensive" framing the roadmap idea itself asked for.
+const RESPEC_GOLD_COST = 150;
+function getTotalSkillPointsEverEarned(){
+  const stats = JSON.parse(localStorage.getItem(STATS_KEY) || '{"str":0,"agi":0,"int":0}');
+  const unlockedSkills = JSON.parse(localStorage.getItem(SKILLS_KEY) || '{}');
+  const unspent = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
+  return (stats.str||0) + (stats.agi||0) + (stats.int||0) + Object.keys(unlockedSkills).length + unspent;
+}
+function buildRespecHTML(){
+  const total = getTotalSkillPointsEverEarned();
+  if(total <= 0) return ''; // nothing spent yet — nothing to offer resetting
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">A Rite of Renewal</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">For a steep offering, the priests will unmake every stat point and unlocked skill you've spent and hand all ${total} back to spend again from nothing.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">-${RESPEC_GOLD_COST}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="respec-btn" ${playerGold < RESPEC_GOLD_COST ? 'disabled' : ''}>Undergo the Rite</button>
+      </div>
+    </div>
+  `;
+}
+function acceptRespec(burgId){
+  const total = getTotalSkillPointsEverEarned();
+  if(total <= 0 || playerGold < RESPEC_GOLD_COST) return;
+  setGold(playerGold - RESPEC_GOLD_COST);
+  localStorage.setItem(STATS_KEY, JSON.stringify({str:0, agi:0, int:0}));
+  localStorage.setItem(SKILLS_KEY, JSON.stringify({}));
+  localStorage.setItem(SKILLPOINTS_KEY, String(total));
+  showToast(`The priests unmake your training — ${total} skill points are yours to spend again.`);
+  showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildRespecHTML(), TEMPLE_LINES, ()=> wireRespecButton());
+}
+function wireRespecButton(burgId){
+  const btn = document.getElementById('respec-btn');
+  if(btn) btn.addEventListener('click', ()=> acceptRespec(burgId));
+}
 const GUARDHOUSE_LINES = [
   "A watch-captain briefs a fresh patrol on the state of the roads.",
   "Sharpened pikes line the wall, ready for a call to arms.",
@@ -9122,6 +9202,43 @@ function acceptRefugeeAid(burgId){
   });
 }
 
+// Settlement Investment — see its own actions-array entry above for the full reasoning. Gold and
+// cooldown shape borrowed straight from Aid the Refugees; the payoff is smaller per-use
+// (SETTLEMENT_INVESTMENT_POP_BOOST < REFUGEE_AID_POP_BOOST) since there's no crisis bonus here,
+// just steady proactive spending.
+const SETTLEMENT_INVESTMENT_COOLDOWN_KEY = "goblinwar_investmentCooldowns"; // {burgId: gameDay}
+const SETTLEMENT_INVESTMENT_GOLD_COST = 20;
+const SETTLEMENT_INVESTMENT_POP_BOOST = 0.03;
+const SETTLEMENT_INVESTMENT_XP_RANGE = [6,14];
+function getInvestmentCooldowns(){
+  try{ return JSON.parse(localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY)) || {}; }catch(e){ return {}; }
+}
+function hasInvestedToday(burgId){ return getInvestmentCooldowns()[burgId] === gameDay; }
+function recordInvested(burgId){
+  const cd = getInvestmentCooldowns();
+  cd[burgId] = gameDay;
+  localStorage.setItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY, JSON.stringify(cd));
+}
+const SETTLEMENT_INVESTMENT_LINES = [
+  "You pay a local foreman to patch up a row of leaning storefronts.",
+  "A few coins into the well fund, and the water runs clearer by evening.",
+  "You back a market stall that's been struggling since the hard season.",
+  "The local builders are glad of the extra hands your coin buys.",
+];
+function acceptSettlementInvestment(burgId){
+  if(hasInvestedToday(burgId)){ showLocationView(burgId); return; }
+  if(playerGold < SETTLEMENT_INVESTMENT_GOLD_COST){ showToast("Not enough gold to invest."); return; }
+  setGold(playerGold - SETTLEMENT_INVESTMENT_GOLD_COST);
+  setPopulation(burgId, getPopulation(burgId) + SETTLEMENT_INVESTMENT_POP_BOOST);
+  recordInvested(burgId);
+  const xp = randRange(SETTLEMENT_INVESTMENT_XP_RANGE);
+  const leveledUp = addXp(xp);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
+  const line = SETTLEMENT_INVESTMENT_LINES[Math.floor(Math.random()*SETTLEMENT_INVESTMENT_LINES.length)];
+  showToast(line + ` +${xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
+  showLocationView(burgId);
+}
+
 // Raid a Village — the direct opposite of Aid the Refugees, per the project owner: available at
 // any settlement, any tier (unlike Refugee Camp/Defend the Walls, it's not conditional on world
 // state — raiding is always an option, not a reaction to one), gated by the same once-per-
@@ -9644,6 +9761,7 @@ function showMarketPanel(burgId){
     // showBlacksmithPanel below, the second shop it's exclusive to instead.
     const itemRows = MARKET_ITEMS.map((mi, i) => {
       if(mi.shop === 'blacksmith') return '';
+      if(mi.raceOnly && !mi.raceOnly.includes(getController(burgId))) return '';
       const buyPrice = getBuyPrice(mi, burgId);
       const sellPrice = getSellPrice(mi, burgId);
       const carried = getItem(mi.name);
@@ -9770,13 +9888,15 @@ function showBlacksmithPanel(burgId){
       const mi = MARKET_ITEMS.find(m => m.name === itemName);
       if(!mi) return null;
       const cost = getRepairCost(mi, durability);
+      const scrapCost = getScrapRepairCost(durability);
       const barColor = durability < 30 ? '#e0796a' : (durability < 70 ? '#d9a15a' : '#7fbf6a');
       return `
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(209,164,69,.2);">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid rgba(209,164,69,.2); gap:8px;">
           <div style="flex:1; min-width:0; margin-right:10px;">
             <div style="font-size:12.5px; color:var(--parchment);"><b>${itemName}</b> &middot; <span style="color:${barColor};">${durability}% durability</span></div>
             <div style="font-size:11px; color:#a9926a; margin-top:2px;">Worn gear hits softer/blocks less — repairing restores it to full.</div>
           </div>
+          <button class="btn btn-secondary" style="flex:none; padding:7px 10px; font-size:11px;" data-repair-scrap="${slot}" ${getScrap() < scrapCost ? 'disabled' : ''}>${scrapCost} Scrap</button>
           <button class="btn btn-primary" style="flex:none; padding:7px 12px; font-size:11px;" data-repair="${slot}" ${playerGold < cost ? 'disabled' : ''}>Repair (${cost}g)</button>
         </div>
       `;
@@ -9785,6 +9905,7 @@ function showBlacksmithPanel(burgId){
     return `
       <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-bottom:14px;">
         <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:2px;">Repair Gear</div>
+        <div style="font-size:11px; color:#a9926a; margin-bottom:4px;">Carrying ${getScrap()} Scrap — salvaged from gear in your Bag, inventory.html's Salvage button.</div>
         ${rows.join('')}
       </div>
     `;
@@ -9793,6 +9914,11 @@ function showBlacksmithPanel(burgId){
     list.querySelectorAll('[data-repair]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         if(repairSlot(btn.dataset.repair)) render();
+      });
+    });
+    list.querySelectorAll('[data-repair-scrap]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(repairSlotWithScrap(btn.dataset.repairScrap)) render();
       });
     });
   }
@@ -10056,6 +10182,8 @@ function collectCharacterSnapshot(){
     vault: localStorage.getItem(VAULT_KEY) || "null",
     fealty: localStorage.getItem(FEALTY_KEY) || "",
     espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
+    investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
+    scrap: localStorage.getItem(SCRAP_KEY) || "0",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

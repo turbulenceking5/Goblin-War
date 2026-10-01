@@ -4059,12 +4059,50 @@ const FIELD_BATTLE_ART = [
   "assets/biomes/field-battle-dusk.jpg",
 ];
 // Under Siege's own backdrop (triggerSiegeDefenseFight) — a besieged settlement's own wall under
-// attack in full daylight, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside
-// BIOME_ART. Prompt rewritten to pin down exactly which race appears where (human/dwarf attackers
-// only off the wall — charging the ground, the siege tower, and the ladders; ork/goblin defenders
-// only on the parapet) and to show a chaotic charge of soldiers rushing and climbing rather than a
-// static standing formation.
-const SIEGE_ART = [];
+// attack, not a terrain biome, same reasoning FIELD_BATTLE_ART lives outside BIOME_ART. Real
+// pixel-art backdrops now exist for all four combinations of which alliance is attacking (keyed by
+// ALLIANCE[attackerRace]) and time of day (isNightNow()) — see getSiegeBackdrop below, which is
+// what actually picks the right pool rather than a flat shared array. Every prompt pins down
+// exactly which race appears where (the attacking race only off the wall — charging the ground,
+// the siege tower, and the ladders; the defending race only on the parapet, confirmed clean by a
+// zoomed-in check of every candidate kept here) — see context/scene-backdrops.md for the full
+// prompt text and defect history.
+const SIEGE_ART = {
+  Good: {
+    day: [
+      "assets/biomes/siege-day-good-1.jpg",
+      "assets/biomes/siege-day-good-2.jpg",
+      "assets/biomes/siege-day-good-3.jpg",
+    ],
+    night: [
+      "assets/biomes/siege-night-good-1.jpg",
+      "assets/biomes/siege-night-good-2.jpg",
+      "assets/biomes/siege-night-good-3.jpg",
+      "assets/biomes/siege-night-good-4.jpg",
+    ],
+  },
+  Bad: {
+    day: [
+      "assets/biomes/siege-day-bad-1.jpg",
+      "assets/biomes/siege-day-bad-2.jpg",
+      "assets/biomes/siege-day-bad-3.jpg",
+      "assets/biomes/siege-day-bad-4.jpg",
+      "assets/biomes/siege-day-bad-5.jpg",
+    ],
+    night: [
+      "assets/biomes/siege-night-bad-1.jpg",
+      "assets/biomes/siege-night-bad-2.jpg",
+    ],
+  },
+};
+// Picks from the one SIEGE_ART quartet that actually matches this fight — which alliance is
+// besieging (ALLIANCE[attackerRace], same Good/Bad split the map's own faction code uses) and
+// whether it's currently night (isNightNow(), the same threshold the map tint/clock already use).
+function getSiegeBackdrop(attackerRace){
+  const alliance = ALLIANCE[attackerRace] || 'Bad';
+  const timeOfDay = isNightNow() ? 'night' : 'day';
+  return pickBackdrop(SIEGE_ART[alliance][timeOfDay]);
+}
 // Night Camp's own backdrop (triggerAmbushFight's 'camp' context) — a resting camp ambushed after
 // dark, distinct from daytime BIOME_ART since the scene is set at night rather than being a reuse
 // of whatever terrain the player happens to be resting in. Regenerated in the new pixel-art style —
@@ -8948,7 +8986,7 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   const count = 2 + Math.floor(Math.random()*2); // 2 or 3
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
-  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace, pickBackdrop(SIEGE_ART));
+  startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace, getSiegeBackdrop(attackerRace));
   // Recorded so endCombat's victory branch can attribute killed-enemy population loss (see
   // applyEnemyCasualtyLoss) to this specific kingdom rather than just "the nearest settlement of
   // that race" — a plain ambush has no particular kingdom behind it, but a siege's attacker does.

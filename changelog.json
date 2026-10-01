@@ -1032,5 +1032,12 @@
     "changes": [
       "Every terrain type now affects road/camp ambushes, not just Swamp and Hills: Forest gives a chance to shake off an enemy's bleed/stun before it takes hold, Plains gives Cleave more room to connect, Desert makes Crushing Blow's stagger last longer, Mountains makes War Cry hit harder, Snow makes Reckless Swing's bleed last longer, and Coast helps you recover from Adrenaline Rush's fatigue faster."
     ]
+  },
+  {
+    "id": 139,
+    "date": "2026-10-01",
+    "changes": [
+      "Defend the Walls now shows a real illustrated battlefield behind the fight instead of a flat background — a besieged wall under attack, matching whichever side is actually besieging you and whether it's day or night."
+    ]
   }
 ]

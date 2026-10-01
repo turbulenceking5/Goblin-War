@@ -112,7 +112,9 @@ too; it wasn't needed there and would just bloat the prompt.
 
 ## Current image status (drifts — check the live artifact for ground truth)
 
-As of this writing, `bg-siege-day-good` is the only one of the four with clean candidates in its `images` array
-(3 images). `bg-siege-day-bad`, `bg-siege-night-good`, and `bg-siege-night-bad` all have empty `images` arrays —
-not yet generated/reviewed to a clean batch. Update this section (or just drop it and rely on the live artifact)
-whenever a future session adds images, so it doesn't silently go stale.
+As of this writing: `bg-siege-day-good` (3 images), `bg-siege-day-bad` (5 images), and `bg-siege-night-good`
+(4 images) all have clean candidates. `bg-siege-night-bad` is the only one of the four still at an empty
+`images` array — not yet generated/reviewed to a clean batch. The night-good batch was the first real
+confirmation that the asymmetric "pinned to the parapet" reinforcement (see "Known recurring defects" above)
+actually works for the night variant, not just day. Update this section (or just drop it and rely on the live
+artifact) whenever a future session adds images, so it doesn't silently go stale.

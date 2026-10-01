@@ -101,20 +101,28 @@ Fixed, in rough chronological order:
   plus "bleeding flat to all four edges with no border, frame, or vignette of any kind." Added to all four
   siege prompts.
 
-**Open / asymmetric finding**: the "defender figure stray on the ground" defect was observed to occur *only*
-when the Good alliance attacks (i.e. only in `bg-siege-day-good`/`bg-siege-night-good`, where orks/goblins are
-the defenders) — never when the Bad alliance attacks. The two prompts were confirmed structurally/textually
-symmetric before concluding this, so it's hypothesized to be a generator-side bias (orks/goblins culturally
-associated with chaotic ground-swarming poses in fantasy art broadly) rather than a prompt-wording bug. Response:
-asymmetric reinforcement — only the two Good-alliance (ork-defending) prompts carry the extra "pinned to the
-parapet... under any circumstances" language. Do not blanket-apply that reinforcement to the Bad-alliance prompts
-too; it wasn't needed there and would just bloat the prompt.
+**Update — no longer strictly one-directional.** The "defender figure stray on the ground" defect was originally
+observed to occur *only* when the Good alliance attacks (orks/goblins defending) — never when the Bad alliance
+attacks — and the two prompts were confirmed structurally/textually symmetric before concluding this, so it was
+hypothesized to be a generator-side bias (orks/goblins culturally associated with chaotic ground-swarming poses
+in fantasy art broadly) rather than a prompt-wording bug. Response: asymmetric reinforcement — only the two
+Good-alliance (ork-defending) prompts carry the extra "pinned to the parapet... under any circumstances"
+language, confirmed working in a `bg-siege-night-good` batch (4/4 clean, no discards for this defect).
+
+However, a later `bg-siege-night-bad` batch (Bad alliance attacking) produced one candidate with a human/dwarf
+*defender* crouched on the ground amid the wreckage at the wall's base — the same defect, just in the direction
+previously believed not to happen. This was a single occurrence out of 4 candidates (discarded, not kept), so it
+doesn't yet justify rewriting the day-bad/night-bad prompts with the same reinforcement language — but it means
+the "strictly Good-alliance-only" framing above was too strong. Treat it as "more common when Good attacks, not
+exclusively possible only then." If a future `bg-siege-day-bad`/`bg-siege-night-bad` batch shows this defect
+recurring, it's worth adding the same "pinned to the parapet" reinforcement to those two prompts as well.
 
 ## Current image status (drifts — check the live artifact for ground truth)
 
-As of this writing: `bg-siege-day-good` (3 images), `bg-siege-day-bad` (5 images), and `bg-siege-night-good`
-(4 images) all have clean candidates. `bg-siege-night-bad` is the only one of the four still at an empty
-`images` array — not yet generated/reviewed to a clean batch. The night-good batch was the first real
-confirmation that the asymmetric "pinned to the parapet" reinforcement (see "Known recurring defects" above)
-actually works for the night variant, not just day. Update this section (or just drop it and rely on the live
-artifact) whenever a future session adds images, so it doesn't silently go stale.
+**All four siege quartet entries now have clean candidates**: `bg-siege-day-good` (3 images),
+`bg-siege-day-bad` (5 images), `bg-siege-night-good` (4 images), `bg-siege-night-bad` (2 images). The
+night-good batch was the first real confirmation that the asymmetric "pinned to the parapet"
+reinforcement (see "Known recurring defects" above) actually works for the night variant, not just
+day. The night-bad batch surfaced the one-directionality correction noted above. Update this section
+(or just drop it and rely on the live artifact) whenever a future session adds more images, so it
+doesn't silently go stale.

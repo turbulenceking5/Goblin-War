@@ -784,7 +784,7 @@ function freshCharacterData(name, burgId, difficulty, mapSeed, isNewCharacter){
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", recentEvents: "[]",
     warStarts: "{}", warHistory: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
     fieldBattles: "[]", fieldBattleCooldowns: "{}",
-    companionQuestsCompleted: "[]", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true",
+    companionQuestsCompleted: "[]", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", landmarksClaimed: "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -868,6 +868,7 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_caravanEscort", merged.caravanEscort);
   localStorage.setItem("goblinwar_cartographerScouted", merged.cartographerScouted);
   localStorage.setItem("goblinwar_tutorialSeen", merged.tutorialSeen);
+  localStorage.setItem("goblinwar_landmarksClaimed", merged.landmarksClaimed);
 }
 
 function targetPage(){

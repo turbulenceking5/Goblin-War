@@ -169,6 +169,14 @@
     background:#0a1230; opacity:var(--night-opacity, 0);
     transition:opacity 1.2s ease;
   }
+  /* Same color-wash-over-the-viewport technique as #night-overlay just above, one layer below it
+     (so night's own darkening still reads on top) — see updateWeatherOverlay/getCurrentWeather. */
+  #weather-overlay{
+    position:absolute; inset:0; pointer-events:none; z-index:13;
+    opacity:0; transition:opacity 1.2s ease, background-color 1.2s ease;
+  }
+  #weather-overlay.show{ opacity:1; }
+  #weather-badge{ font-size:10px; color:#a9926a; margin-left:4px; }
 
   #recenter-btn{
     position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
@@ -579,6 +587,7 @@
         <svg id="clock-icon-moon" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
         <b id="clock-time">12:00 PM</b>
       </span>
+      <span id="weather-badge"></span>
     </div>
   </header>
 
@@ -637,6 +646,7 @@
         <g id="supply-markers" style="pointer-events:none"></g>
         <g id="army-markers" style="pointer-events:none"></g>
         <g id="battle-markers"></g>
+        <g id="landmark-markers"></g>
         <g id="quest-markers" style="pointer-events:none"></g>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
@@ -644,6 +654,7 @@
     </div>
     <div id="kingdom-labels-layer"></div>
     <div id="night-overlay"></div>
+    <div id="weather-overlay"></div>
     <div id="ui-vignette"></div>
   </div>
 
@@ -1887,6 +1898,8 @@ function handleTap(clientX, clientY){
   const el = document.elementFromPoint(clientX, clientY);
   if(el && el.dataset && el.dataset.battle){
     onBattleMarkerTap(el.dataset.battle);
+  } else if(el && el.dataset && el.dataset.landmark){
+    onLandmarkMarkerTap(el.dataset.landmark);
   } else if(el && el.classList && el.classList.contains('hitzone')){
     onMapTap(el.dataset.burg);
   } else {
@@ -1929,6 +1942,43 @@ function nightFactor(hour){
   if(h >= 18 && h < 21) return (h-18)/3;
   return 1;
 }
+// Lightweight weather — the Expansion Research idea of the same name, using the exact
+// multiplier pattern night-darkness scaling above already sets (one small "current condition"
+// factor folded multiplicatively into the handful of formulas that care, rather than a parallel
+// simulation of its own). Deterministic per calendar day off this character's own mapSeed (so it
+// doesn't resync across characters/devices), not randomized per render — same seeded-per-day
+// precedent getBoardMonthIndex's own monthly quest offers already use, just at day granularity.
+const WEATHER_TYPES = [
+  { id:'clear', label:'Clear',  weight:70, travelMult:1,    ambushMult:1,    tint:null },
+  { id:'rain',  label:'Rain',   weight:15, travelMult:1.15, ambushMult:1,    tint:'rgba(70,95,120,.3)'  }, // muddy roads slow travel
+  { id:'fog',   label:'Fog',    weight:10, travelMult:1,    ambushMult:1.2,  tint:'rgba(190,195,200,.28)' }, // harder to spot trouble coming
+  { id:'storm', label:'Storm',  weight:5,  travelMult:1.25, ambushMult:1.15, tint:'rgba(35,40,55,.42)' }, // worst of both
+];
+function getCurrentWeather(){
+  const seed = parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10);
+  const totalWeight = WEATHER_TYPES.reduce((sum, w) => sum + w.weight, 0);
+  const roll = seededRandom(hashSeed(`weather_${seed}_${gameDay}`)) * totalWeight;
+  let acc = 0;
+  for(const w of WEATHER_TYPES){
+    acc += w.weight;
+    if(roll < acc) return w;
+  }
+  return WEATHER_TYPES[0];
+}
+function updateWeatherOverlay(){
+  const el = document.getElementById('weather-overlay');
+  const badge = document.getElementById('weather-badge');
+  if(!el || !badge) return;
+  const w = getCurrentWeather();
+  if(w.tint){
+    el.style.backgroundColor = w.tint;
+    el.classList.add('show');
+  } else {
+    el.classList.remove('show');
+  }
+  badge.textContent = w.id === 'clear' ? '' : w.label;
+  badge.style.display = w.id === 'clear' ? 'none' : '';
+}
 // Same threshold the map tint and clock icon already use — one shared definition of "is it
 // night right now" for anything gameplay-side that wants to react to it (see doWork below).
 function isNightNow(){ return nightFactor(gameHour) >= 0.5; }
@@ -1952,6 +2002,7 @@ function refreshCalendarUI(){
   document.getElementById('date-year').textContent = year;
   document.getElementById('clock-time').textContent = timeStr(gameHour);
   updateNightOverlay(gameHour);
+  updateWeatherOverlay();
 }
 // The single source of truth for time passing now — advances the real clock by any number of
 // hours (not just whole days the way the old advanceDays did), rolling into a new gameDay only
@@ -2891,18 +2942,29 @@ const WAR_BUY_MULTIPLIER = 1.5;
 const WAR_SELL_BONUS_MULT = 1.2;
 const PEACE_SELL_FRACTION = 0.5;
 function isWarRelevant(mi){ return !!mi.slot || mi.name === "Firewood"; }
-// A small "shopping around matters" discount, keyed off data travel-graph.json already carries
-// per burg (b.port, b.tier) rather than needing a new biome/elevation pipeline (see
-// roadmap.md's "Settlement specialties" — a mountain-Town discount was the original idea there,
-// but nothing in the live game's data pulls elevation through yet, so this picks two discounts
-// that data *does* support instead of blocking on that bigger gap).
+// A small "shopping around matters" discount, keyed off data every burg already carries
+// (b.port, b.tier, b.biome).
 const PORT_WATERSKIN_DISCOUNT = 0.8;  // a coastal settlement's Waterskin is cheaper — easy fresh water/fish trade
 const VILLAGE_FOOD_DISCOUNT = 0.85;   // a Village's Food is cheaper — closer to the farms that grow it
+// Biome-based settlement discounts — the original "a mountain Town discounts armor-slot items"
+// idea from Settlement specialties (see roadmap.md), which was blocked for a while on the live
+// game having no elevation/biome data pulled through. That gap closed once generateWorld() started
+// stamping a real `biome` per burg off the same procedural terrain grid the map itself paints from
+// (see data-files.md's "procedural world generator" and combat.md's biome-aware backdrop/combat
+// modifiers, which already lean on this same field) — so this was just unblocked, not rebuilt.
+// Forest gets the same treatment for weapons, so it's a real "biome-based" plural, not one special
+// case: mountain ore and mountain smiths make armor cheaper there, forest timber and fletchers
+// make weapons cheaper there.
+const MOUNTAIN_ARMOR_DISCOUNT = 0.85;
+const FOREST_WEAPON_DISCOUNT = 0.85;
+const ARMOR_SLOTS = ['head', 'chest', 'legs', 'shield'];
 function getSettlementDiscount(mi, burgId){
   const b = graph.burgs[burgId];
   if(!b) return 1;
   if(mi.name === "Waterskin" && b.port) return PORT_WATERSKIN_DISCOUNT;
   if(mi.name === "Food" && b.tier === "village") return VILLAGE_FOOD_DISCOUNT;
+  if(b.biome === 'mountains' && ARMOR_SLOTS.includes(mi.slot)) return MOUNTAIN_ARMOR_DISCOUNT;
+  if(b.biome === 'forest' && mi.slot === 'weapon') return FOREST_WEAPON_DISCOUNT;
   return 1;
 }
 // Payoff 2 of per-kingdom reputation (see adjustReputation/REPUTATION_KEY, defined further down
@@ -5381,6 +5443,8 @@ let adjacency = {};     // cellId -> [{to, mi, edge, forward}]
 let currentBurg = localStorage.getItem(LOC_KEY) || "0"; // the guaranteed-Human starting capital every generated world assigns burg id "0"
 let selectedBurg = null;
 let selectedBattleId = null; // the info-card's other selection target — see onBattleMarkerTap
+let selectedLandmarkId = null; // the info-card's third selection target — see onLandmarkMarkerTap
+let landmarks = []; // this character's off-road landmarks — deterministic per mapSeed, see generateLandmarks
 let shortcutQuote = null; // the current info-card selection's shortcut quote (computeShortcutTravel), if any — see onMapTap/btn-shortcut
 let playerMarkerEl = null;
 let reachableSet = new Set(); // cell ids reachable from currentBurg's cell
@@ -5514,7 +5578,7 @@ function rollAmbush(hours, startHour, extraMult){
   const days = hours/HOURS_PER_DAY;
   const nightFrac = startHour === undefined ? 0 : nightFractionOfTrip(startHour, hours);
   const nightMult = 1 + nightFrac * (NIGHT_AMBUSH_TRAVEL_MULT - 1);
-  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * getCurrentWeather().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
 
@@ -5779,6 +5843,7 @@ function updateWaitUI(){
 function waitTick(){
   if(!waitState) return;
   const delta = WAIT_HOURS_PER_TICK * (waitState.speed === 3 ? 3 : 1);
+  const tickStartHour = gameHour;
   waitState.totalHours += delta;
   const hungerSoFar = hoursToHungerGain(waitState.totalHours);
   const thirstSoFar = hoursToThirstGain(waitState.totalHours);
@@ -5787,6 +5852,19 @@ function waitTick(){
   if(newHunger > 0){ addHunger(newHunger); waitState.hungerApplied = hungerSoFar; }
   if(newThirst > 0){ addThirst(newThirst); waitState.thirstApplied = thirstSoFar; }
   advanceTime(delta, true);
+  // Closing the Wait exploit: waiting used to never roll an ambush at all, so sitting out even
+  // the most dangerous night hours was completely risk-free — strictly safer than actually
+  // traveling or camping through the same stretch of time. Now each tick rolls the same
+  // rollAmbush(hours, startHour) math travel itself uses, scaled to just this tick's own hours
+  // and whatever time of day it actually covered (captured before advanceTime moves the clock),
+  // so waiting through the night carries the same risk as traveling through it. quiet:true above
+  // still skips chargeMercenaryUpkeep/maybeRunFactionAI either way — that half stays a genuine
+  // convenience, only the "completely safe" half of the old behavior is gone.
+  if(rollAmbush(delta, tickStartHour)){
+    stopWaiting();
+    triggerAmbushFight(currentBurg, () => updateWaitUI(), 'road');
+    return;
+  }
   updateWaitUI();
 }
 
@@ -5838,7 +5916,8 @@ function computeTravel(toId){
   if(!toBurg) return null;
   const r = routeBetween(getCurrentCell(), getCurrentXY(), toBurg);
   const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
-  const hours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
+  const baseHours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
+  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult)); // lightweight weather — muddy roads in rain/storm
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
@@ -5886,7 +5965,8 @@ function findNearestCell(x, y){
 function computeTravelToPoint(x, y, cell){
   const r = routeBetween(getCurrentCell(), getCurrentXY(), {x, y, cell});
   const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
-  const hours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
+  const baseHours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
+  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult)); // lightweight weather — muddy roads in rain/storm
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
@@ -6057,6 +6137,7 @@ function closeCard(){
   selectedEl = null;
   selectedBurg = null;
   selectedBattleId = null;
+  selectedLandmarkId = null;
   shortcutQuote = null;
   document.getElementById('btn-shortcut').style.display = 'none';
   clearRoutePreview();
@@ -6927,6 +7008,8 @@ function onMapTap(burgId){
   const burg = graph.burgs[burgId];
   if(!burg){ closeCard(); return; }
   selectedBurg = burgId;
+  selectedBattleId = null;
+  selectedLandmarkId = null;
   showHighlight(burg.x, burg.y);
 
   document.getElementById('info-name').textContent = burg.name;
@@ -6983,6 +7066,7 @@ function onBattleMarkerTap(battleId){
   if(!battle){ closeCard(); return; }
   selectedBurg = null;
   selectedBattleId = battleId;
+  selectedLandmarkId = null;
   shortcutQuote = null;
   document.getElementById('btn-shortcut').style.display = 'none';
   showHighlight(battle.x, battle.y);
@@ -7182,6 +7266,208 @@ function beginTravelToBattle(battleId){
   activeTravel = { controller, destId: null, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
 }
 
+// ===================== OFF-ROAD DISCOVERABLE LANDMARKS =====================
+// The Expansion Research idea of the same name: persistent, visitable points scattered off the
+// road network, reached by reusing the exact "travel to an arbitrary map point" machinery field
+// battles already proved out (findNearestCell/computeTravelToPoint/animateTravel's own toXY
+// param — see beginTravelToBattle above) rather than inventing a second one.
+const LANDMARK_TYPES = [
+  { type:'ruins', name:"Old Ruins", flavor:"Weathered stonework pokes up through the undergrowth — something stood here once." },
+  { type:'campsite', name:"Abandoned Campsite", flavor:"A cold fire ring and a half-collapsed lean-to — whoever camped here left in a hurry." },
+];
+const LANDMARK_COUNT = 10;
+const LANDMARK_OFFSET_MIN = 25, LANDMARK_OFFSET_MAX = 70; // logical units off the nearest road
+// Deterministic per character, same seeded-RNG precedent assignDynamicHomes already sets for
+// Notable Figures/Companions (rfMulberry32 off the character's own mapSeed, XORed with a constant
+// unique to this generator so it doesn't retrace the same sequence as any other seeded system).
+// Each landmark is a small random offset from a random road edge's own midpoint — far enough to
+// read as "off the beaten path" without needing to understand the raw terrain grid's land/ocean
+// mask directly: a short offset from an edge that already connects two real settlements is very
+// likely still on land.
+function generateLandmarks(seed, world){
+  const rng = rfMulberry32((seed ^ 0x3A17C9F1) >>> 0);
+  const edges = world.edges || [];
+  if(!edges.length) return [];
+  const result = [];
+  for(let i = 0; i < LANDMARK_COUNT; i++){
+    const edge = edges[Math.floor(rng() * edges.length)];
+    const pts = edge && edge.pts;
+    if(!pts || !pts.length) continue;
+    const mid = pts[Math.floor(pts.length / 2)];
+    const angle = rng() * Math.PI * 2;
+    const dist = LANDMARK_OFFSET_MIN + rng() * (LANDMARK_OFFSET_MAX - LANDMARK_OFFSET_MIN);
+    const t = LANDMARK_TYPES[Math.floor(rng() * LANDMARK_TYPES.length)];
+    result.push({
+      id: `landmark_${i}`, type: t.type, name: t.name, flavor: t.flavor,
+      x: mid[0] + Math.cos(angle) * dist, y: mid[1] + Math.sin(angle) * dist,
+    });
+  }
+  return result;
+}
+// Only the *claimed* set is real persisted progress — the landmarks' own positions/types are
+// cheap to regenerate deterministically every load (see generateLandmarks), same "don't persist
+// what you can recompute" precedent the whole world-seed system already sets.
+const LANDMARK_CLAIMED_KEY = "goblinwar_landmarksClaimed"; // [landmarkId, ...]
+function getClaimedLandmarks(){ try{ return JSON.parse(localStorage.getItem(LANDMARK_CLAIMED_KEY)) || []; }catch(e){ return []; } }
+function isLandmarkClaimed(id){ return getClaimedLandmarks().includes(id); }
+function claimLandmark(id){
+  const claimed = getClaimedLandmarks();
+  if(!claimed.includes(id)) claimed.push(id);
+  localStorage.setItem(LANDMARK_CLAIMED_KEY, JSON.stringify(claimed));
+}
+const LANDMARK_REWARDS = {
+  ruins: { gold:[15,35], xp:[10,20] },
+  campsite: { itemNames:['Food', 'Healing Potion'], xp:[6,14] },
+};
+// One-time reward, granted on a safe arrival (see beginTravelToLandmark) — gold+XP for Ruins,
+// a foraged item+XP for a Campsite. Marks the landmark claimed either way so it can't be farmed
+// twice and its marker disappears on the next buildLandmarkMarkers() rebuild.
+function grantLandmarkReward(landmark){
+  claimLandmark(landmark.id);
+  let msg = landmark.flavor;
+  if(landmark.type === 'ruins'){
+    const gold = randRange(LANDMARK_REWARDS.ruins.gold);
+    const xp = randRange(LANDMARK_REWARDS.ruins.xp);
+    setGold(playerGold + gold);
+    const leveledUp = addXp(xp);
+    msg += ` You pick through the rubble and come away with ${gold}g in old coin and trinkets. (+${xp} XP)`;
+    if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
+  } else {
+    const names = LANDMARK_REWARDS.campsite.itemNames;
+    const name = names[Math.floor(Math.random() * names.length)];
+    const mi = MARKET_ITEMS.find(m => m.name === name);
+    const xp = randRange(LANDMARK_REWARDS.campsite.xp);
+    if(mi && addItem(mi.name, 1, mi.weight, mi.price)) msg += ` You find a bit of ${mi.name} left behind.`;
+    const leveledUp = addXp(xp);
+    msg += ` (+${xp} XP)`;
+    if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
+  }
+  showToast(msg);
+}
+// The landmark-marker counterpart to onMapTap/onBattleMarkerTap above — same #info-card, same
+// "show a quote, Travel Here starts a real trip" flow, for this one arbitrary map point.
+function onLandmarkMarkerTap(landmarkId){
+  const landmark = landmarks.find(l => l.id === landmarkId);
+  if(!landmark || isLandmarkClaimed(landmark.id)){ closeCard(); return; }
+  selectedBurg = null;
+  selectedBattleId = null;
+  selectedLandmarkId = landmarkId;
+  shortcutQuote = null;
+  document.getElementById('btn-shortcut').style.display = 'none';
+  showHighlight(landmark.x, landmark.y);
+
+  document.getElementById('info-name').textContent = landmark.name;
+  document.getElementById('info-meta').innerHTML = `<span>${landmark.flavor}</span>`;
+
+  const travelDiv = document.getElementById('info-travel');
+  const travelBtn = document.getElementById('btn-travel');
+  const nearestCell = findNearestCell(landmark.x, landmark.y);
+  const t = computeTravelToPoint(landmark.x, landmark.y, nearestCell);
+  if(!t){
+    travelDiv.textContent = "Distance unknown.";
+    travelBtn.style.display = 'none';
+  } else {
+    const seaNote = t.bySea ? ` (includes a sea crossing — <b>${t.ferryCost}g ferry fare</b>)` : (t.mounted ? ' (riding — faster pace)' : '');
+    travelDiv.innerHTML = t.viaRoad
+      ? `<b>${t.miles} miles</b> by road${seaNote} — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`
+      : `<b>${t.miles} miles</b> cross-country (no road yet) — about <b>${formatDuration(t.hours)}</b> travel, <b>-${t.hungerGain} hunger</b>, <b>-${t.thirstGain} thirst</b>.`;
+    travelBtn.style.display = 'block';
+    if(t.viaRoad) drawRoutePreview({...getCurrentXY(), cell:getCurrentCell()}, null, t.edges, {x:landmark.x, y:landmark.y, cell:nearestCell});
+    travelBtn.textContent = t.ferryCost > 0 ? `Travel Here (${t.hours}h, ${t.ferryCost}g)` : `Travel Here (${t.hours}h)`;
+  }
+  document.getElementById('info-card').classList.add('open');
+}
+// beginTravel's counterpart for a landmark — same shape as beginTravelToBattle, but there's
+// nothing to "enter" on arrival (no campPos, no sub-screen): a safe arrival just grants the
+// one-time reward and drops the player back on the open map, same ambush/world-event roll order
+// every other arrival uses first.
+function beginTravelToLandmark(landmarkId){
+  stopWaiting();
+  const landmark = landmarks.find(l => l.id === landmarkId);
+  if(!landmark || isLandmarkClaimed(landmark.id)){
+    showToast("There's nothing left to find there.");
+    closeCard();
+    return;
+  }
+  const nearestCell = findNearestCell(landmark.x, landmark.y);
+  const toXY = { x: landmark.x, y: landmark.y, cell: nearestCell };
+  const t = computeTravelToPoint(landmark.x, landmark.y, nearestCell);
+  if(!t) return;
+  if(t.ferryCost > 0 && playerGold < t.ferryCost){
+    showToast(`You can't afford the ${t.ferryCost}g ferry fare for this crossing.`);
+    return;
+  }
+  if(t.ferryCost > 0) setGold(playerGold - t.ferryCost);
+  const destName = landmark.name;
+  const startHunger = playerHunger, startThirst = playerThirst, startHour = gameHour;
+  closeCard();
+
+  const fromPos = { ...getCurrentXY(), cell:getCurrentCell() };
+  centerOnLogical(fromPos.x, fromPos.y, view.scale);
+  showTravelControls(destName);
+
+  const duration = Math.max(4000, 2000 + t.miles*20);
+  const controller = animateTravel(fromPos, null, t.edges, destName, duration, ()=>{
+    hideTravelControls();
+    activeTravel = null;
+    // Same campPos role a field battle's own arrival gives it — keeps getCurrentXY()/
+    // getCurrentCell() (and so the visible player marker) in sync with where the animation
+    // actually left the player, since a landmark is a real off-road stop, not a settlement.
+    campPos = { x: landmark.x, y: landmark.y, cell: nearestCell, name: landmark.name };
+    advanceTime(t.hours);
+    addHunger(t.hungerGain);
+    addThirst(t.thirstGain);
+    refreshReachability();
+    if(rollAmbush(t.hours, startHour)){
+      triggerAmbushFight(currentBurg, ()=> { grantLandmarkReward(landmark); buildLandmarkMarkers(); }, 'road');
+    } else if(rollWorldEvent()){
+      triggerWorldEvent(()=> { grantLandmarkReward(landmark); buildLandmarkMarkers(); });
+    } else {
+      grantLandmarkReward(landmark);
+      buildLandmarkMarkers();
+    }
+  }, (info)=>{
+    if(!activeTravel) return;
+    activeTravel.lastSnap = info;
+    updateLiveHungerThirstDisplay(startHunger, t.hungerGain, startThirst, t.thirstGain, info.frac);
+    updateLiveClockDisplay(startHour, t.hours, info.frac);
+  }, toXY);
+
+  activeTravel = { controller, destId: null, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
+}
+// Small marker per unclaimed landmark — same "invisible hitzone circle + separate visual" split
+// battle markers use (buildBattleMarkers), placeholder shapes for now (ruins: a small broken-
+// column glyph; campsite: a small flame glyph) pending any real art, same "ship the mechanic,
+// swap in real art later" precedent the rest of this codebase already sets. Rebuilt on load and
+// again right after a landmark is claimed (see beginTravelToLandmark), so a claimed landmark's
+// marker disappears for good.
+function buildLandmarkMarkers(){
+  const g = document.getElementById('landmark-markers');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  landmarks.forEach(landmark => {
+    if(isLandmarkClaimed(landmark.id)) return;
+    const hit = document.createElementNS(ns, "circle");
+    hit.setAttribute("class", "hitzone landmark-hitzone");
+    hit.setAttribute("cx", landmark.x);
+    hit.setAttribute("cy", landmark.y);
+    hit.setAttribute("r", 16);
+    hit.dataset.landmark = landmark.id;
+    g.appendChild(hit);
+    const mark = document.createElementNS(ns, "path");
+    mark.setAttribute("d", landmark.type === 'ruins'
+      ? `M${landmark.x-5},${landmark.y+6} L${landmark.x-5},${landmark.y-6} M${landmark.x},${landmark.y+6} L${landmark.x},${landmark.y-8} M${landmark.x+5},${landmark.y+6} L${landmark.x+5},${landmark.y-4}`
+      : `M${landmark.x},${landmark.y+6} L${landmark.x-4},${landmark.y-2} Q${landmark.x},${landmark.y-10} ${landmark.x+4},${landmark.y-2} Z`);
+    mark.setAttribute("stroke", "#a9926a");
+    mark.setAttribute("stroke-width", "2");
+    mark.setAttribute("stroke-linecap", "round");
+    mark.setAttribute("fill", landmark.type === 'campsite' ? "#d9a15a" : "none");
+    mark.style.pointerEvents = "none";
+    g.appendChild(mark);
+  });
+}
+
 // Cancels the current journey in place — the character stops exactly where the
 // animation had gotten to (snapped to the nearest real road-graph point), not
 // back at the start. No time cost.
@@ -7231,6 +7517,10 @@ document.getElementById('btn-stop-travel').addEventListener('click', stopTravel)
 document.getElementById('btn-camp-travel').addEventListener('click', campMidTravel);
 
 document.getElementById('btn-travel').addEventListener('click', ()=>{
+  if(selectedLandmarkId){
+    beginTravelToLandmark(selectedLandmarkId);
+    return;
+  }
   if(selectedBattleId){
     if(campPos && campPos.battleId === selectedBattleId){
       const battleId = selectedBattleId;
@@ -7389,7 +7679,7 @@ function showCampView(destId, destName, partialHours){
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
     }
-    if(Math.random() < NIGHT_AMBUSH_CHANCE * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
+    if(Math.random() < NIGHT_AMBUSH_CHANCE * getCurrentWeather().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
       triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();
@@ -10944,6 +11234,7 @@ Promise.all([
   buildBurgAdjacency();
   updateRenownTitle(); // catches a save with Trusted reputation already earned before this existed
   assignDynamicHomes(seed, world); // NOTABLE_FIGURES/COMPANIONS homes — no fixed burg ids anymore
+  landmarks = generateLandmarks(seed, world); // off-road discoverable landmarks — deterministic per mapSeed, see generateLandmarks
   if(!graph.burgs[currentBurg]){
     currentBurg = world.startBurgId || "0";
     localStorage.setItem(LOC_KEY, currentBurg);
@@ -10966,6 +11257,7 @@ Promise.all([
   buildSupplyMarkers();
   buildArmyMarkers();
   buildBattleMarkers();
+  buildLandmarkMarkers();
   buildQuestMarkers();
   drawPlayerMarker();
   refreshCalendarUI();
@@ -11102,6 +11394,7 @@ function collectCharacterSnapshot(){
     caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
     tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
+    landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

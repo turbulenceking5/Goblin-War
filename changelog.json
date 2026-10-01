@@ -1115,5 +1115,15 @@
       "Goblin/Ork Chieftains, Warlords, Shamans, and Dire Bears now specifically target whoever's weakest, player included, instead of attacking at random.",
       "Finishing off a bleeding or staggered enemy now has a better chance at extra loot."
     ]
+  },
+  {
+    "id": 150,
+    "date": "2026-10-01",
+    "changes": [
+      "Waiting at a spot on the map can now get you ambushed too, same as traveling or camping through the same hours — it was the one risk-free way to pass time before.",
+      "The Marketplace/Blacksmith now discount armor in Mountain settlements and weapons in Forest settlements, alongside the existing port/village discounts.",
+      "Added off-road landmarks — Old Ruins and Abandoned Campsites scattered away from the roads, each with a one-time find waiting at it.",
+      "Added lightweight weather — Clear, Rain, Fog, and Storm now pass through, visibly tinting the map and quietly affecting travel time and ambush risk."
+    ]
   }
 ]

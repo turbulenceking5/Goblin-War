@@ -4035,22 +4035,39 @@ function getAchievementDefs(){
     { id:'level_20', name:'Master of the Realm', current: playerLevel, target: 20 },
   ];
 }
+// Near-miss progress nudges — the Expansion Research idea of the same name ("2 more kills to
+// Battle-Hardened"). Checked right alongside the unlock pass below, off the exact same defs, so
+// it's always reacting to the same live numbers rather than a second, possibly-stale read.
+const ACHIEVEMENT_NUDGE_THRESHOLD = 2; // nudge once an achievement is this close (or closer)
 function checkAchievementUnlocks(){
   // The very first time this ever runs on this device, silently seed anything already true (an
   // existing character picking this feature up for the first time, possibly already well past
-  // several thresholds) rather than dumping a long, backdated "Achievement unlocked" list on the
-  // next ordinary kill — only a genuine future crossing toasts from here on.
+  // several thresholds) rather than dumping a long, backdated "Achievement unlocked" list (or a
+  // surprise near-miss nudge) on the next ordinary kill — only a genuine future crossing or
+  // near-miss reacts from here on.
   const isFirstCheck = localStorage.getItem(ACHIEVEMENT_SEED_DONE_KEY) !== 'true';
   const unlocked = getUnlockedAchievements();
+  const defs = getAchievementDefs();
   const newlyEarned = [];
-  getAchievementDefs().forEach(a => {
+  defs.forEach(a => {
     if(unlocked[a.id] || a.current < a.target) return;
     unlocked[a.id] = true;
     if(!isFirstCheck) newlyEarned.push(a.name);
   });
   localStorage.setItem(ACHIEVEMENT_UNLOCKED_KEY, JSON.stringify(unlocked));
   if(isFirstCheck) localStorage.setItem(ACHIEVEMENT_SEED_DONE_KEY, 'true');
-  if(newlyEarned.length) showToast(`Achievement unlocked: ${newlyEarned.join(', ')}!`);
+  if(newlyEarned.length){ showToast(`Achievement unlocked: ${newlyEarned.join(', ')}!`); return; }
+  if(isFirstCheck) return; // no near-miss nudges during the silent seed pass either
+  // Only the single closest qualifying near-miss, so getting close to several at once (e.g. a
+  // kill that happens to also nudge a quest milestone) never piles up more than one toast.
+  let closest = null;
+  defs.forEach(a => {
+    if(unlocked[a.id]) return;
+    const remaining = a.target - a.current;
+    if(remaining <= 0 || remaining > ACHIEVEMENT_NUDGE_THRESHOLD) return;
+    if(!closest || remaining < closest.remaining) closest = { name:a.name, remaining };
+  });
+  if(closest) showToast(`${closest.remaining} more to go for "${closest.name}"!`);
 }
 const FOOD_NAME = "Food";
 const FOOD_WEIGHT = 1;    // weight per unit of Food, counts toward CARRY_CAPACITY

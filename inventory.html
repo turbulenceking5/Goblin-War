@@ -126,6 +126,11 @@
       <b id="weight-value">0 / 0</b>
     </div>
 
+    <div class="weight-card">
+      <span>Scrap &middot; spend it on gear repairs at the Blacksmith</span>
+      <b id="scrap-value">0</b>
+    </div>
+
     <div class="weight-card meter-card">
       <span>Hunger</span>
       <b id="hunger-value">100 / 100</b>
@@ -150,6 +155,33 @@ const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const DURABILITY_KEY = "goblinwar_durability";
+// Mirrors index.html's own copy exactly (duplicated per the no-modules convention) — see
+// "Make raw Str/Agi/Int stats mechanically matter" there. Only Str is needed here since this
+// page's own combat-bonus preview only shows damage/defense.
+const STATS_KEY = "goblinwar_stats";
+const STR_DAMAGE_PER_POINT = 0.5;
+const BERSERKER_TOTEM_MAX_BONUS = 6; // mirrors index.html's own constant — see "Build-defining accessory variants"
+const HEALTH_KEY = "goblinwar_health";
+const MAXHEALTH_KEY = "goblinwar_maxHealth";
+function getStats(){ try{ return Object.assign({str:0,agi:0,int:0}, JSON.parse(localStorage.getItem(STATS_KEY))); }catch(e){ return {str:0,agi:0,int:0}; } }
+// Data Saver — device-local, not part of the save, see index.html's own isDataSaverOn for the
+// full reasoning. Here it just skips ITEM_ICONS in favor of the generic SVG already built for it.
+const DATA_SAVER_KEY = "goblinwar_dataSaver";
+function isDataSaverOn(){ return localStorage.getItem(DATA_SAVER_KEY) === 'true'; }
+// Gear salvage/scrap — the Expansion Research idea of the same name: a plain integer count,
+// spent at the Blacksmith toward gear repairs (see index.html's "Scrap & Repair"). Gives surplus
+// low-tier gear a use instead of being dropped for nothing.
+const SCRAP_KEY = "goblinwar_scrap";
+function getScrap(){ return parseInt(localStorage.getItem(SCRAP_KEY) || "0", 10); }
+function setScrap(n){ localStorage.setItem(SCRAP_KEY, String(Math.max(0, n))); }
+// Only the 6 tiered Equipment-ladder slots (DURABILITY_SLOTS) are salvageable — Accessories have
+// no Bronze/Iron/Steel/Mithril ladder to scrap from. Yield scales with the tier the item's own
+// name carries, same "read the tier off the name" simplicity already used elsewhere for these.
+const SCRAP_YIELD_BY_TIER_PREFIX = { "Bronze": 1, "Iron": 2, "Steel": 4, "Mithril": 8 };
+function scrapYieldFor(itemName){
+  const prefix = Object.keys(SCRAP_YIELD_BY_TIER_PREFIX).find(p => itemName.startsWith(p));
+  return prefix ? SCRAP_YIELD_BY_TIER_PREFIX[prefix] : 1;
+}
 const CARRY_CAPACITY = 40;
 const SKILLS_KEY = "goblinwar_skills";
 const HUNGER_KEY = "goblinwar_hunger";
@@ -183,6 +215,7 @@ const ITEM_STATS = {
   "Iron Sword": { slot:"weapon", dmg:4, def:0 },
   "Steel Sword": { slot:"weapon", dmg:8, def:0 },
   "Mithril Sword": { slot:"weapon", dmg:14, def:0 },
+  "Runic Sword": { slot:"weapon", dmg:20, def:0 }, // a 5th gear tier above Mithril — boss drop only, see index.html's endCombat
   "Bronze Shield": { slot:"shield", dmg:0, def:1 },
   "Iron Shield": { slot:"shield", dmg:0, def:3 },
   "Steel Shield": { slot:"shield", dmg:0, def:6 },
@@ -208,9 +241,12 @@ const ITEM_STATS = {
   "Amulet of the Wilds": { slot:"amulet", dmg:0, def:2 },
   "Clasp of the Wayfarer": { slot:"cloak", dmg:0, def:1 },
   "Warbelt": { slot:"belt", dmg:2, def:0 },
+  "Berserker's Totem": { slot:"belt", dmg:0, def:0 }, // dynamic, health-scaled bonus — see index.html's getBerserkerBonus
   "Iron Bracers": { slot:"bracers", dmg:0, def:1 },
   "Silver Earring": { slot:"earring", dmg:1, def:0 },
   "Sigil Charm": { slot:"charm", dmg:1, def:0 },
+  "Dwarven Clan-Ring": { slot:"ring_left", dmg:2, def:0 },
+  "Ork War-Totem": { slot:"belt", dmg:3, def:0 },
 };
 // Mirrors index.html's MARKET_ITEMS icon field for the items that have real generated art —
 // most entries have none yet and fall back to the generic item-icon SVG (see render() below).
@@ -303,6 +339,7 @@ function render(){
   const capacity = getCarryCapacity();
   document.getElementById('weight-value').textContent = `${carriedWeight} / ${capacity}`;
   weightCard.classList.toggle('over', carriedWeight > capacity);
+  document.getElementById('scrap-value').textContent = getScrap();
   document.getElementById('hunger-value').textContent = `${playerHunger} / 100`;
   document.getElementById('thirst-value').textContent = `${playerThirst} / 100`;
 
@@ -321,9 +358,12 @@ function render(){
       const actionHTML = stats
         ? `<button class="equip-btn ${isEquipped ? 'is-equipped' : ''}" data-equip-name="${it.name}" data-equip-slot="${stats.slot}">${isEquipped ? 'Unequip' : 'Equip'}</button>`
         : '';
+      const salvageHTML = (stats && DURABILITY_SLOTS.includes(stats.slot) && !isEquipped)
+        ? `<button class="drop-btn" data-salvage-name="${it.name}">Salvage</button>`
+        : '';
       return `
       <div class="item-row ${isEquipped ? 'equipped' : ''}">
-        ${ITEM_ICONS[it.name] ? `<img class="item-icon item-icon-img" src="${ITEM_ICONS[it.name]}" alt="${it.name}">` : `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        ${(ITEM_ICONS[it.name] && !isDataSaverOn()) ? `<img class="item-icon item-icon-img" src="${ITEM_ICONS[it.name]}" alt="${it.name}">` : `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <rect x="4" y="8" width="16" height="12" rx="1.5"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>
         </svg>`}
         <div class="item-info">
@@ -335,6 +375,7 @@ function render(){
         <span class="item-qty">&times;${it.qty}</span>
         ${it.value ? `<span class="item-value">${it.value}g each</span>` : ''}
         ${actionHTML}
+        ${salvageHTML}
         <button class="drop-btn" data-drop-name="${it.name}">Drop</button>
       </div>
     `;
@@ -353,6 +394,16 @@ function render(){
         render();
       });
     });
+    list.querySelectorAll('[data-salvage-name]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const name = btn.dataset.salvageName;
+        const yield_ = scrapYieldFor(name);
+        consumeItem(name, 1);
+        setScrap(getScrap() + yield_);
+        showToast(`Salvaged 1 ${name} for ${yield_} Scrap.`);
+        render();
+      });
+    });
     list.querySelectorAll('[data-equip-name]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const name = btn.dataset.equipName, slot = btn.dataset.equipSlot;
@@ -365,10 +416,14 @@ function render(){
     });
   }
 
-  // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
-  // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/
-  // getEquipDefenseBonus), which is exactly what this line is meant to preview.
-  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.dmg * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
+  // Includes Power Strike/Iron Skin, raw Strength, and Berserker's Totem's own dynamic
+  // health-scaled bonus alongside gear — omitting them would under-report the same bonus
+  // combatAttack() actually applies (see index.html's getEquipDamageBonus/getEquipDefenseBonus/
+  // getBerserkerBonus), which is exactly what this line is meant to preview.
+  const curHealth = parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10);
+  const curMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10);
+  const berserkerBonus = equipped.belt === "Berserker's Totem" ? Math.round((1 - curHealth/curMaxHealth) * BERSERKER_TOTEM_MAX_BONUS) : 0;
+  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.dmg * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0) + Math.round(getStats().str * STR_DAMAGE_PER_POINT) + berserkerBonus;
   const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.def * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
   document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
     ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`
@@ -376,6 +431,16 @@ function render(){
 }
 
 render();
+</script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
+}
 </script>
 </body>
 </html>

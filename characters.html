@@ -86,6 +86,26 @@
     display:inline-block; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px;
     color:var(--bad); border:1px solid var(--bad); border-radius:5px; padding:2px 7px; margin-left:8px;
   }
+
+  /* Themed confirm modal — the Expansion Research idea of the same name: replaces the native
+     browser confirm() dialog (breaks the pixel-art theme, per the project owner) with one that
+     matches it, reusing this page's own .btn/.btn-secondary/.btn-danger classes. */
+  #confirm-modal{
+    position:fixed; inset:0; z-index:45; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #confirm-modal.show{ display:flex; }
+  #confirm-card{
+    max-width:340px; width:100%;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #confirm-message{ font-size:14px; color:var(--parchment); line-height:1.5; margin-bottom:18px; text-align:center; }
+  #confirm-actions{ display:flex; gap:10px; }
+  #confirm-actions .btn-danger{ flex:1; }
 </style>
 </head>
 <body>
@@ -120,6 +140,16 @@
       </div>
     </div>
   </main>
+
+  <div id="confirm-modal">
+    <div id="confirm-card">
+      <div id="confirm-message"></div>
+      <div id="confirm-actions">
+        <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+        <button class="btn-danger" id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
@@ -753,7 +783,12 @@ function escapeHTML(str){
 // original, pre-difficulty-setting behavior exactly — see index.html's PERMADEATH_* consts — so a
 // character predating this field (or created via a path that never passes one) plays exactly
 // as it always did.
-function freshCharacterData(name, burgId, difficulty, mapSeed){
+// isNewCharacter is only ever true from the actual "Create New Character" insert below — the
+// applyCharacterData load-merge call site (freshCharacterData(data.name)) always omits it, so an
+// existing save's missing tutorialSeen field defaults to "true" (already seen) rather than
+// showing a first-run walkthrough to a character who's clearly already been playing. See
+// index.html's maybeShowTutorial/TUTORIAL_SEEN_KEY.
+function freshCharacterData(name, burgId, difficulty, mapSeed, isNewCharacter){
   const diff = Object.assign({ permadeathPlayer:false, permadeathCompanions:true, permadeathMercenaries:true, permadeathOldAge:false }, difficulty);
   return {
     name,
@@ -777,9 +812,9 @@ function freshCharacterData(name, burgId, difficulty, mapSeed){
     visitedBurgs: "[]", defeatedVariants: "{}", party: "[]", mercenaries: "[]", companionLoyalty: "{}", reputation: "{}",
     territoryControl: "{}", relations: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", recentEvents: "[]",
-    warStarts: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
+    warStarts: "{}", warHistory: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
     fieldBattles: "[]", fieldBattleCooldowns: "{}",
-    companionQuestsCompleted: "[]", loan: "null",
+    companionQuestsCompleted: "[]", companionHomeStatus: "{}", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", tooltipTourSeen: isNewCharacter ? "false" : "true", achievementsUnlocked: "{}", boardMonthSeen: "", landmarksClaimed: "[]", allyEquipped: "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -843,13 +878,32 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_siegeDefenseCooldowns", merged.siegeDefenseCooldowns);
   localStorage.setItem("goblinwar_recentEvents", merged.recentEvents);
   localStorage.setItem("goblinwar_warStarts", merged.warStarts);
+  localStorage.setItem("goblinwar_warHistory", merged.warHistory);
   localStorage.setItem("goblinwar_warCooldowns", merged.warCooldowns);
   localStorage.setItem("goblinwar_tribute", merged.tribute);
   localStorage.setItem("goblinwar_armies", merged.armies);
   localStorage.setItem("goblinwar_fieldBattles", merged.fieldBattles);
   localStorage.setItem("goblinwar_fieldBattleCooldowns", merged.fieldBattleCooldowns);
   localStorage.setItem("goblinwar_companionQuestsCompleted", merged.companionQuestsCompleted);
+  localStorage.setItem("goblinwar_companionHomeStatus", merged.companionHomeStatus);
   localStorage.setItem("goblinwar_loan", merged.loan);
+  localStorage.setItem("goblinwar_vault", merged.vault);
+  localStorage.setItem("goblinwar_fealty", merged.fealty);
+  localStorage.setItem("goblinwar_espionageCooldowns", merged.espionageCooldowns);
+  localStorage.setItem("goblinwar_investmentCooldowns", merged.investmentCooldowns);
+  localStorage.setItem("goblinwar_scrap", merged.scrap);
+  localStorage.setItem("goblinwar_renownTitle", merged.renownTitle);
+  localStorage.setItem("goblinwar_figureProgress", merged.figureProgress);
+  localStorage.setItem("goblinwar_tavernRegularProgress", merged.tavernRegularProgress);
+  localStorage.setItem("goblinwar_templeBlessing", merged.templeBlessing);
+  localStorage.setItem("goblinwar_caravanEscort", merged.caravanEscort);
+  localStorage.setItem("goblinwar_cartographerScouted", merged.cartographerScouted);
+  localStorage.setItem("goblinwar_tutorialSeen", merged.tutorialSeen);
+  localStorage.setItem("goblinwar_tooltipTourSeen", merged.tooltipTourSeen);
+  localStorage.setItem("goblinwar_achievementsUnlocked", merged.achievementsUnlocked);
+  localStorage.setItem("goblinwar_boardMonthSeen", merged.boardMonthSeen);
+  localStorage.setItem("goblinwar_landmarksClaimed", merged.landmarksClaimed);
+  localStorage.setItem("goblinwar_allyEquipped", merged.allyEquipped);
 }
 
 function targetPage(){
@@ -905,10 +959,32 @@ document.getElementById('confirm-create-btn').addEventListener('click', async ()
     permadeathOldAge: document.getElementById('diff-oldage').checked,
   };
   const { data: row, error } = await sb.from('characters')
-    .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId, difficulty, previewSeed) })
+    .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId, difficulty, previewSeed, true) })
     .select().single();
   if(error){ errorEl.textContent = error.message; return; }
   playCharacter(row);
+});
+
+// Themed confirm modal — the Expansion Research idea of the same name. showConfirm(message,
+// onConfirm) is the async-callback equivalent of the native `if(!confirm(message)) return; ...`
+// pattern it replaces — Delete's own click handler below wraps its own (async, for its own await)
+// "rest of the function" in the callback instead. Only one at a time; Cancel (or a second call)
+// just discards whatever was pending.
+let confirmResolve = null;
+function showConfirm(message, onConfirm){
+  document.getElementById('confirm-message').textContent = message;
+  confirmResolve = onConfirm;
+  document.getElementById('confirm-modal').classList.add('show');
+}
+document.getElementById('confirm-cancel').addEventListener('click', ()=>{
+  confirmResolve = null;
+  document.getElementById('confirm-modal').classList.remove('show');
+});
+document.getElementById('confirm-ok').addEventListener('click', ()=>{
+  document.getElementById('confirm-modal').classList.remove('show');
+  const fn = confirmResolve;
+  confirmResolve = null;
+  if(fn) fn();
 });
 
 async function loadCharacters(){
@@ -948,16 +1024,17 @@ async function loadCharacters(){
     });
   });
   listEl.querySelectorAll('[data-delete]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
+    btn.addEventListener('click', ()=>{
       const row = rows.find(r => r.id === btn.dataset.delete);
       if(!row) return;
-      if(!confirm(`Delete ${row.name}? This cannot be undone.`)) return;
-      const { error } = await sb.from('characters').delete().eq('id', row.id);
-      if(error){ alert(`Could not delete: ${error.message}`); return; }
-      if(localStorage.getItem('goblinwar_activeCharacterId') === row.id){
-        localStorage.removeItem('goblinwar_activeCharacterId');
-      }
-      loadCharacters();
+      showConfirm(`Delete ${row.name}? This cannot be undone.`, async ()=>{
+        const { error } = await sb.from('characters').delete().eq('id', row.id);
+        if(error){ alert(`Could not delete: ${error.message}`); return; }
+        if(localStorage.getItem('goblinwar_activeCharacterId') === row.id){
+          localStorage.removeItem('goblinwar_activeCharacterId');
+        }
+        loadCharacters();
+      });
     });
   });
 }
@@ -992,6 +1069,16 @@ authGateReady.then(s=>{
   populateStartCitySelect(worldForSeed(previewSeed));
   loadCharacters();
 });
+</script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
+}
 </script>
 </body>
 </html>

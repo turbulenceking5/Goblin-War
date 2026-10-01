@@ -1025,5 +1025,196 @@
     "changes": [
       "Fixed the supply-cut marker showing up on settlements that were never actually at war — it was triggering purely from how the map's territory happened to be laid out, not from an actual enemy blocking the way. A settlement now only reads as cut off when a real at-war enemy sits between it and its kingdom's capital."
     ]
+  },
+  {
+    "id": 138,
+    "date": "2026-09-30",
+    "changes": [
+      "Every terrain type now affects road/camp ambushes, not just Swamp and Hills: Forest gives a chance to shake off an enemy's bleed/stun before it takes hold, Plains gives Cleave more room to connect, Desert makes Crushing Blow's stagger last longer, Mountains makes War Cry hit harder, Snow makes Reckless Swing's bleed last longer, and Coast helps you recover from Adrenaline Rush's fatigue faster."
+    ]
+  },
+  {
+    "id": 139,
+    "date": "2026-10-01",
+    "changes": [
+      "Defend the Walls now shows a real illustrated battlefield behind the fight instead of a flat background — a besieged wall under attack, matching whichever side is actually besieging you and whether it's day or night."
+    ]
+  },
+  {
+    "id": 140,
+    "date": "2026-10-01",
+    "changes": [
+      "Added two Tavern Regulars — Old Bram and Mira the Barmaid — at every Tavern, each with a short conversation that unfolds one new line per day you visit."
+    ]
+  },
+  {
+    "id": 141,
+    "date": "2026-10-01",
+    "changes": [
+      "A permadeath run now leaves a grave behind at your last settlement. Play a different character on the same account and you can find it there to pay your respects for a bit of gold."
+    ]
+  },
+  {
+    "id": 142,
+    "date": "2026-10-01",
+    "changes": [
+      "The Temple now does something: once a kingdom trusts you enough, the clergy will bless you with either steady health/stamina regeneration or fewer ambushes for 5 days."
+    ]
+  },
+  {
+    "id": 143,
+    "date": "2026-10-01",
+    "changes": [
+      "Tapping a destination on the map can now offer a Shortcut alongside the normal route — noticeably faster, but a riskier road."
+    ]
+  },
+  {
+    "id": 144,
+    "date": "2026-10-01",
+    "changes": [
+      "The Guard House can now hire you a Caravan Escort — armed guards for your very next road trip, cutting the odds of an ambush along the way."
+    ]
+  },
+  {
+    "id": 145,
+    "date": "2026-10-01",
+    "changes": [
+      "The Marketplace can now hire a Cartographer, a one-time fee that draws up a Scout's Report on the nearby settlements — which ones have a quest posted, a notable figure, or someone looking to join your cause."
+    ]
+  },
+  {
+    "id": 146,
+    "date": "2026-10-01",
+    "changes": [
+      "Brand-new characters now get a quick welcome walkthrough covering the map, travel, and combat basics the first time they load in."
+    ]
+  },
+  {
+    "id": 147,
+    "date": "2026-10-01",
+    "changes": [
+      "The installed app (Add to Home Screen) can now work with a flaky or dropped connection — pages and art you've already loaded stay available offline."
+    ]
+  },
+  {
+    "id": 148,
+    "date": "2026-10-01",
+    "changes": [
+      "Added a Data Saver option in Settings — switches equipment icons and battle backdrops to simple icons to cut down on data usage."
+    ]
+  },
+  {
+    "id": 149,
+    "date": "2026-10-01",
+    "changes": [
+      "Combat got a lot more tactile: floating damage numbers and a hit-shake on every blow landed or taken.",
+      "Hitting a staggered enemy now deals bonus damage — and so does your party, not just you.",
+      "You can now tap an ally mid-fight to send them after a different enemy than your own target.",
+      "Added a Guard action — brace instead of attacking to take half damage this round and recover some stamina.",
+      "Added a Protect option (in the Specials menu) to shield one ally — the next hit meant for them lands on you instead.",
+      "Goblin/Ork Chieftains, Warlords, Shamans, and Dire Bears now specifically target whoever's weakest, player included, instead of attacking at random.",
+      "Finishing off a bleeding or staggered enemy now has a better chance at extra loot."
+    ]
+  },
+  {
+    "id": 150,
+    "date": "2026-10-01",
+    "changes": [
+      "Waiting at a spot on the map can now get you ambushed too, same as traveling or camping through the same hours — it was the one risk-free way to pass time before.",
+      "The Marketplace/Blacksmith now discount armor in Mountain settlements and weapons in Forest settlements, alongside the existing port/village discounts.",
+      "Added off-road landmarks — Old Ruins and Abandoned Campsites scattered away from the roads, each with a one-time find waiting at it.",
+      "Added lightweight weather — Clear, Rain, Fog, and Storm now pass through, visibly tinting the map and quietly affecting travel time and ambush risk."
+    ]
+  },
+  {
+    "id": 151,
+    "date": "2026-10-01",
+    "changes": [
+      "Strength, Agility, and Intelligence now each grant a small direct combat bonus of their own — damage, dodge chance, and gold found, respectively — on top of what they already unlocked.",
+      "Power Strike and Iron Skin are now mutually exclusive perks — committing to one locks out the other.",
+      "Companions and mercenaries can now be handed a sword from your own inventory in Party — it's not just your own gear that matters in a fight anymore.",
+      "The Steel Sword now has a chance to cause bleeding on hit.",
+      "Ork Warlords now have a chance to drop a Runic Sword — a new top-tier weapon above Mithril, found only in battle.",
+      "Added the Berserker's Totem, a belt accessory whose damage bonus grows the lower your health drops."
+    ]
+  },
+  {
+    "id": 152,
+    "date": "2026-10-01",
+    "changes": [
+      "A Notable Figure's kill-quest now tracks the war in real time — accept it during peace and it'll shift to Drive Off the Raiders if war breaks out before you turn it in, and back again if peace holds.",
+      "Drive Off the Raiders now names the specific enemy kingdom behind the raids, and only a kill against that kingdom's own raiders completes it — ordinary ambushes, not just a siege's Defend the Walls, can now satisfy it too."
+    ]
+  },
+  {
+    "id": 153,
+    "date": "2026-10-01",
+    "changes": [
+      "Added the Chronicle of the Realm — a new Settings page with the real history of your world: settlements captured, sieges repelled, wars ending in peace, and more, no longer lost once they scrolled out of Tavern Talk's rumours."
+    ]
+  },
+  {
+    "id": 154,
+    "date": "2026-10-01",
+    "changes": [
+      "Recruited companions now react to news from home — a companion's loyalty takes a hit if their home city falls, a bigger one if their whole kingdom is wiped out, and recovers some if their home is reclaimed."
+    ]
+  },
+  {
+    "id": 155,
+    "date": "2026-10-01",
+    "changes": [
+      "Abandoning a quest now has a real cost — reputation with the giver's kingdom for a Board or Notable Figure quest, or a companion's own loyalty for one of their personal favors — instead of a free do-over."
+    ]
+  },
+  {
+    "id": 156,
+    "date": "2026-10-01",
+    "changes": [
+      "Brand-new characters now get a quick guided tour of the HUD and toolbar right after the welcome screen — a spotlight and a short tip on your vitals, the toolbar icons, Find Me, and Make Camp, skippable at any time."
+    ]
+  },
+  {
+    "id": 157,
+    "date": "2026-10-01",
+    "changes": [
+      "Leveling up now gets its own moment — a popup showing your new level and exactly what you gained, on top of the usual toast.",
+      "The Skills toolbar icon now shows a badge when you have an unspent skill point waiting."
+    ]
+  },
+  {
+    "id": 158,
+    "date": "2026-10-01",
+    "changes": [
+      "Earning an achievement (Capitals visited, every enemy variant beaten, kill/quest/level milestones) now shows a toast the moment it happens, instead of only ever showing up next time you opened the Achievements page."
+    ]
+  },
+  {
+    "id": 159,
+    "date": "2026-10-01",
+    "changes": [
+      "Added near-miss nudges for achievements — getting within 2 of a milestone (\"2 more to go for Battle-Hardened!\") now gets a quick heads-up."
+    ]
+  },
+  {
+    "id": 160,
+    "date": "2026-10-01",
+    "changes": [
+      "Replaced every browser confirmation popup (Dismiss/Part Ways in Party, Abandon in Quests, Delete This Character, deleting a character) with a themed in-game one that actually matches the art style."
+    ]
+  },
+  {
+    "id": 161,
+    "date": "2026-10-01",
+    "changes": [
+      "Added a \"While You Were Away\" recap after a week passes — every notable thing that happened (wars, peace treaties, routed armies, a kingdom falling) now shows in one list instead of a single truncated line, plus a note when Quest Boards refresh for the month."
+    ]
+  },
+  {
+    "id": 162,
+    "date": "2026-10-01",
+    "changes": [
+      "Added haptic feedback on Android for key moments — every hit in combat, an ambush triggering, leveling up, and unlocking an achievement. (iOS doesn't support this yet, even installed as an app — that's an Apple limitation, not something we can turn on.)"
+    ]
   }
 ]

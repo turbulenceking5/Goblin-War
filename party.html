@@ -74,6 +74,14 @@
     border:1.5px solid #a9433a; background:rgba(160,60,50,.15); color:#e2857f; font-weight:700;
   }
   .dismiss-btn:active{ transform:scale(.96); }
+  /* Let companions/mercenaries equip gear — a compact weapon-slot picker per ally row. */
+  .ally-weapon-row{ margin-top:8px; }
+  .ally-weapon-select{
+    width:100%; font-family:'EB Garamond', serif; font-size:12.5px; color:var(--parchment);
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:8px;
+    padding:6px 8px;
+  }
+  .ally-weapon-note{ font-size:11px; color:#a9926a; margin-top:8px; font-style:italic; }
 
   #toast{
     position:fixed; top:calc(16px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
@@ -84,6 +92,33 @@
     max-width:80vw; text-align:center;
   }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  /* Themed confirm modal — the Expansion Research idea of the same name: replaces the native
+     browser confirm() dialog (breaks the pixel-art theme, per the project owner) with one that
+     matches it. Self-contained (own button styling, not .btn/.btn-danger) since this page has no
+     such generic classes of its own — see showConfirm below. */
+  #confirm-modal{
+    position:fixed; inset:0; z-index:45; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #confirm-modal.show{ display:flex; }
+  #confirm-card{
+    max-width:340px; width:100%;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #confirm-message{ font-size:14px; color:var(--parchment); line-height:1.5; margin-bottom:18px; text-align:center; }
+  #confirm-actions{ display:flex; gap:10px; }
+  #confirm-actions button{
+    flex:1; font-family:'Cinzel', serif; font-size:12.5px; letter-spacing:.5px;
+    border-radius:8px; padding:10px 14px; cursor:pointer;
+  }
+  #confirm-cancel{ background:transparent; color:var(--parchment); border:1.5px solid rgba(209,164,69,.4); }
+  #confirm-ok{ background:transparent; color:#e2857f; border:1.5px solid #a9433a; font-weight:700; }
+  #confirm-cancel:active, #confirm-ok:active{ transform:scale(.97); }
 </style>
 </head>
 <body>
@@ -101,6 +136,16 @@
     </div>
   </main>
   <div id="toast"></div>
+
+  <div id="confirm-modal">
+    <div id="confirm-card">
+      <div id="confirm-message"></div>
+      <div id="confirm-actions">
+        <button id="confirm-cancel">Cancel</button>
+        <button id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
@@ -170,6 +215,48 @@ function getMercenaries(){
 }
 function saveMercenaries(list){ localStorage.setItem(MERCENARY_KEY, JSON.stringify(list)); }
 
+// Let companions/mercenaries equip gear — the Expansion Research idea of the same name. Mirrors
+// index.html's own ALLY_EQUIPPED_KEY/getAllyEquipped/setAllyWeapon/getAllyWeaponBonus exactly
+// (duplicated per the no-modules convention) — see index.html's "Make raw Str/Agi/Int stats
+// mechanically matter" neighbor comment for the full reasoning, including why this is
+// deliberately weapon-slot-only and deliberately non-consuming (equipping doesn't reduce the
+// item's own carried quantity, same convention the player's own gear already follows).
+const INV_KEY = "goblinwar_inventory";
+let playerInventory = [];
+try{ playerInventory = JSON.parse(localStorage.getItem(INV_KEY)) || []; }catch(e){ playerInventory = []; }
+function getItem(name){ return playerInventory.find(it => it.name === name); }
+// Only the weapon-slot tier ladder — the one slot an ally can equip — not the full MARKET_ITEMS
+// catalog this page otherwise has no use for.
+const ALLY_WEAPONS = {
+  "Bronze Sword": 2, "Iron Sword": 4, "Steel Sword": 8, "Mithril Sword": 14,
+};
+const ALLY_EQUIPPED_KEY = "goblinwar_allyEquipped"; // {allyId: itemName}
+function getAllyEquipped(){ try{ return JSON.parse(localStorage.getItem(ALLY_EQUIPPED_KEY)) || {}; }catch(e){ return {}; } }
+function setAllyWeapon(allyId, itemName){
+  const map = getAllyEquipped();
+  if(itemName) map[allyId] = itemName; else delete map[allyId];
+  localStorage.setItem(ALLY_EQUIPPED_KEY, JSON.stringify(map));
+}
+// A small inline control shared by both companion and mercenary rows: a dropdown of carried
+// weapon-slot items (plus "None") and an Equip button, reflecting whatever's currently equipped.
+function buildAllyWeaponHTML(allyId){
+  const equipped = getAllyEquipped()[allyId] || '';
+  const carried = Object.keys(ALLY_WEAPONS).filter(name => getItem(name) && getItem(name).qty > 0);
+  if(!carried.length && !equipped){
+    return `<div class="ally-weapon-note">No carried weapons to equip — buy one at a Marketplace/Blacksmith.</div>`;
+  }
+  const options = [`<option value="">None</option>`]
+    .concat(carried.map(name => `<option value="${name}" ${name===equipped?'selected':''}>${name} (+${ALLY_WEAPONS[name]} dmg)</option>`));
+  // The currently-equipped item might not be in `carried` anymore (fully consumed/sold since) —
+  // still show it selected so the dropdown doesn't silently lie about what's equipped.
+  if(equipped && !carried.includes(equipped)) options.push(`<option value="${equipped}" selected>${equipped} (equipped)</option>`);
+  return `
+    <div class="ally-weapon-row">
+      <select class="ally-weapon-select" data-ally-weapon="${allyId}">${options.join('')}</select>
+    </div>
+  `;
+}
+
 let toastTimer;
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -178,15 +265,38 @@ function showToast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
 }
+
+// Themed confirm modal — the Expansion Research idea of the same name. showConfirm(message,
+// onConfirm) is the async-callback equivalent of the native `if(!confirm(message)) return; ...`
+// pattern it replaces — every call site below wraps its own "rest of the function" in the
+// callback instead. Only one at a time; Cancel (or a second call) just discards whatever was
+// pending.
+let confirmResolve = null;
+function showConfirm(message, onConfirm){
+  document.getElementById('confirm-message').textContent = message;
+  confirmResolve = onConfirm;
+  document.getElementById('confirm-modal').classList.add('show');
+}
+document.getElementById('confirm-cancel').addEventListener('click', ()=>{
+  confirmResolve = null;
+  document.getElementById('confirm-modal').classList.remove('show');
+});
+document.getElementById('confirm-ok').addEventListener('click', ()=>{
+  document.getElementById('confirm-modal').classList.remove('show');
+  const fn = confirmResolve;
+  confirmResolve = null;
+  if(fn) fn();
+});
 function dismissMercenary(instanceId){
   const mercs = getMercenaries();
   const m = mercs.find(x => x.instanceId === instanceId);
   if(!m) return;
   const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
-  if(!confirm(`Dismiss ${type ? type.title : 'this mercenary'}? This cannot be undone.`)) return;
-  saveMercenaries(mercs.filter(x => x.instanceId !== instanceId));
-  showToast('Mercenary dismissed.');
-  render();
+  showConfirm(`Dismiss ${type ? type.title : 'this mercenary'}? This cannot be undone.`, ()=>{
+    saveMercenaries(mercs.filter(x => x.instanceId !== instanceId));
+    showToast('Mercenary dismissed.');
+    render();
+  });
 }
 
 // A companion isn't a paid transaction like a mercenary — "Part Ways" rather than "Dismiss" —
@@ -195,15 +305,16 @@ function dismissMercenary(instanceId){
 // showCompanionPanel).
 function partWithCompanion(id){
   const companion = COMPANIONS.find(c => c.id === id);
-  if(!confirm(`Part ways with ${companion ? companion.name : 'this companion'}?`)) return;
-  saveParty(getParty().filter(x => x !== id));
-  // Clears their loyalty entry too — tidiness only, since index.html's recruit handler always
-  // resets loyalty to 50 on a fresh recruit regardless of what's left over here.
-  const loyalty = getCompanionLoyalty();
-  delete loyalty[id];
-  localStorage.setItem(LOYALTY_KEY, JSON.stringify(loyalty));
-  showToast('You part ways.');
-  render();
+  showConfirm(`Part ways with ${companion ? companion.name : 'this companion'}?`, ()=>{
+    saveParty(getParty().filter(x => x !== id));
+    // Clears their loyalty entry too — tidiness only, since index.html's recruit handler always
+    // resets loyalty to 50 on a fresh recruit regardless of what's left over here.
+    const loyalty = getCompanionLoyalty();
+    delete loyalty[id];
+    localStorage.setItem(LOYALTY_KEY, JSON.stringify(loyalty));
+    showToast('You part ways.');
+    render();
+  });
 }
 
 function portraitMarkup(c){
@@ -238,6 +349,7 @@ function render(){
         ${c.blurb ? `<div class="companion-blurb">${c.blurb}</div>` : ''}
         <div class="loyalty-row"><span>Loyalty</span><span>${loyaltyLabel(loy)}</span></div>
         <div class="loyalty-track"><div class="loyalty-fill" style="width:${loy}%"></div></div>
+        ${buildAllyWeaponHTML(c.id)}
         <button class="dismiss-btn" data-part="${c.id}">Part Ways</button>
       </div>
     </div>
@@ -255,6 +367,7 @@ function render(){
           <div class="companion-name">${type.title}</div>
           <div class="companion-blurb">${type.blurb}</div>
           <div class="companion-upkeep">${type.upkeep}g/day upkeep</div>
+          ${buildAllyWeaponHTML(m.instanceId)}
           <button class="dismiss-btn" data-dismiss="${m.instanceId}">Dismiss</button>
         </div>
       </div>
@@ -267,9 +380,28 @@ function render(){
   list.querySelectorAll('[data-part]').forEach(btn => {
     btn.addEventListener('click', ()=> partWithCompanion(btn.dataset.part));
   });
+  list.querySelectorAll('[data-ally-weapon]').forEach(sel => {
+    sel.addEventListener('change', ()=>{
+      const allyId = sel.dataset.allyWeapon;
+      const name = sel.value;
+      setAllyWeapon(allyId, name || null);
+      showToast(name ? `Equipped ${name}.` : `Unequipped.`);
+      render();
+    });
+  });
 }
 
 render();
+</script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
+}
 </script>
 </body>
 </html>

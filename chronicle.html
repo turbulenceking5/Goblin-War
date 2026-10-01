@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Goblin War">
 <meta name="theme-color" content="#0d1220">
-<title>Goblin War — Change Log</title>
+<title>Goblin War — Chronicle of the Realm</title>
 <link rel="manifest" href="manifest.json?v=2">
 <link rel="apple-touch-icon" href="assets/icons/icon-180.png?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -34,60 +34,75 @@
   #back-btn:active{ transform:scale(.96); }
   main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
   .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:16px; text-align:center; }
-  .changelog-entry{
+  .chronicle-entry{
     background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
-    padding:12px 14px; margin-bottom:10px;
+    padding:12px 14px; margin-bottom:10px; display:flex; gap:12px; align-items:flex-start;
   }
-  .changelog-date{ font-family:'Cinzel', serif; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin-bottom:6px; }
-  .changelog-entry ul{ margin:0; padding-left:18px; }
-  .changelog-entry li{ font-size:14.5px; color:var(--parchment); margin-bottom:4px; line-height:1.4; }
+  .chronicle-day{
+    flex:none; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px; color:#a9926a;
+    white-space:nowrap; padding-top:1px;
+  }
+  .chronicle-text{ font-size:14.5px; color:var(--parchment); line-height:1.4; }
+  .chronicle-empty{ text-align:center; color:#a9926a; font-size:13px; padding:30px 10px; }
 </style>
 </head>
 <body>
   <header>
-    <h1>CHANGE LOG</h1>
+    <h1>CHRONICLE OF THE REALM</h1>
     <button id="back-btn" onclick="location.href='settings.html?_='+Date.now()"><img src="assets/ui/sword-icon.png" alt=""> Back to Settings</button>
   </header>
   <main>
-    <div class="subtitle">Everything shipped so far</div>
-    <div id="changelog-list"></div>
+    <div class="subtitle">The real history of this world, as it happened</div>
+    <div id="chronicle-list"></div>
   </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
 <script>
-// Loaded from changelog.json — the single source of truth shared with index.html's "What's
-// New" popup, same pattern as index.html's own version.json fetch (a JSON data file, not a
-// JS module import — see the matching comment there). Update changelog.json whenever a
-// change ships.
-// Namespaced per logged-in account — see the matching comment in index.html — set once
-// authGateReady resolves, below.
-let CHANGELOG_SEEN_KEY = null;
-let CHANGELOG = [];
-// Deliberately not cache-busted — same normal HTTP caching as this page itself, matching
-// how index.html loads it (see its own comment on changelogReady).
-const changelogReady = fetch('changelog.json')
-  .then(r => r.json())
-  .then(data => { CHANGELOG = data; });
+// Chronicle of the Realm — the Expansion Research idea of the same name. index.html's
+// recordWorldEvent() (see context/factions-and-territory.md's "Real outcomes also feed a small
+// rumour log") already writes every real settlement capture, repelled siege, war-exhaustion
+// peace, and reactive quest shift into goblinwar_recentEvents, newest first — it used to be
+// capped at a 15-item rolling buffer purely for Tavern Talk's own flavor-pool pacing, so anything
+// older just vanished with nowhere to ever see it again. index.html now keeps up to CHRONICLE_MAX
+// (150) of the same entries in that same key — Tavern Talk's own reader
+// (getRecentEventTexts) still only takes the freshest 15 off the front, so its pacing is
+// unchanged — and this page is simply a plain, read-only view of the whole thing, duplicated
+// constants and all per the no-modules convention (see CLAUDE.md), same pattern changelog.html
+// already uses for a different append-only log.
+const RECENT_EVENTS_KEY = "goblinwar_recentEvents";
+const CAL_KEY = "goblinwar_gameDay";
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
 
-function renderChangelog(){
-  const container = document.getElementById('changelog-list');
-  const newestFirst = CHANGELOG.slice().reverse();
-  container.innerHTML = newestFirst.map(entry => `
-    <div class="changelog-entry">
-      <div class="changelog-date">${entry.date}</div>
-      <ul>${entry.changes.map(c=>`<li>${c}</li>`).join('')}</ul>
+function getChronicleEvents(){
+  try{ return JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []; }catch(e){ return []; }
+}
+// Same Day/Month/Year formula as index.html's own refreshCalendarUI, duplicated per the
+// no-modules convention — an entry with no stored `day` (recorded before this page existed)
+// just shows no date rather than a misleading "Day 1".
+function formatChronicleDay(day){
+  if(typeof day !== 'number') return '';
+  const d = (day % DAYS_PER_MONTH) + 1;
+  const m = (Math.floor(day / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const y = Math.floor(day / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  return `Day ${d}, Month ${m}, Year ${y}`;
+}
+
+function render(){
+  const events = getChronicleEvents();
+  const container = document.getElementById('chronicle-list');
+  if(!events.length){
+    container.innerHTML = `<div class="chronicle-empty">No history yet — the realm's story is still being written.</div>`;
+    return;
+  }
+  container.innerHTML = events.map(e => `
+    <div class="chronicle-entry">
+      <div class="chronicle-day">${formatChronicleDay(e.day)}</div>
+      <div class="chronicle-text">${e.text}</div>
     </div>
   `).join('');
-  // Reading the full log here counts as "seen" — no need for the map's popup to repeat it.
-  if(CHANGELOG_SEEN_KEY) localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
 }
-changelogReady.then(renderChangelog);
-authGateReady.then(session=>{
-  if(!session) return; // being redirected to login.html
-  CHANGELOG_SEEN_KEY = `goblinwar_lastSeenChangelog_${session.user.id}`;
-  changelogReady.then(renderChangelog); // re-run now that CHANGELOG_SEEN_KEY is set, so the "mark seen" write happens
-});
+render();
 </script>
 <script>
 // Service worker registration — see sw.js for what it does and why (network-first, offline

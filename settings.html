@@ -88,6 +88,26 @@
     opacity:0; pointer-events:none; z-index:40; transition:opacity .25s, transform .25s;
   }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  /* Themed confirm modal — the Expansion Research idea of the same name: replaces the native
+     browser confirm() dialog (breaks the pixel-art theme, per the project owner) with one that
+     matches it, reusing this page's own .btn/.btn-primary/.btn-secondary classes. */
+  #confirm-modal{
+    position:fixed; inset:0; z-index:45; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #confirm-modal.show{ display:flex; }
+  #confirm-card{
+    max-width:340px; width:100%;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #confirm-message{ font-size:14px; color:var(--parchment); line-height:1.5; margin-bottom:18px; text-align:center; }
+  #confirm-actions{ display:flex; gap:10px; }
+  #confirm-ok{ background:transparent; color:var(--bad); border:1.5px solid var(--bad); font-weight:700; }
 </style>
 </head>
 <body>
@@ -109,6 +129,14 @@
       <div id="current-difficulty" style="font-size:11px; font-style:italic;">—</div>
     </div>
 
+    <div class="section-label">Display</div>
+    <div class="account-card">
+      <label style="display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:var(--parchment); line-height:1.4; cursor:pointer;">
+        <input type="checkbox" id="data-saver-toggle" style="width:auto; flex:none; margin-top:2px; accent-color:var(--gold);">
+        <span>Data Saver — load simple icons instead of the heavier equipment and battle-scene art. Takes effect from your next visit or fight. This device only — it doesn't travel with the save.</span>
+      </label>
+    </div>
+
     <div class="section-label">Account</div>
     <div class="account-card" id="account-card">
       <div class="account-status" id="account-status">Checking login status…</div>
@@ -127,6 +155,11 @@
       <span class="chevron">&rsaquo;</span>
     </div>
 
+    <div class="menu-item" onclick="location.href='chronicle.html?_='+Date.now()">
+      <span>Chronicle of the Realm</span>
+      <span class="chevron">&rsaquo;</span>
+    </div>
+
     <div class="menu-item" onclick="location.href='changelog.html?_='+Date.now()">
       <span>Change Log</span>
       <span class="chevron">&rsaquo;</span>
@@ -136,6 +169,16 @@
   </main>
 
   <div id="toast"></div>
+
+  <div id="confirm-modal">
+    <div id="confirm-card">
+      <div id="confirm-message"></div>
+      <div id="confirm-actions">
+        <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+        <button class="btn" id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/auth-client.js"></script>
@@ -750,13 +793,32 @@ const REFUGEE_ARRIVAL_KEY = "goblinwar_refugeeArrivals";
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns";
 const RECENT_EVENTS_KEY = "goblinwar_recentEvents"; // JSON array of {text} — real siege/attack outcomes, see index.html's recordWorldEvent
 const WARSTART_KEY = "goblinwar_warStarts"; // {"KingdomA::KingdomB": gameDay} — feeds index.html's war exhaustion
+const WAR_HISTORY_KEY = "goblinwar_warHistory"; // {"KingdomA::KingdomB": count} — see index.html's war-history ledger
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty expires} — see index.html's war exhaustion
 const TRIBUTE_KEY = "goblinwar_tribute"; // {kingdomName: {role, counterpart, expiresDay}} — see index.html's war exhaustion
 const ARMY_KEY = "goblinwar_armies"; // JSON array of marching/sieging armies — see index.html's "Armies march before a siege starts"
 const FIELD_BATTLE_KEY = "goblinwar_fieldBattles"; // JSON array of active field battles — see index.html's "Field battles"
 const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
 const COMPANION_QUEST_DONE_KEY = "goblinwar_companionQuestsCompleted";
+const COMPANION_HOME_STATUS_KEY = "goblinwar_companionHomeStatus"; // {companionId: 'intact'|'fallen'|'eliminated'} — see index.html's "Companions react to their home kingdom's fate"
 const LOAN_KEY = "goblinwar_loan"; // null | {kingdom, principal, borrowedDay, dueDay} — see index.html's "Palace Loans"
+const VAULT_KEY = "goblinwar_vault"; // null | {kingdom, principal, depositedDay} — see index.html's "Palace Vault"
+const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name — see index.html's "Fealty/Allegiance"
+const ESPIONAGE_COOLDOWN_KEY = "goblinwar_espionageCooldowns"; // {burgId: gameDay} — see index.html's "Espionage"
+const SETTLEMENT_INVESTMENT_COOLDOWN_KEY = "goblinwar_investmentCooldowns"; // {burgId: gameDay} — see index.html's "Settlement Investment"
+const SCRAP_KEY = "goblinwar_scrap"; // plain integer — see inventory.html's "Gear salvage/scrap"
+const RENOWN_TITLE_KEY = "goblinwar_renownTitle"; // plain string — see index.html's "Renown-based titles"
+const NOTABLE_FIGURE_PROGRESS_KEY = "goblinwar_figureProgress"; // {figureId: count} — see index.html's Notable Figure storyline
+const TAVERN_REGULAR_PROGRESS_KEY = "goblinwar_tavernRegularProgress"; // {regularId: {step, lastVisitDay}} — see index.html's "Tavern Regulars"
+const TEMPLE_BLESSING_KEY = "goblinwar_templeBlessing"; // null | {type:'vigor'|'warding', expiresDay} — see index.html's "Temple Blessings"
+const CARAVAN_ESCORT_KEY = "goblinwar_caravanEscort"; // "true" | "false" — see index.html's "Caravan Escort"
+const CARTOGRAPHER_KEY = "goblinwar_cartographerScouted"; // [burgId, ...] — see index.html's "Cartographer"
+const TUTORIAL_SEEN_KEY = "goblinwar_tutorialSeen"; // "true" | "false" — see index.html's "First-run tutorial"
+const TOOLTIP_TOUR_SEEN_KEY = "goblinwar_tooltipTourSeen"; // "true" | "false" — see index.html's "HUD/toolbar onboarding tooltip pass"
+const ACHIEVEMENT_UNLOCKED_KEY = "goblinwar_achievementsUnlocked"; // {achievementId: true} — see index.html's "Achievement unlock toast feedback"
+const BOARD_MONTH_SEEN_KEY = "goblinwar_boardMonthSeen"; // last calendar-month index the Quest Board refresh was announced for — see index.html's "While you were away" summary
+const LANDMARK_CLAIMED_KEY = "goblinwar_landmarksClaimed"; // [landmarkId, ...] — see index.html's "Off-road discoverable landmarks"
+const ALLY_EQUIPPED_KEY = "goblinwar_allyEquipped"; // {allyId: itemName} — see index.html's "Let companions/mercenaries equip gear"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -817,6 +879,28 @@ function showToast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
 }
+
+// Themed confirm modal — the Expansion Research idea of the same name. showConfirm(message,
+// onConfirm) is the async-callback equivalent of the native `if(!confirm(message)) return; ...`
+// pattern it replaces — every call site below wraps its own "rest of the function" in the
+// callback instead (an async one, for Delete This Character's own await). Only one at a time;
+// Cancel (or a second call) just discards whatever was pending.
+let confirmResolve = null;
+function showConfirm(message, onConfirm){
+  document.getElementById('confirm-message').textContent = message;
+  confirmResolve = onConfirm;
+  document.getElementById('confirm-modal').classList.add('show');
+}
+document.getElementById('confirm-cancel').addEventListener('click', ()=>{
+  confirmResolve = null;
+  document.getElementById('confirm-modal').classList.remove('show');
+});
+document.getElementById('confirm-ok').addEventListener('click', ()=>{
+  document.getElementById('confirm-modal').classList.remove('show');
+  const fn = confirmResolve;
+  confirmResolve = null;
+  if(fn) fn();
+});
 
 function renderCurrent(){
   const burgId = localStorage.getItem(LOC_KEY) || "0";
@@ -891,13 +975,32 @@ function collectCharacterSnapshot(){
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
     recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
+    warHistory: localStorage.getItem(WAR_HISTORY_KEY) || "{}",
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     armies: localStorage.getItem(ARMY_KEY) || "[]",
     fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
+    companionHomeStatus: localStorage.getItem(COMPANION_HOME_STATUS_KEY) || "{}",
     loan: localStorage.getItem(LOAN_KEY) || "null",
+    vault: localStorage.getItem(VAULT_KEY) || "null",
+    fealty: localStorage.getItem(FEALTY_KEY) || "",
+    espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
+    investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
+    scrap: localStorage.getItem(SCRAP_KEY) || "0",
+    renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
+    figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
+    tavernRegularProgress: localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY) || "{}",
+    templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
+    caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
+    cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
+    tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
+    tooltipTourSeen: localStorage.getItem(TOOLTIP_TOUR_SEEN_KEY) || "true",
+    achievementsUnlocked: localStorage.getItem(ACHIEVEMENT_UNLOCKED_KEY) || "{}",
+    boardMonthSeen: localStorage.getItem(BOARD_MONTH_SEEN_KEY) || "",
+    landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
+    allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -943,18 +1046,29 @@ document.getElementById('switch-character-btn').addEventListener('click', ()=>{
   location.href = 'characters.html?_=' + Date.now();
 });
 
+// Data Saver — device-local, not part of the character snapshot/save-sync triplet (see index.html's
+// isDataSaverOn for the full reasoning on why this one setting deliberately doesn't travel with
+// the save). Read/written straight off localStorage, no account/character plumbing needed.
+const DATA_SAVER_KEY = "goblinwar_dataSaver";
+const dataSaverToggle = document.getElementById('data-saver-toggle');
+dataSaverToggle.checked = localStorage.getItem(DATA_SAVER_KEY) === 'true';
+dataSaverToggle.addEventListener('change', ()=>{
+  localStorage.setItem(DATA_SAVER_KEY, String(dataSaverToggle.checked));
+});
+
 document.getElementById('logout-btn').addEventListener('click', async ()=>{
   accountStatusEl.textContent = 'Logging out…';
   await sb.auth.signOut(); // assets/auth-client.js's SIGNED_OUT listener redirects to login.html
 });
 
-document.getElementById('delete-character-btn').addEventListener('click', async ()=>{
+document.getElementById('delete-character-btn').addEventListener('click', ()=>{
   const name = localStorage.getItem(NAME_KEY) || "this character";
-  if(!confirm(`Delete ${name}? This cannot be undone.`)) return;
-  const { error } = await sb.from('characters').delete().eq('id', activeCharId);
-  if(error){ showToast(`Delete failed: ${error.message}`); return; }
-  localStorage.removeItem(ACTIVE_CHAR_KEY);
-  location.href = 'characters.html?_=' + Date.now();
+  showConfirm(`Delete ${name}? This cannot be undone.`, async ()=>{
+    const { error } = await sb.from('characters').delete().eq('id', activeCharId);
+    if(error){ showToast(`Delete failed: ${error.message}`); return; }
+    localStorage.removeItem(ACTIVE_CHAR_KEY);
+    location.href = 'characters.html?_=' + Date.now();
+  });
 });
 
 try{
@@ -963,6 +1077,16 @@ try{
   Object.entries(data.burgs).forEach(([id,b])=> burgNames[id] = b.name);
 }catch(e){ console.error(e); }
 renderCurrent();
+</script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
+}
 </script>
 </body>
 </html>

@@ -681,13 +681,14 @@ const DEFEATED_VARIANTS_KEY = "goblinwar_defeatedVariants";
 const QUESTS_COMPLETED_TOTAL_KEY = "goblinwar_questsCompletedTotal";
 const LEVEL_KEY = "goblinwar_level";
 
-// Every ENEMY_VARIANTS name across all three races (index.html) — duplicated here per the
+// Every ENEMY_VARIANTS name across all four categories (index.html) — duplicated here per the
 // no-modules convention (see CLAUDE.md). Keep this list in sync whenever a new variant is added
 // to index.html's ENEMY_VARIANTS, or "Monster Hunter" below will never be able to complete.
 const ALL_ENEMY_VARIANTS = [
   "Bandit",
   "Goblin Raider", "Goblin Shieldbearer", "Goblin Skirmisher", "Goblin Archer", "Goblin Chieftain", "Goblin Shaman",
   "Ork Raider", "Ork Berserker", "Ork Warlord", "Ork Shaman",
+  "Wolf", "Dire Bear",
 ];
 
 function getKills(){ try{ return JSON.parse(localStorage.getItem(KILLS_KEY)) || {}; }catch(e){ return {}; } }
@@ -788,6 +789,16 @@ try{
   // with a 0/1 placeholder rather than leaving the whole page blank on a generation failure.
   render({ burgs:{} });
   showToast("Couldn't build world data — Capitals progress unavailable.");
+}
+</script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
 }
 </script>
 </body>

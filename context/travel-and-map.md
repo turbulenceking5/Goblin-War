@@ -72,6 +72,29 @@ Two small additions to `computeTravel(toId)`, both derived from `routeBetween`'s
 - **Horse** — a `MARKET_ITEMS` entry (index.html, weight `0`, no `slot` — not equippable, just a carried possession like Bedroll) that speeds up road travel. `computeTravel` checks `getItem('Horse')`: whenever the route is `viaRoad` and has no sea leg (`!bySea`), the trip's `hours` is divided by `HORSE_PACE_MULT` (`1.5`) before Hunger/Thirst gain is derived from it — a horse doesn't swim, so it never touches a sea crossing's pace. The returned `mounted` flag drives a small "(riding — faster pace)" note in the info-card's travel quote (`onMapTap`).
 - **Ferry fares** — `routeBetween` now also returns `seaMiles` (the route's sea-`kind` edges' own mileage, summed and scaled by `DISTANCE_SCALE` same as `miles`), and `computeTravel` derives `ferryCost` from it: `Math.max(FERRY_MIN_FARE, Math.round(seaMiles * FERRY_GOLD_PER_MILE))` whenever `seaMiles > 0`, else `0`. Unlike Hunger/Thirst (deliberately never a travel gate — see [player-state.md](player-state.md)), this **is** a real affordability gate: `beginTravel` checks `playerGold` against `t.ferryCost` and refuses (toast, no travel) if short, otherwise deducts it via `setGold` before the journey animation starts. The info-card shows the fare up front (`Travel Here (Nh, Fg)`) so it's never a surprise at departure. A cancelled/interrupted crossing (`stopTravel`/`campMidTravel`) doesn't refund an already-paid fare.
 
+## Route fork — a shortcut offered at travel-accept time
+
+The Expansion Research idea of the same name: `onMapTap`'s info-card can show a second button,
+**Shortcut**, alongside the normal **Travel Here** one, whenever the quoted route is `viaRoad`
+(cross-country travel has no shortcut — it's already the most direct path this game's pathfinding
+finds). `computeShortcutTravel(t)` takes the already-computed `computeTravel` quote `t` and returns
+a second one over the *same* route/edges — same `miles`, same `t.edges` for `drawRoutePreview`/
+`animateTravel` — just with `hours` cut by `SHORTCUT_HOURS_MULT` (`0.75`, so 25% faster). No second
+pathfinding system, no alternate road: it's the same quoted trip, just hurried.
+
+The tradeoff lives entirely in `rollAmbush`'s new third parameter, `extraMult`: `beginTravel(destId,
+viaShortcut)` passes `SHORTCUT_AMBUSH_MULT` (`1.6`) when the player tapped Shortcut, `1` (a no-op)
+otherwise, multiplied in alongside the existing night/perk/Temple-Warding-blessing factors. A
+shortcut trip is never a different event from a normal one — same arrival flow, same ambush/world-
+event roll order in `beginTravel`'s completion callback — just quoted faster and weighted riskier.
+
+A Guard House **Caravan Escort** (see [roadmap.md](roadmap.md)'s "Caravan escort") feeds
+`rollAmbush`'s same `extraMult` the other direction — `CARAVAN_ESCORT_AMBUSH_MULT` (0.5, safer)
+instead of `SHORTCUT_AMBUSH_MULT` (1.6, riskier) — and the two multiply together if a player
+somehow takes both on the same trip (hired an escort, then taps Shortcut anyway). Unlike the
+shortcut, an escort is consumed by the trip's actual arrival (`beginTravel` clears
+`CARAVAN_ESCORT_KEY`), not a per-tap choice re-quoted each time.
+
 ## Calendar and the clock
 
 Two stored time values now, not one: `gameDay` (key `goblinwar_gameDay`, a whole-number day counter, unchanged in meaning) and `gameHour` (key `goblinwar_gameHour`, a real hour-of-day, `0` up to but not including `24`, float-precision so a clock reading like "2:30 PM" is exact, not rounded to the hour). `DAYS_PER_MONTH=30`, `MONTHS_PER_YEAR=12` are fixed constants used to derive day/month/year for display; `timeStr(hour)` formats `gameHour` as a 12-hour clock string. Both — plus `refreshCalendarUI()`, the render function — are duplicated in character.html and settings.html rather than shared, since there's no module system (see root [CLAUDE.md](../CLAUDE.md)); those two pages are static snapshots on load, not live tickers, so they just read the stored value once.
@@ -91,6 +114,31 @@ Per the project owner: a real clock existing at all (above) is what actually unb
 - **The header clock badge's icon** swaps between a sun and a crescent-moon `<svg>` at the `nightFactor(hour) >= 0.5` threshold — toggled via `style.display`, not the `hidden` attribute; `hidden`'s `display:none` UA rule didn't actually suppress these inline SVG children in testing even though the attribute itself was being set correctly, so the toggle sidesteps that quirk entirely rather than chasing the root cause.
 
 **Gameplay reacts to it now too, in two places — done.** Per the project owner: `rollAmbush` scales ambush risk up for however much of a trip falls during night hours (see [combat.md](combat.md)'s "Where fights are triggered" for the exact math), and the Work action is unavailable at night (`isNightNow()`, same `nightFactor(gameHour) >= 0.5` threshold the map tint uses) — disabled with an explanation ("Nobody's hiring after dark — come back in daylight") the same way the existing once-per-day cooldown already disabled it, and `doWork()` itself refuses defensively too, not just the button. Still not built: anything beyond those two — settlement/NPC availability more broadly, enemy composition, etc. are all still exactly what they were before any of this shipped.
+
+## Lightweight weather
+
+The Expansion Research idea of the same name, built with the exact multiplier pattern the
+day/night cycle above already set — one small "current condition" factor folded into the handful
+of formulas that care, not a parallel simulation. `getCurrentWeather()` picks a `WEATHER_TYPES`
+entry (`clear` 70%, `rain` 15%, `fog` 10%, `storm` 5%) deterministically from this character's own
+`mapSeed` and the current `gameDay` (`seededRandom(hashSeed(`weather_${seed}_${gameDay}`))`) — same
+seeded-per-day precedent `getBoardMonthIndex`'s own monthly quest offers already use, just at day
+granularity, so weather holds steady for a whole calendar day and never resyncs across characters
+or devices.
+
+- **`travelMult`** (rain/storm only, 1.15x/1.25x) is folded into `computeTravel`/`computeTravelToPoint`'s
+  own hours calculation, after the Horse pace discount — muddy roads slow a trip down regardless of
+  whether you're mounted.
+- **`ambushMult`** (fog/storm, 1.2x/1.15x) is folded directly into `rollAmbush` itself (so every
+  caller — road travel, Waiting, a field battle's or landmark's own travel-to-point — picks it up
+  for free) and into the separate overnight-camp ambush roll, alongside the existing
+  night/perk/Warding-blessing factors.
+- **`#weather-overlay`**, a second color-wash div layered just below `#night-overlay` (same
+  `position:absolute; inset:0`, opacity-and-background-color-transitioned technique), tints the
+  viewport per weather type (`updateWeatherOverlay`, called from `refreshCalendarUI` alongside
+  `updateNightOverlay`) — a visible mood cue, not a "you can't see the map" mechanic, same spirit as
+  the night overlay it sits next to. A small `#weather-badge` next to the header clock names the
+  current weather in text, hidden entirely on a Clear day so the common case stays uncluttered.
 
 ## Tap-to-select and the info card
 
@@ -148,7 +196,8 @@ Every settlement gets an invisible circular `<circle class="hitzone">` sized by 
 A second fixed control, `#wait-controls` (bottom-left, alongside `#recenter-btn`/`#camp-here-btn`, hidden together with `#camp-here-btn` while `#travel-controls` is showing), lets the player pass time without traveling anywhere — Play, Pause, and a 3× speed toggle. Per the project owner, this is deliberately a **safe** fast-forward, distinct from both travel and camping:
 
 - **It still raises Hunger/Thirst, at the same effective rate travel does — and the real clock moves live, every tick, not just on day boundaries.** `waitTick()` (fired every `WAIT_TICK_MS` = 1 real second by `startWaiting()`'s `setInterval`) accrues `WAIT_HOURS_PER_TICK` (2) in-game hours per tick (×3 while the speed toggle is on): each tick recomputes `hoursToHungerGain`/`hoursToThirstGain` against the *running total* of hours waited so far, applying only the delta since the last tick — the same incremental-delta pattern the travel display uses, just applied as real `addHunger`/`addThirst` calls here instead of a display interpolation, since there's no fixed trip length to interpolate toward — and calls `advanceTime(delta, true)` with that same per-tick delta, which is a real (non-preview) clock advance, unlike travel's live display. So watching the map while waiting genuinely shows the clock ticking forward and the night overlay shifting in real time, not just a jump whenever a day happens to roll over. No affordability gate — waiting can continue indefinitely; ignoring the meters just costs Health via their overflow handling (see [player-state.md](player-state.md)).
-- **It never rolls an ambush and never runs the weekly faction AI tick** — `waitTick()` always passes `quiet:true` to `advanceTime`, which skips `chargeMercenaryUpkeep()`/`maybeRunFactionAI()` even on a day it crosses, and never calls `rollAmbush` at all. This is the one deliberate difference from every other way time passes (travel, camping, resting at the Inn all go through `advanceTime`/`restThroughNight` non-quiet) — the project owner wanted waiting to be a pure convenience, not a way to (accidentally or deliberately) trigger events faster or more safely than normal play.
+- **It never runs the weekly faction AI tick** — `waitTick()` always passes `quiet:true` to `advanceTime`, which skips `chargeMercenaryUpkeep()`/`maybeRunFactionAI()` even on a day it crosses. That much stays a genuine convenience — waiting can't trigger mercenary upkeep or a faction tick any earlier than it would've landed anyway.
+- **It does roll ambushes now** — this used to be the one way to pass even the most dangerous night hours completely risk-free, strictly safer than actually traveling or camping through the same stretch of time, which the project owner flagged as an exploit worth closing. Each tick now calls `rollAmbush(delta, tickStartHour)` — the exact same day/night-scaled math travel's own `beginTravel` uses, just scaled to that one `WAIT_HOURS_PER_TICK`-sized tick (`tickStartHour` captured before `advanceTime` moves the clock, so the roll reflects whatever time of day the tick actually covered) — so waiting through the night now carries the same risk as traveling or camping through it. A hit stops the wait (`stopWaiting()`) and runs `triggerAmbushFight(currentBurg, ()=>updateWaitUI(), 'road')`, same `currentBurg`-as-stand-in reasoning the overnight camp ambush below already uses; the player can press Play again once the fight resolves.
 - **No direct Health/Stamina effect** — waiting doesn't drain or regenerate either one itself (resting stays the Tavern/Camp's own role); the only way waiting affects Health is indirectly, through Hunger/Thirst overflow if left unmanaged long enough.
 - **Stopped automatically, not just by Pause**, whenever the player leaves the open map for something else that owns the calendar/screen itself — `stopWaiting()` is called at the top of `showLocationView`, `showCampView`, and `beginTravel`, so waiting can never keep silently ticking behind another screen.
 - Not persisted — `waitState` is a transient, real-time-only object (same as `activeTravel`); closing the tab mid-wait simply loses whatever partial hour/Food progress hadn't crossed a whole-unit boundary yet, same as travel would.
@@ -156,3 +205,44 @@ A second fixed control, `#wait-controls` (bottom-left, alongside `#recenter-btn`
 ## Camping from the map
 
 Beyond interrupting an active journey, a fixed "MAKE CAMP" button (`#camp-here-btn`, stacked above the recenter button, hidden while `#travel-controls` is showing) lets the player camp on the spot at any time — see [locations-and-camp.md](locations-and-camp.md) for the standalone camp flow. Resting always fully restores Health and Stamina (a little more than full Stamina if a Bedroll is carried, see [player-state.md](player-state.md)) but doesn't touch Hunger/Thirst — those only come down by eating/drinking (inventory.html) or a Pub's Meal & Drink (see [locations-and-camp.md](locations-and-camp.md)).
+
+## Off-road discoverable landmarks
+
+A tappable third kind of map marker, alongside settlements and field battles — persistent points
+scattered off the road network rather than tied to a settlement or a moving army. Reuses the exact
+"travel to an arbitrary map point" machinery a field battle's Army Camp already proved out
+(`findNearestCell`/`computeTravelToPoint`, see [factions-and-territory.md](factions-and-territory.md)'s
+"Field battles") rather than inventing a second one — `onLandmarkMarkerTap`/`beginTravelToLandmark`
+mirror `onBattleMarkerTap`/`beginTravelToBattle` almost line for line.
+
+- **Generation is deterministic per character, not persisted.** `generateLandmarks(seed, world)`
+  (index.html, called once at world load right after `assignDynamicHomes`) seeds its own
+  `rfMulberry32` stream off this character's `mapSeed` — the same precedent `assignDynamicHomes`
+  already sets for Notable Figures/Companions' homes. `LANDMARK_COUNT` (10) landmarks are placed as
+  a small random offset (`LANDMARK_OFFSET_MIN`-`LANDMARK_OFFSET_MAX`, 25-70 logical units) from a
+  random road edge's own midpoint, in a random direction — a short offset from an edge that already
+  connects two real settlements is very likely still on land, without needing to understand the raw
+  terrain grid's ocean mask directly. Only each landmark's *claimed* state is real persisted
+  progress (`goblinwar_landmarksClaimed`, an array of landmark ids) — positions/types are cheap to
+  recompute every load, same "don't persist what you can regenerate" precedent the world-seed
+  system itself already sets.
+- **Two types**, `LANDMARK_TYPES`: Old Ruins and Abandoned Campsite, each with its own flavor line
+  and reward table (`LANDMARK_REWARDS`) — Ruins pay gold+XP, a Campsite pays a foraged item (Food or
+  a Healing Potion, via the same `addItem` the Marketplace/loot system already use) plus XP.
+  One-time only: arriving safely calls `grantLandmarkReward`, which marks the landmark claimed
+  (`claimLandmark`) before anything else, so it can't be farmed twice.
+- **Reaching one plays out exactly like reaching a settlement or a battle**: `onLandmarkMarkerTap`
+  shows the same `#info-card` quote/Travel-Here flow, and `beginTravelToLandmark` rolls the same
+  ambush/world-event checks on arrival any other trip does — a landmark is not automatically safe to
+  reach, only automatically rewarding once you get there. On a safe arrival, `campPos` is set to the
+  landmark's own `{x,y,cell}` (the same "standing at a non-settlement point" flag camping-mid-journey
+  and a field battle's own Army Camp already use) so `getCurrentXY()`/the visible player marker stay
+  correctly in sync with wherever the player actually ended up — a landmark isn't a place to *enter*
+  the way a battle's Army Camp is, so nothing else happens beyond that: the reward fires immediately
+  and the player is left standing there, free to Wait, Make Camp, or pick a next destination same as
+  anywhere else off-road.
+- **The marker disappears once claimed.** `buildLandmarkMarkers()` (same rebuild-from-scratch
+  convention `buildBattleMarkers`/`buildArmyMarkers` already use) only draws a marker for an
+  unclaimed landmark, and is called again right after a successful claim — placeholder glyph shapes
+  (a broken column for Ruins, a small flame for a Campsite) pending any real art, same "ship the
+  mechanic, swap in real art later" precedent the rest of this codebase already sets.

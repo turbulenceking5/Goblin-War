@@ -1125,5 +1125,17 @@
       "Added off-road landmarks — Old Ruins and Abandoned Campsites scattered away from the roads, each with a one-time find waiting at it.",
       "Added lightweight weather — Clear, Rain, Fog, and Storm now pass through, visibly tinting the map and quietly affecting travel time and ambush risk."
     ]
+  },
+  {
+    "id": 151,
+    "date": "2026-10-01",
+    "changes": [
+      "Strength, Agility, and Intelligence now each grant a small direct combat bonus of their own — damage, dodge chance, and gold found, respectively — on top of what they already unlocked.",
+      "Power Strike and Iron Skin are now mutually exclusive perks — committing to one locks out the other.",
+      "Companions and mercenaries can now be handed a sword from your own inventory in Party — it's not just your own gear that matters in a fight anymore.",
+      "The Steel Sword now has a chance to cause bleeding on hit.",
+      "Ork Warlords now have a chance to drop a Runic Sword — a new top-tier weapon above Mithril, found only in battle.",
+      "Added the Berserker's Totem, a belt accessory whose damage bonus grows the lower your health drops."
+    ]
   }
 ]

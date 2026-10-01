@@ -109,6 +109,11 @@
   .tree-node.unlocked .node-name{ color:var(--parchment); }
   .tree-node.unlocked .node-icon{ color:#7fbf6a; }
   .tree-node.selected{ box-shadow:0 0 0 2px var(--gold-lt); }
+  /* Mutually exclusive perk choices — the Expansion Research idea of the same name: a node
+     that's permanently off-limits because a rival node was trained instead (see PERKS' own
+     `excludes` field and renderNodeDetail's excludedBy check), not just "not ready yet." */
+  .tree-node.excluded{ opacity:.4; border-style:solid; border-color:rgba(226,133,127,.4); }
+  .node-detail-excluded{ font-size:12.5px; color:#e2857f; line-height:1.5; margin-top:4px; }
 
   .node-detail{
     margin-top:6px; background:rgba(255,255,255,.05); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
@@ -169,6 +174,7 @@
         </div>
       </div>
       <div class="stats-note">Skill points available: <b id="skill-points-value">0</b></div>
+      <div class="stats-note">Each point also grants a small direct bonus on its own, on top of its perks: Strength adds flat damage, Agility adds dodge chance, Intelligence adds combat gold.</div>
     </div>
 
     <div class="card">
@@ -193,8 +199,13 @@ const STAT_LABELS = { str:"Strength", agi:"Agility", int:"Intelligence" };
 // mechanical effects live there (getEquipDamageBonus, getCarryCapacity, combatAttack, etc.);
 // this copy only drives the unlock UI.
 const PERKS = [
-  { id:"power_strike",  name:"Power Strike",  stat:"str", req:2, desc:"+2 flat damage on attack." },
-  { id:"iron_skin",     name:"Iron Skin",     stat:"str", req:2, desc:"-1 flat damage taken." },
+  // Mutually exclusive perk choices — the Expansion Research idea of the same name: the two
+  // Strength-2 combat perks are a real either/or (glass-cannon offense vs. a flat damage-reduction
+  // tank pick), each ruling the other out permanently once trained — see renderNodeDetail's
+  // excludedBy check. The only way back is the Temple's Rite of Renewal (see index.html's
+  // "Respec service"), which already resets every perk, not a new undo mechanic of its own.
+  { id:"power_strike",  name:"Power Strike",  stat:"str", req:2, desc:"+2 flat damage on attack.", excludes:["iron_skin"] },
+  { id:"iron_skin",     name:"Iron Skin",     stat:"str", req:2, desc:"-1 flat damage taken.", excludes:["power_strike"] },
   { id:"pack_mule",     name:"Pack Mule",     stat:"str", req:4, desc:"+10 carry capacity." },
   { id:"evasion",       name:"Evasion",       stat:"agi", req:2, desc:"15% chance to fully dodge an enemy's counter-attack." },
   { id:"second_wind",   name:"Second Wind",   stat:"agi", req:2, desc:"25% chance an attack costs no stamina." },
@@ -285,9 +296,14 @@ function renderNodeDetail(){
   const unlocked = getUnlockedSkills();
   const isUnlocked = !!unlocked[skill.id];
   const meetsReq = stats[skill.stat] >= skill.req;
+  // Mutually exclusive perk choices — see PERKS' own `excludes` field above. excludedBy is the
+  // id of whichever rival was trained instead, or undefined if none/not applicable.
+  const excludedBy = !isUnlocked && (skill.excludes || []).find(id => unlocked[id]);
   const action = isUnlocked
     ? `<span class="perk-unlocked-badge">Unlocked</span>`
-    : `<button class="perk-unlock-btn" id="node-unlock-btn" ${(!meetsReq || skillPoints <= 0) ? 'disabled' : ''}>Unlock (1 point)</button>`;
+    : excludedBy
+      ? `<div class="node-detail-excluded">Mutually exclusive with ${(findSkill(excludedBy)||{}).name || excludedBy} — already trained, and can't be undone except by a full Rite of Renewal at the Temple.</div>`
+      : `<button class="perk-unlock-btn" id="node-unlock-btn" ${(!meetsReq || skillPoints <= 0) ? 'disabled' : ''}>Unlock (1 point)</button>`;
   panel.innerHTML = `
     <div class="node-detail-name">${skill.name}<span>${skill.type === 'move' ? 'Special Attack' : 'Passive Perk'}</span></div>
     <div class="node-detail-desc">${skill.desc}</div>
@@ -300,6 +316,7 @@ function renderNodeDetail(){
     const points = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
     if(points <= 0) return;
     const unlockedNow = getUnlockedSkills();
+    if((skill.excludes || []).some(id => unlockedNow[id])) return; // defensive re-check — the button shouldn't even render in this case
     unlockedNow[skill.id] = true;
     localStorage.setItem(SKILLS_KEY, JSON.stringify(unlockedNow));
     localStorage.setItem(SKILLPOINTS_KEY, String(points - 1));
@@ -316,7 +333,8 @@ function renderBranch(stat){
     const nodesHTML = tier.map(s => {
       const isUnlocked = !!unlocked[s.id];
       const meetsReq = stats[stat] >= s.req;
-      const cls = isUnlocked ? 'unlocked' : (meetsReq ? 'ready' : '');
+      const excludedBy = !isUnlocked && (s.excludes || []).find(id => unlocked[id]);
+      const cls = isUnlocked ? 'unlocked' : excludedBy ? 'excluded' : (meetsReq ? 'ready' : '');
       const icon = `<img src="${SKILL_ICONS[s.id]}" alt="">`;
       return `<div class="tree-node ${cls}" data-skill="${s.id}"><div class="node-icon">${icon}</div><div class="node-name">${s.name}</div></div>`;
     }).join('');

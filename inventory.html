@@ -155,6 +155,15 @@ const GOLD_KEY = "goblinwar_gold";
 const INV_KEY = "goblinwar_inventory";
 const EQUIPPED_KEY = "goblinwar_equipped";
 const DURABILITY_KEY = "goblinwar_durability";
+// Mirrors index.html's own copy exactly (duplicated per the no-modules convention) — see
+// "Make raw Str/Agi/Int stats mechanically matter" there. Only Str is needed here since this
+// page's own combat-bonus preview only shows damage/defense.
+const STATS_KEY = "goblinwar_stats";
+const STR_DAMAGE_PER_POINT = 0.5;
+const BERSERKER_TOTEM_MAX_BONUS = 6; // mirrors index.html's own constant — see "Build-defining accessory variants"
+const HEALTH_KEY = "goblinwar_health";
+const MAXHEALTH_KEY = "goblinwar_maxHealth";
+function getStats(){ try{ return Object.assign({str:0,agi:0,int:0}, JSON.parse(localStorage.getItem(STATS_KEY))); }catch(e){ return {str:0,agi:0,int:0}; } }
 // Data Saver — device-local, not part of the save, see index.html's own isDataSaverOn for the
 // full reasoning. Here it just skips ITEM_ICONS in favor of the generic SVG already built for it.
 const DATA_SAVER_KEY = "goblinwar_dataSaver";
@@ -206,6 +215,7 @@ const ITEM_STATS = {
   "Iron Sword": { slot:"weapon", dmg:4, def:0 },
   "Steel Sword": { slot:"weapon", dmg:8, def:0 },
   "Mithril Sword": { slot:"weapon", dmg:14, def:0 },
+  "Runic Sword": { slot:"weapon", dmg:20, def:0 }, // a 5th gear tier above Mithril — boss drop only, see index.html's endCombat
   "Bronze Shield": { slot:"shield", dmg:0, def:1 },
   "Iron Shield": { slot:"shield", dmg:0, def:3 },
   "Steel Shield": { slot:"shield", dmg:0, def:6 },
@@ -231,6 +241,7 @@ const ITEM_STATS = {
   "Amulet of the Wilds": { slot:"amulet", dmg:0, def:2 },
   "Clasp of the Wayfarer": { slot:"cloak", dmg:0, def:1 },
   "Warbelt": { slot:"belt", dmg:2, def:0 },
+  "Berserker's Totem": { slot:"belt", dmg:0, def:0 }, // dynamic, health-scaled bonus — see index.html's getBerserkerBonus
   "Iron Bracers": { slot:"bracers", dmg:0, def:1 },
   "Silver Earring": { slot:"earring", dmg:1, def:0 },
   "Sigil Charm": { slot:"charm", dmg:1, def:0 },
@@ -405,10 +416,14 @@ function render(){
     });
   }
 
-  // Includes Power Strike/Iron Skin alongside gear — omitting them would under-report the
-  // same bonus combatAttack() actually applies (see index.html's getEquipDamageBonus/
-  // getEquipDefenseBonus), which is exactly what this line is meant to preview.
-  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.dmg * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0);
+  // Includes Power Strike/Iron Skin, raw Strength, and Berserker's Totem's own dynamic
+  // health-scaled bonus alongside gear — omitting them would under-report the same bonus
+  // combatAttack() actually applies (see index.html's getEquipDamageBonus/getEquipDefenseBonus/
+  // getBerserkerBonus), which is exactly what this line is meant to preview.
+  const curHealth = parseInt(localStorage.getItem(HEALTH_KEY) || "100", 10);
+  const curMaxHealth = parseInt(localStorage.getItem(MAXHEALTH_KEY) || "100", 10);
+  const berserkerBonus = equipped.belt === "Berserker's Totem" ? Math.round((1 - curHealth/curMaxHealth) * BERSERKER_TOTEM_MAX_BONUS) : 0;
+  const dmgBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.dmg * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('power_strike') ? 2 : 0) + Math.round(getStats().str * STR_DAMAGE_PER_POINT) + berserkerBonus;
   const defBonus = EQUIP_SLOTS.reduce((sum, s) => { const n = equipped[s]; const st = n && ITEM_STATS[n]; return sum + (st ? Math.round(st.def * getDurabilityEffectiveness(s, n)) : 0); }, 0) + (hasPerk('iron_skin') ? 1 : 0);
   document.getElementById('combat-bonus').innerHTML = (dmgBonus || defBonus)
     ? `Combat bonus: <b>+${dmgBonus} damage dealt</b>, <b>-${defBonus} damage taken</b>`

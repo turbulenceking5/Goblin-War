@@ -3848,8 +3848,22 @@ const MARKET_ITEMS = [
   // gap roadmap.md's Equipment section used to flag. See context/player-state.md.
   { name:"Bronze Sword", price:8, weight:4, desc:"A crude blade, quickly forged", slot:"weapon", dmg:2, tier:"bronze", icon:"assets/equipment/bronze-sword.jpg" },
   { name:"Iron Sword", price:15, weight:5, desc:"A basic one-handed blade", slot:"weapon", dmg:4, tier:"iron", icon:"assets/equipment/iron-sword.jpg" },
-  { name:"Steel Sword", price:45, weight:6, desc:"A finely balanced blade, honed by a master smith", slot:"weapon", dmg:8, shop:"blacksmith", tier:"steel", icon:"assets/equipment/steel-sword.jpg" },
+  // Secondary effects on tiered gear — the Expansion Research idea of the same name: Steel's
+  // `inflicts` is a real upgrade tradeoff against Mithril, not just another flat-stat-up rung.
+  // Mithril hits harder every single time; Steel hits softer but has a real (if modest) chance to
+  // leave the target bleeding on a plain Attack (see combatAttack's rollWeaponInflict) — a
+  // tactical reason to keep using Steel rather than always chasing the next tier's raw number.
+  { name:"Steel Sword", price:45, weight:6, desc:"A finely balanced blade, honed by a master smith — the edge tends to leave a lasting wound", slot:"weapon", dmg:8, shop:"blacksmith", tier:"steel", icon:"assets/equipment/steel-sword.jpg", inflicts:{ type:'bleed', chance:0.2, turns:2 } },
   { name:"Mithril Sword", price:130, weight:3, desc:"Deep-mined ore, said to never dull", slot:"weapon", dmg:14, shop:"blacksmith", tier:"mithril", icon:"assets/equipment/mithril-sword.jpg" },
+  // A 5th gear tier above Mithril — the Expansion Research idea of the same name: a real
+  // late-game target gated by a boss drop, not gold. No `shop` field (so it's filtered out of
+  // the Marketplace too, see showMarketPanel's own `mi.tier === 'runic'` guard — not just absent
+  // from the Blacksmith the way every non-blacksmith item already is) and no `icon` (falls back
+  // to the generic weapon SVG, same "ship the mechanic, swap in real art later" precedent every
+  // other still-unillustrated item in this file already follows). See endCombat's victory branch
+  // for the actual drop: defeating an Ork Warlord while not already carrying one guarantees it,
+  // bypassing the normal LOOT_CHANCE roll entirely — a real target to fight toward, not a maybe.
+  { name:"Runic Sword", price:300, weight:3, desc:"A blade carried by Ork Warlords for generations — this one, no longer.", slot:"weapon", dmg:20, tier:"runic" },
   { name:"Bronze Shield", price:8, weight:7, desc:"A dented disc of hammered bronze", slot:"shield", def:1, tier:"bronze", icon:"assets/equipment/bronze-shield.jpg" },
   { name:"Iron Shield", price:15, weight:8, desc:"Extra protection in a fight", slot:"shield", def:3, tier:"iron", icon:"assets/equipment/iron-shield.jpg" },
   { name:"Steel Shield", price:45, weight:9, desc:"Forged steel, built to turn a heavier blow", slot:"shield", def:6, shop:"blacksmith", tier:"steel", icon:"assets/equipment/steel-shield.jpg" },
@@ -3877,6 +3891,13 @@ const MARKET_ITEMS = [
   { name:"Amulet of the Wilds", price:20, weight:1, desc:"Carved bone on a leather cord", slot:"amulet", def:2 },
   { name:"Clasp of the Wayfarer", price:10, weight:0, desc:"Fastens a cloak against a blade's glance", slot:"cloak", def:1 },
   { name:"Warbelt", price:18, weight:1, desc:"A stout leather belt, built for a fight", slot:"belt", dmg:2 },
+  // Build-defining accessory variants — the Expansion Research idea of the same name: a real
+  // mechanical hook, not just another flat dmg/def number. Berserker's Totem has no flat bonus of
+  // its own at all; its whole value is dynamic (getBerserkerBonus, folded into
+  // getEquipDamageBonus) — 0 extra damage at full health, scaling up to BERSERKER_TOTEM_MAX_BONUS
+  // at 0 health. A genuine playstyle choice (stay aggressive and wounded vs. the safe Iron Skin/
+  // shield route), not just a bigger number than the Warbelt.
+  { name:"Berserker's Totem", price:60, weight:1, desc:"Rage feeds on pain — the lower your health, the harder you hit.", slot:"belt", dmg:0 },
   { name:"Iron Bracers", price:12, weight:1, desc:"Simple forearm guards", slot:"bracers", def:1 },
   { name:"Silver Earring", price:9, weight:0, desc:"Said to sharpen a wearer's focus", slot:"earring", dmg:1 },
   { name:"Sigil Charm", price:14, weight:0, desc:"A small trinket etched with an old ward", slot:"charm", dmg:1 },
@@ -3918,13 +3939,29 @@ function setEquippedSlot(slot, itemName){
   eq[slot] = itemName;
   localStorage.setItem(EQUIPPED_KEY, JSON.stringify(eq));
 }
+// Raw stats mattering directly — the Expansion Research idea of the same name: Str/Agi/Int used
+// to be pure gating thresholds for perks/moves (skills.html's `req`), never read again for a
+// direct effect once something unlocked. Each stat now also grants a small continuous bonus of
+// its own, on top of (not instead of) its three perks — same mirrored shape skills.html's own
+// `getStats()` already has, duplicated per the no-modules convention.
+function getStats(){ try{ return Object.assign({str:0,agi:0,int:0}, JSON.parse(localStorage.getItem(STATS_KEY))); }catch(e){ return {str:0,agi:0,int:0}; } }
+const STR_DAMAGE_PER_POINT = 0.5;  // flat bonus damage per Strength point, alongside Power Strike's own +2
+const AGI_DODGE_PER_POINT = 0.01;  // +1% dodge chance per Agility point, stacking with the Evasion perk's flat 15%
+const INT_GOLD_PER_POINT = 0.01;   // +1% combat gold per Intelligence point, stacking with Scavenger's +20%
+// Build-defining accessory variants — see MARKET_ITEMS' Berserker's Totem. 0 extra damage at
+// full health, scaling linearly up to BERSERKER_TOTEM_MAX_BONUS the closer the player gets to 0.
+const BERSERKER_TOTEM_MAX_BONUS = 6;
+function getBerserkerBonus(){
+  if(getEquipped().belt !== "Berserker's Totem") return 0;
+  return Math.round((1 - playerHealth / playerMaxHealth) * BERSERKER_TOTEM_MAX_BONUS);
+}
 function getEquipDamageBonus(){
   const eq = getEquipped();
   const base = EQUIP_SLOTS.reduce((sum, slot) => {
     const stats = eq[slot] && ITEM_STATS[eq[slot]];
     return sum + (stats ? Math.round(stats.dmg * getDurabilityEffectiveness(slot, eq[slot])) : 0);
   }, 0);
-  return base + (hasPerk('power_strike') ? 2 : 0);
+  return base + (hasPerk('power_strike') ? 2 : 0) + Math.round(getStats().str * STR_DAMAGE_PER_POINT) + getBerserkerBonus();
 }
 function getEquipDefenseBonus(){
   const eq = getEquipped();
@@ -3933,6 +3970,29 @@ function getEquipDefenseBonus(){
     return sum + (stats ? Math.round(stats.def * getDurabilityEffectiveness(slot, eq[slot])) : 0);
   }, 0);
   return base + (hasPerk('iron_skin') ? 1 : 0);
+}
+// Chance to fully dodge an enemy's counter-attack — the Evasion perk's flat 15% plus a small
+// continuous bonus from raw Agility (see above). Always rolled (0 points/no perk just means this
+// is ~always false), so call sites don't need their own hasPerk gate anymore.
+function getDodgeChance(){ return (hasPerk('evasion') ? 0.15 : 0) + getStats().agi * AGI_DODGE_PER_POINT; }
+// Multiplier applied to combat gold payouts — Scavenger's flat +20% plus a small continuous bonus
+// from raw Intelligence (see above).
+function getGoldMult(){ return 1 + (hasPerk('scavenger') ? 0.2 : 0) + getStats().int * INT_GOLD_PER_POINT; }
+// The MARKET_ITEMS entry for whatever's in the player's own weapon slot, or null if empty/unknown
+// — see MARKET_ITEMS' Steel Sword for the one tier carrying a real `inflicts` secondary effect.
+function getEquippedWeaponItem(){
+  const name = getEquipped().weapon;
+  return name ? MARKET_ITEMS.find(mi => mi.name === name && mi.slot === 'weapon') : null;
+}
+// Rolls the equipped weapon's own optional `inflicts` field against whatever the player's plain
+// Attack just hit — same shape as rollEnemyInflict, just sourced from gear instead of an enemy
+// variant. Only the basic Attack triggers this (not Specials — those already carry their own
+// secondary effects), and only if the target survived the hit.
+function rollWeaponInflict(target){
+  const weapon = getEquippedWeaponItem();
+  if(!weapon || !weapon.inflicts || target.hp <= 0 || Math.random() >= weapon.inflicts.chance) return;
+  applyStatusEffect(target.effects, weapon.inflicts.type, weapon.inflicts.turns);
+  combatLog(`The ${target.name} is ${STATUS_LABEL[weapon.inflicts.type].toLowerCase()}!`);
 }
 
 // ===================== GEAR DURABILITY =====================
@@ -4026,8 +4086,11 @@ function repairSlot(slot){
 // See context/roadmap.md for the full design; this array is duplicated in character.html
 // per the no-modules convention.
 const PERKS = [
-  { id:"power_strike",  name:"Power Strike",  stat:"str", req:2, desc:"+2 flat damage on attack." },
-  { id:"iron_skin",     name:"Iron Skin",     stat:"str", req:2, desc:"-1 flat damage taken." },
+  // Mutually exclusive perk choices — see skills.html's PERKS copy (the one that actually enforces
+  // this at unlock time) for the full reasoning. Kept here too, inert, purely so the two
+  // duplicated arrays don't silently drift apart.
+  { id:"power_strike",  name:"Power Strike",  stat:"str", req:2, desc:"+2 flat damage on attack.", excludes:["iron_skin"] },
+  { id:"iron_skin",     name:"Iron Skin",     stat:"str", req:2, desc:"-1 flat damage taken.", excludes:["power_strike"] },
   { id:"pack_mule",     name:"Pack Mule",     stat:"str", req:4, desc:"+10 carry capacity." },
   { id:"evasion",       name:"Evasion",       stat:"agi", req:2, desc:"15% chance to fully dodge an enemy's counter-attack." },
   { id:"second_wind",   name:"Second Wind",   stat:"agi", req:2, desc:"25% chance an attack costs no stamina." },
@@ -4772,7 +4835,7 @@ function applyEnemyHit(enemy, defender, ignoreDefense){
     return;
   }
   if(defender.isPlayer){
-    if(!ignoreDefense && hasPerk('evasion') && Math.random() < 0.15){
+    if(!ignoreDefense && Math.random() < getDodgeChance()){
       combatLog(`You dodge the ${enemy.name}'s counter-attack entirely.`);
       return;
     }
@@ -4924,6 +4987,7 @@ function combatAttack(){
     combatLog(`You hit the ${target.name} for ${dmg} damage.` + (freeAttack ? ` (Second Wind — no stamina spent!)` : '') + (comboReady ? ` (Momentum!)` : '') + (staggered ? ` (Staggered — extra damage!)` : ''));
     spawnDamageNumber(getEnemySlotEl(combat.targetIndex), `-${dmg}`, 'hit');
     flashHit(getEnemySlotEl(combat.targetIndex));
+    rollWeaponInflict(target); // secondary effects on tiered gear — see MARKET_ITEMS' Steel Sword
     if(aliveEnemies().length === 0){
       updateCombatUI();
       endCombat('victory');
@@ -5212,7 +5276,7 @@ function endCombat(result){
       ? ` ${fallenAllies.join(', ')} fell in the fight and won't be coming back.`
       : '';
     if(result === 'victory'){
-      let goldTotal = 0, xpTotal = 0, statusFinishCount = 0;
+      let goldTotal = 0, xpTotal = 0, statusFinishCount = 0, legendaryNote = '';
       const lootFound = [], lootLeftBehind = [];
       enemies.forEach(e => {
         goldTotal += randRange(e.goldRange);
@@ -5230,8 +5294,19 @@ function endCombat(result){
             else lootLeftBehind.push(drop.name);
           }
         }
+        // A 5th gear tier above Mithril — a real boss drop, not a LOOT_TABLES roll: defeating an
+        // Ork Warlord while not already carrying one guarantees a Runic Sword, bypassing
+        // LOOT_CHANCE entirely. Checked fresh per Warlord (a multi-enemy fight could include more
+        // than one), so getting rid of your only copy later means the next Warlord can earn it
+        // back — deliberately not a one-time-ever flag.
+        if(e.name === 'Ork Warlord' && !getItem('Runic Sword')){
+          const runic = MARKET_ITEMS.find(m => m.name === 'Runic Sword');
+          if(runic && addItem(runic.name, 1, runic.weight, runic.price)){
+            legendaryNote = ` The Warlord's own blade, the Runic Sword, is yours — a weapon like nothing else you've carried.`;
+          }
+        }
       });
-      if(hasPerk('scavenger')) goldTotal = Math.round(goldTotal * 1.2);
+      goldTotal = Math.round(goldTotal * getGoldMult());
       setGold(playerGold + goldTotal);
       let anyLevelUp = addXp(xpTotal);
       applyEnemyCasualtyLoss(enemyRace, attackerKingdom, currentBurg, enemies.length);
@@ -5246,6 +5321,7 @@ function endCombat(result){
       if(lootFound.length) msg += ` Looted: ${lootFound.join(', ')}.`;
       if(lootLeftBehind.length) msg += ` (Too heavy to carry, left behind: ${lootLeftBehind.join(', ')}.)`;
       if(statusFinishCount) msg += ` Finishing off a staggered foe turned up extra loot chances.`;
+      if(legendaryNote) msg += legendaryNote;
 
       // Notable Figure kill-quests complete on the next matching victory anywhere — Kill
       // Bandits wants a Bandit, Drive Off the Raiders wants a Goblin or Ork (see
@@ -9743,13 +9819,35 @@ function getActiveSynergyBonus(id, partyIds){
   const synergy = COMPANION_SYNERGY_PAIRS.find(s => s.pair.includes(id) && s.pair.every(p => partyIds.includes(p)));
   return synergy ? synergy.dmgBonus : 0;
 }
+// Let companions/mercenaries equip gear — the Expansion Research idea of the same name:
+// itemization used to stop at the player. Deliberately scoped to just the weapon slot (allies
+// have no defense stat for armor to improve, only hp/dmgRange) and deliberately non-consuming —
+// same convention the player's own setEquippedSlot already uses: equipping doesn't reduce the
+// item's tracked inventory quantity, it just points at a carried item's name. A real quantity
+// reservation (so the same physical sword can't "equip" to the player and three allies at once)
+// is a known, flagged simplification, not an oversight — it would need a second accounting system
+// this feature doesn't otherwise require.
+const ALLY_EQUIPPED_KEY = "goblinwar_allyEquipped"; // {allyId: itemName} — weapon slot only
+function getAllyEquipped(){ try{ return JSON.parse(localStorage.getItem(ALLY_EQUIPPED_KEY)) || {}; }catch(e){ return {}; } }
+function setAllyWeapon(allyId, itemName){
+  const map = getAllyEquipped();
+  if(itemName) map[allyId] = itemName; else delete map[allyId];
+  localStorage.setItem(ALLY_EQUIPPED_KEY, JSON.stringify(map));
+}
+function getAllyWeaponBonus(allyId){
+  const name = getAllyEquipped()[allyId];
+  const mi = name && MARKET_ITEMS.find(m => m.name === name && m.slot === 'weapon');
+  return mi ? (mi.dmg || 0) : 0;
+}
 function buildCombatAllies(){
   const mercAllies = getMercenaries().map(m => {
     const type = MERCENARY_TYPES.find(t => t.id === m.typeId);
     if(!type) return null;
+    const weaponBonus = getAllyWeaponBonus(m.instanceId);
     return {
       kind:'mercenary', id: m.instanceId, title: type.title, portrait: type.portrait,
-      hp: type.combatHp, maxHp: type.combatHp, dmgRange: type.combatDmgRange.slice(), effects: {},
+      hp: type.combatHp, maxHp: type.combatHp,
+      dmgRange: type.combatDmgRange.map(d => d + weaponBonus), effects: {},
       targetOverride: null // see cycleAllyTarget — this ally's own chosen target, if any
     };
   }).filter(Boolean);
@@ -9760,7 +9858,8 @@ function buildCombatAllies(){
     if(!c) return null;
     const devoted = (loyalty[id] === undefined ? 50 : loyalty[id]) >= DEVOTED_LOYALTY_THRESHOLD;
     const synergyBonus = getActiveSynergyBonus(id, partyIds);
-    const dmgRange = c.combatDmgRange.map(d => Math.round(d * (devoted ? DEVOTED_DAMAGE_MULT : 1)) + synergyBonus);
+    const weaponBonus = getAllyWeaponBonus(id);
+    const dmgRange = c.combatDmgRange.map(d => Math.round(d * (devoted ? DEVOTED_DAMAGE_MULT : 1)) + synergyBonus + weaponBonus);
     return {
       kind:'companion', id: c.id, title: c.name, portrait: c.portrait,
       hp: c.combatHp, maxHp: c.combatHp, dmgRange, effects: {},
@@ -10956,6 +11055,7 @@ function showMarketPanel(burgId){
     // showBlacksmithPanel below, the second shop it's exclusive to instead.
     const itemRows = MARKET_ITEMS.map((mi, i) => {
       if(mi.shop === 'blacksmith') return '';
+      if(mi.tier === 'runic') return ''; // a 5th-tier boss drop — never sold anywhere, see MARKET_ITEMS' Runic Sword
       if(mi.raceOnly && !mi.raceOnly.includes(getController(burgId))) return '';
       const buyPrice = getBuyPrice(mi, burgId);
       const sellPrice = getSellPrice(mi, burgId);
@@ -11395,6 +11495,7 @@ function collectCharacterSnapshot(){
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
     tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
     landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
+    allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

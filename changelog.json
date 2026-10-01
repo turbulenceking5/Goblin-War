@@ -1081,5 +1081,12 @@
     "changes": [
       "The Marketplace can now hire a Cartographer, a one-time fee that draws up a Scout's Report on the nearby settlements — which ones have a quest posted, a notable figure, or someone looking to join your cause."
     ]
+  },
+  {
+    "id": 146,
+    "date": "2026-10-01",
+    "changes": [
+      "Brand-new characters now get a quick welcome walkthrough covering the map, travel, and combat basics the first time they load in."
+    ]
   }
 ]

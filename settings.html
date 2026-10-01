@@ -769,6 +769,7 @@ const TAVERN_REGULAR_PROGRESS_KEY = "goblinwar_tavernRegularProgress"; // {regul
 const TEMPLE_BLESSING_KEY = "goblinwar_templeBlessing"; // null | {type:'vigor'|'warding', expiresDay} — see index.html's "Temple Blessings"
 const CARAVAN_ESCORT_KEY = "goblinwar_caravanEscort"; // "true" | "false" — see index.html's "Caravan Escort"
 const CARTOGRAPHER_KEY = "goblinwar_cartographerScouted"; // [burgId, ...] — see index.html's "Cartographer"
+const TUTORIAL_SEEN_KEY = "goblinwar_tutorialSeen"; // "true" | "false" — see index.html's "First-run tutorial"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -922,6 +923,7 @@ function collectCharacterSnapshot(){
     templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
     caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
+    tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

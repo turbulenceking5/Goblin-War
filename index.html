@@ -301,6 +301,35 @@
   .whats-new-entry li{ font-size:14px; color:var(--parchment); margin-bottom:4px; line-height:1.4; }
   #whats-new-dismiss{ width:100%; margin-top:6px; }
 
+  /* First-run tutorial — the Expansion Research idea of the same name: a lightweight,
+     localStorage-gated walkthrough shown once per brand-new character. Structurally a copy of
+     #whats-new-modal, but z-index 92 (just above its 90) — a truly first-ever character never
+     actually has a pending What's New popup to compete with (see checkForWhatsNew's own "silent
+     on a brand-new game" comment), but ranking the tutorial above it means a brand-new *second*
+     character on an account that does have unseen changelog entries still sees the tutorial
+     first, with What's New naturally revealing itself the moment the tutorial is dismissed
+     (both modals are independent `.show`-toggled siblings at the same inset:0, so dismissing the
+     top one just exposes whichever's still flagged open underneath). */
+  #tutorial-modal{
+    position:fixed; inset:0; z-index:92; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #tutorial-modal.show{ display:flex; }
+  #tutorial-card{
+    max-width:380px; width:100%; max-height:80vh; overflow-y:auto;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+  }
+  #tutorial-title{ font-family:'Cinzel Decorative', serif; font-size:19px; color:var(--gold-lt); margin:0 0 14px; text-align:center; text-shadow:none; }
+  .tutorial-entry{ margin-bottom:16px; }
+  .tutorial-entry:last-child{ margin-bottom:0; }
+  .tutorial-entry b{ display:block; font-family:'Cinzel', serif; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:#a9926a; margin-bottom:5px; }
+  .tutorial-entry p{ margin:0; font-size:14px; color:var(--parchment); line-height:1.5; }
+  #tutorial-dismiss{ width:100%; margin-top:6px; }
+
   /* A random road event's choice modal — see triggerWorldEvent/WORLD_EVENTS below. Structurally a
      copy of #whats-new-modal (centered card overlay, not a full-screen page like #combat-view),
      but z-index 75: it can fire the moment travel arrives, before #location-view (60) is even
@@ -633,6 +662,25 @@
       <h2 id="whats-new-title">What's New</h2>
       <div id="whats-new-list"></div>
       <button class="btn btn-primary" id="whats-new-dismiss">Got it</button>
+    </div>
+  </div>
+
+  <div id="tutorial-modal">
+    <div id="tutorial-card">
+      <h2 id="tutorial-title">Welcome to Goblin War</h2>
+      <div class="tutorial-entry">
+        <b>Map &amp; Travel</b>
+        <p>Tap a settlement to see it, then Travel Here to set out. The road costs real hours, Hunger, and Thirst — and after dark, it's riskier.</p>
+      </div>
+      <div class="tutorial-entry">
+        <b>Combat</b>
+        <p>Ambushes happen on the road and in camp. Attack to swing, Special for a stronger move at the cost of Stamina, or Flee if the fight's going badly.</p>
+      </div>
+      <div class="tutorial-entry">
+        <b>Survival</b>
+        <p>Keep an eye on Health, Stamina, Hunger, and Thirst in the header. Rest at a Tavern or make camp on the road to recover, and visit a settlement's Marketplace to restock.</p>
+      </div>
+      <button class="btn btn-primary" id="tutorial-dismiss">Let's Go</button>
     </div>
   </div>
 
@@ -2024,6 +2072,21 @@ function checkForWhatsNew(){
 document.getElementById('whats-new-dismiss').addEventListener('click', ()=>{
   localStorage.setItem(CHANGELOG_SEEN_KEY, String(CHANGELOG[CHANGELOG.length-1].id));
   document.getElementById('whats-new-modal').classList.remove('show');
+});
+
+// First-run tutorial — per-character (not per-account, unlike CHANGELOG_SEEN_KEY), gated by
+// TUTORIAL_SEEN_KEY, defaulting to "true" (already seen) for any character that existed before
+// this shipped — see freshCharacterData's isNewCharacter param in characters.html, which is what
+// actually flips the default to "false" for a genuinely brand-new character. Reads synchronously
+// off localStorage like every other player-state key; no network wait needed.
+const TUTORIAL_SEEN_KEY = "goblinwar_tutorialSeen";
+function maybeShowTutorial(){
+  if(localStorage.getItem(TUTORIAL_SEEN_KEY) === 'true') return;
+  document.getElementById('tutorial-modal').classList.add('show');
+}
+document.getElementById('tutorial-dismiss').addEventListener('click', ()=>{
+  localStorage.setItem(TUTORIAL_SEEN_KEY, 'true');
+  document.getElementById('tutorial-modal').classList.remove('show');
 });
 
 // ===================== UPDATE CHECK =====================
@@ -10685,6 +10748,7 @@ Promise.all([
       }
     }
     document.getElementById('loading').classList.add('hide');
+    maybeShowTutorial();
     authGateReady.then(session=>{
       if(!session) return; // being redirected to login.html
       CHANGELOG_SEEN_KEY = `goblinwar_lastSeenChangelog_${session.user.id}`;
@@ -10787,6 +10851,7 @@ function collectCharacterSnapshot(){
     templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
     caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
     cartographerScouted: localStorage.getItem(CARTOGRAPHER_KEY) || "[]",
+    tutorialSeen: localStorage.getItem(TUTORIAL_SEEN_KEY) || "true",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

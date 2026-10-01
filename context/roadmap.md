@@ -377,7 +377,7 @@ Everything below came from the "Goblin War — Expansion Research" doc, a pass t
 
 ### Meta / UX / Technical
 
-- **A first-run tutorial overlay.** Nothing addresses onboarding today — a lightweight, localStorage-gated walkthrough of map/travel/combat basics on a brand-new character closes a real, currently-undocumented gap.
+- **A first-run tutorial overlay — done.** A lightweight, three-section modal (Map & Travel, Combat, Survival) shown once on a brand-new character's first map load (`maybeShowTutorial`/`TUTORIAL_SEEN_KEY`), structurally a copy of the existing What's New modal. Gated per-character, not per-account — and only a genuinely new character (created via `freshCharacterData`'s `isNewCharacter` argument) ever sees it; an existing save defaults to already-seen. See [characters.md](characters.md)'s `tutorialSeen`.
 - **A service worker for offline asset caching.** The game already ships a Web App Manifest for "Add to Home Screen"; a service worker caching static assets would make the installed PWA usable with a flaky connection, with zero new infrastructure.
 - **A Data Saver toggle.** A settings.html option to skip loading heavier equipment/biome/UI-theme art in favor of the generic SVG fallbacks already built for exactly this purpose.
 

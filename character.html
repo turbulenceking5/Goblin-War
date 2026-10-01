@@ -800,6 +800,13 @@ function currentTitle(){
   if(!earned.length) return null;
   return earned.reduce((best, t) => (kills[t.race] > kills[best.race] ? t : best), earned[0]);
 }
+// Renown-based titles — the Expansion Research idea of the same name, a second track alongside
+// the kill-count TITLES above: reputation crossing Trusted with a specific kingdom instead of a
+// kill tally. Computed and written by index.html's updateRenownTitle (hooked into its one shared
+// adjustReputation call) — this page only ever reads the plain string it leaves behind, no
+// reputation/faction machinery duplicated here for it.
+const RENOWN_TITLE_KEY = "goblinwar_renownTitle";
+function currentRenownTitle(){ return localStorage.getItem(RENOWN_TITLE_KEY) || null; }
 // Mirrors index.html's getCarryCapacity()/getEquipDamageBonus()/getEquipDefenseBonus() — only
 // Pack Mule/Power Strike/Iron Skin matter here, so this doesn't need the full PERKS table, just
 // those three flags (duplicated per the no-modules convention).
@@ -961,7 +968,9 @@ const carriedWeight = inventory.reduce((sum, it) => sum + it.weight*it.qty, 0);
 document.getElementById('hero-name').textContent = localStorage.getItem(NAME_KEY) || "Unnamed Hero";
 const heroTitleEl = document.getElementById('hero-title');
 const earnedTitle = currentTitle();
-if(earnedTitle){ heroTitleEl.textContent = earnedTitle.name; heroTitleEl.hidden = false; }
+const earnedRenownTitle = currentRenownTitle();
+const titleParts = [earnedTitle ? earnedTitle.name : null, earnedRenownTitle].filter(Boolean);
+if(titleParts.length){ heroTitleEl.textContent = titleParts.join(' · '); heroTitleEl.hidden = false; }
 document.getElementById('hp-bar').style.width = Math.round((hp/maxHp)*100) + '%';
 document.getElementById('hp-value').textContent = `${hp} / ${maxHp}`;
 document.getElementById('stamina-bar').style.width = Math.round((stamina/maxStamina)*100) + '%';

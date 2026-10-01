@@ -8738,7 +8738,22 @@ function adjustReputation(kingdom, delta){
   const current = map[kingdom] || 0;
   map[kingdom] = Math.max(-100, Math.min(100, current + delta));
   saveReputationMap(map);
+  updateRenownTitle(map);
   return ` Reputation ${delta > 0 ? '+' : ''}${delta} with ${kingdom}.`;
+}
+// Renown-based titles — the Expansion Research idea of the same name: a parallel title set to
+// character.html's existing kill-count TITLES, triggered by reputation crossing Trusted with a
+// specific kingdom instead (e.g. "Hero of Bary") — same display mechanism there, new trigger here.
+// Recomputed from the one shared adjustReputation hook every reputation change already goes
+// through, and just written as a plain string (or "" once no kingdom still qualifies) so
+// character.html needs no faction/reputation machinery of its own to show it — it only ever reads
+// this key. Ties broken the same "highest value wins" way currentTitle() already does for kills.
+const RENOWN_TITLE_KEY = "goblinwar_renownTitle";
+function updateRenownTitle(reputationMap){
+  const map = reputationMap || (()=>{ try{ return JSON.parse(localStorage.getItem(REPUTATION_KEY)) || {}; }catch(e){ return {}; } })();
+  const trusted = Object.keys(map).filter(k => reputationLabel(map[k]) === 'Trusted');
+  const best = trusted.reduce((top, k) => (!top || map[k] > map[top]) ? k : top, null);
+  localStorage.setItem(RENOWN_TITLE_KEY, best ? `Hero of ${best}` : "");
 }
 // First-pass delta constants — easy to retune later, same spirit as LOOT_CHANCE/RAID_AMBUSH_CHANCE.
 const REP_GAIN_MINOR = 3;    // a delivery quest turn-in, Aid the Refugees
@@ -10093,6 +10108,7 @@ Promise.all([
   buildAdjacency();
   buildFactionData();
   buildBurgAdjacency();
+  updateRenownTitle(); // catches a save with Trusted reputation already earned before this existed
   assignDynamicHomes(seed, world); // NOTABLE_FIGURES/COMPANIONS homes — no fixed burg ids anymore
   if(!graph.burgs[currentBurg]){
     currentBurg = world.startBurgId || "0";
@@ -10242,6 +10258,7 @@ function collectCharacterSnapshot(){
     espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
+    renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

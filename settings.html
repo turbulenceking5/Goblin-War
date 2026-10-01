@@ -763,6 +763,7 @@ const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name — see index.html
 const ESPIONAGE_COOLDOWN_KEY = "goblinwar_espionageCooldowns"; // {burgId: gameDay} — see index.html's "Espionage"
 const SETTLEMENT_INVESTMENT_COOLDOWN_KEY = "goblinwar_investmentCooldowns"; // {burgId: gameDay} — see index.html's "Settlement Investment"
 const SCRAP_KEY = "goblinwar_scrap"; // plain integer — see inventory.html's "Gear salvage/scrap"
+const RENOWN_TITLE_KEY = "goblinwar_renownTitle"; // plain string — see index.html's "Renown-based titles"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -910,6 +911,7 @@ function collectCharacterSnapshot(){
     espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
+    renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

@@ -3027,19 +3027,33 @@ function getGarrisonStrength(burgId){
 // describe something that's actually true in *this* game, not only fixed flavor color — a narrow,
 // contained first step toward roadmap.md's bigger "Reactive rumors" idea, deliberately not the
 // full migration that idea describes (RUMOURS/TOWNSFOLK_LINES_*/WORK_LINES all stay exactly as
-// they are otherwise). Newest first, capped at RECENT_EVENTS_MAX so a long-lived character's save
-// doesn't grow this list forever — same trim-oldest shape as goblinwar_completedQuests'
-// recordCompletedQuest.
+// they are otherwise). Newest first, trim-oldest shape (same as goblinwar_completedQuests'
+// recordCompletedQuest) — but the two readers below keep different horizons on the same stored
+// list: Tavern Talk only ever wants the freshest handful of lines mixed into its flavor pool
+// (RECENT_EVENTS_MAX, unchanged at 15, so that pacing doesn't shift), while the Chronicle of the
+// Realm page (chronicle.html) wants the real, much longer history — CHRONICLE_MAX is what actually
+// bounds how much this key stores, so a long-lived character's save still doesn't grow it forever.
+// Each entry now also stamps the `gameDay` it happened on, purely for the Chronicle's own display —
+// Tavern Talk's getRecentEventTexts still only reads `.text`, so this is additive, not a schema
+// change existing readers need to care about.
 const RECENT_EVENTS_KEY = "goblinwar_recentEvents";
 const RECENT_EVENTS_MAX = 15;
+const CHRONICLE_MAX = 150;
 function recordWorldEvent(text){
   let history;
   try{ history = JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []; }catch(e){ history = []; }
-  history.unshift({ text });
-  localStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(history.slice(0, RECENT_EVENTS_MAX)));
+  history.unshift({ text, day: gameDay });
+  localStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(history.slice(0, CHRONICLE_MAX)));
+}
+// Chronicle of the Realm — the Expansion Research idea of the same name: world events used to
+// vanish once they fell off RECENT_EVENTS_MAX's old 15-item cap, with nowhere to ever see them
+// again. chronicle.html reads this directly (it's a plain gated page, same pattern as
+// changelog.html — see context/secondary-pages.md) rather than through index.html's own script.
+function getChronicleEvents(){
+  try{ return JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []; }catch(e){ return []; }
 }
 function getRecentEventTexts(){
-  try{ return (JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []).map(e => e.text); }catch(e){ return []; }
+  try{ return (JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []).slice(0, RECENT_EVENTS_MAX).map(e => e.text); }catch(e){ return []; }
 }
 
 // Ends any siege currently running between these two specific kingdoms (either direction) —

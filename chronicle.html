@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="assets/supabase-config.js"></script>
+<script src="assets/auth-gate-sync.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Goblin War">
+<meta name="theme-color" content="#0d1220">
+<title>Goblin War — Chronicle of the Realm</title>
+<link rel="manifest" href="manifest.json?v=2">
+<link rel="apple-touch-icon" href="assets/icons/icon-180.png?v=2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#141a2e; --gold:#a97a1f; --gold-lt:#d1a445; --water-dk:#0d1220; --parchment:#e9dcb8; --parchment-shadow:#b9a06e; }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{ margin:0; padding:0; min-height:100%; background:#0d1220; font-family:'EB Garamond', serif; color:var(--parchment); }
+  header{
+    background:linear-gradient(180deg, var(--ink) 0%, #0d1220 100%), url('assets/ui/bg-dither.jpg'); background-blend-mode:overlay; background-size:auto, 350px;
+    border-bottom:3px solid var(--gold);
+    padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); position:sticky; top:0; z-index:10;
+  }
+  h1{ font-family:'Press Start 2P', 'Cinzel Decorative', serif; font-size:12px; letter-spacing:1px; color:var(--gold-lt); margin:0; text-shadow:0 2px 3px rgba(0,0,0,.6); line-height:1.5; }
+  #back-btn{
+    font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px; display:inline-flex; align-items:center; gap:6px;
+    background:transparent; color:var(--gold-lt); border:1.5px solid var(--gold);
+    border-radius:6px; padding:7px 12px; cursor:pointer;
+  }
+  #back-btn img{ width:14px; height:14px; flex:none; image-rendering:pixelated; }
+  #back-btn:active{ transform:scale(.96); }
+  main{ padding:22px 20px 60px; max-width:520px; margin:0 auto; }
+  .subtitle{ font-family:'Cinzel', serif; font-size:11px; letter-spacing:2px; color:#a9926a; text-transform:uppercase; margin-bottom:16px; text-align:center; }
+  .chronicle-entry{
+    background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px;
+    padding:12px 14px; margin-bottom:10px; display:flex; gap:12px; align-items:flex-start;
+  }
+  .chronicle-day{
+    flex:none; font-family:'Cinzel', serif; font-size:10px; letter-spacing:.5px; color:#a9926a;
+    white-space:nowrap; padding-top:1px;
+  }
+  .chronicle-text{ font-size:14.5px; color:var(--parchment); line-height:1.4; }
+  .chronicle-empty{ text-align:center; color:#a9926a; font-size:13px; padding:30px 10px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>CHRONICLE OF THE REALM</h1>
+    <button id="back-btn" onclick="location.href='settings.html?_='+Date.now()"><img src="assets/ui/sword-icon.png" alt=""> Back to Settings</button>
+  </header>
+  <main>
+    <div class="subtitle">The real history of this world, as it happened</div>
+    <div id="chronicle-list"></div>
+  </main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/auth-client.js"></script>
+<script>
+// Chronicle of the Realm — the Expansion Research idea of the same name. index.html's
+// recordWorldEvent() (see context/factions-and-territory.md's "Real outcomes also feed a small
+// rumour log") already writes every real settlement capture, repelled siege, war-exhaustion
+// peace, and reactive quest shift into goblinwar_recentEvents, newest first — it used to be
+// capped at a 15-item rolling buffer purely for Tavern Talk's own flavor-pool pacing, so anything
+// older just vanished with nowhere to ever see it again. index.html now keeps up to CHRONICLE_MAX
+// (150) of the same entries in that same key — Tavern Talk's own reader
+// (getRecentEventTexts) still only takes the freshest 15 off the front, so its pacing is
+// unchanged — and this page is simply a plain, read-only view of the whole thing, duplicated
+// constants and all per the no-modules convention (see CLAUDE.md), same pattern changelog.html
+// already uses for a different append-only log.
+const RECENT_EVENTS_KEY = "goblinwar_recentEvents";
+const CAL_KEY = "goblinwar_gameDay";
+const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
+
+function getChronicleEvents(){
+  try{ return JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY)) || []; }catch(e){ return []; }
+}
+// Same Day/Month/Year formula as index.html's own refreshCalendarUI, duplicated per the
+// no-modules convention — an entry with no stored `day` (recorded before this page existed)
+// just shows no date rather than a misleading "Day 1".
+function formatChronicleDay(day){
+  if(typeof day !== 'number') return '';
+  const d = (day % DAYS_PER_MONTH) + 1;
+  const m = (Math.floor(day / DAYS_PER_MONTH) % MONTHS_PER_YEAR) + 1;
+  const y = Math.floor(day / (DAYS_PER_MONTH*MONTHS_PER_YEAR)) + 1;
+  return `Day ${d}, Month ${m}, Year ${y}`;
+}
+
+function render(){
+  const events = getChronicleEvents();
+  const container = document.getElementById('chronicle-list');
+  if(!events.length){
+    container.innerHTML = `<div class="chronicle-empty">No history yet — the realm's story is still being written.</div>`;
+    return;
+  }
+  container.innerHTML = events.map(e => `
+    <div class="chronicle-entry">
+      <div class="chronicle-day">${formatChronicleDay(e.day)}</div>
+      <div class="chronicle-text">${e.text}</div>
+    </div>
+  `).join('');
+}
+render();
+</script>
+<script>
+// Service worker registration — see sw.js for what it does and why (network-first, offline
+// fallback only; never serves stale content while the network is actually reachable). The
+// registration URL itself is cache-busted, same reasoning as every internal nav link (CLAUDE.md)
+// — GitHub Pages' CDN (Cache-Control: max-age=600) could otherwise keep handing back a stale
+// cached copy of sw.js itself for several minutes after a real update ships.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js?_=' + Date.now()).catch(()=>{}));
+}
+</script>
+</body>
+</html>

@@ -78,6 +78,10 @@ Not one of the five toolbar tabs — reached from a Settings menu item instead (
 
 All three new keys (`goblinwar_visitedBurgs`, `goblinwar_defeatedVariants`, `goblinwar_questsCompletedTotal`) are part of the character snapshot shape (see [characters.md](characters.md)) so achievement progress survives a save/switch rather than resetting.
 
+## chronicle.html — Chronicle of the Realm
+
+Also reached from a Settings menu item (right above Change Log, same pattern as achievements.html above), not a toolbar tab. The simplest of the Settings-menu pages: no `generateWorld()` call, no graph data at all — it just reads `goblinwar_recentEvents` directly (index.html's `recordWorldEvent`/`getChronicleEvents`, see [factions-and-territory.md](factions-and-territory.md)'s "Chronicle of the Realm") and renders every entry newest-first, each with its stamped `gameDay` formatted into `Day/Month/Year` via a small duplicated copy of index.html's own `refreshCalendarUI` formula. An entry recorded before this page existed has no `day` field and simply shows no date rather than a misleading "Day 1". No per-account "seen" key like changelog.html's — it's a pure history view, nothing to mark caught-up.
+
 ## Adding a new secondary page
 
 Follow the existing pattern rather than inventing a new one: copy the shared CSS block (`:root` custom properties, `header`/`#back-btn`/`main`/`.subtitle` rules are near-identical across all five files), add the nav icon + `onclick="goTo('yourpage.html')"` to index.html's `#nav-icons` (see the cache-busting convention in [../CLAUDE.md](../CLAUDE.md) for why it's `goTo()` and not a bare `location.href`), and read `localStorage` directly rather than trying to pass state through the URL or a shared script — see root [CLAUDE.md](../CLAUDE.md) on why there's no shared module. Don't forget the two gate scripts in `<head>`/near the bottom of `<body>` (see [accounts.md](accounts.md)) — every player page needs them.

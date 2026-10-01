@@ -6768,6 +6768,10 @@ function beginTravel(destId, viaShortcut){
   if(t.ferryCost > 0) setGold(playerGold - t.ferryCost);
   const destName = graph.burgs[destId].name;
   const startHunger = playerHunger, startThirst = playerThirst, startHour = gameHour;
+  // Captured at departure, not re-checked at arrival — a single-threaded game has no way for this
+  // to change mid-trip anyway, but reading it once here keeps the ambush-roll multiplier and the
+  // "did we actually use the escort" arrival check unambiguously about this one trip.
+  const escorted = hasCaravanEscort();
   closeCard();
 
   const fromPos = { ...getCurrentXY(), cell:getCurrentCell() };
@@ -6789,10 +6793,17 @@ function beginTravel(destId, viaShortcut){
     addHunger(t.hungerGain);
     addThirst(t.thirstGain);
     refreshReachability();
-    if(rollAmbush(t.hours, startHour, viaShortcut ? SHORTCUT_AMBUSH_MULT : 1)){
+    // Consumed by this trip's actual arrival — win, lose, or uneventful — not by merely being
+    // hired. A trip interrupted by Stop/Set Up Camp never reaches here, so the escort carries
+    // over to whenever the player next actually completes a road trip.
+    if(escorted) localStorage.setItem(CARAVAN_ESCORT_KEY, 'false');
+    const ambushMult = (viaShortcut ? SHORTCUT_AMBUSH_MULT : 1) * (escorted ? CARAVAN_ESCORT_AMBUSH_MULT : 1);
+    if(rollAmbush(t.hours, startHour, ambushMult)){
       triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
     } else if(rollWorldEvent()){
       triggerWorldEvent(()=> showLocationView(currentBurg));
+    } else if(escorted){
+      showCaravanArrivalDialogue(currentBurg);
     } else {
       showLocationView(currentBurg);
     }
@@ -8110,7 +8121,7 @@ function showLocationView(burgId){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
       }
       else if(btn.dataset.action === 'guardhouse'){
-        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
+        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
       }
       else if(btn.dataset.action === 'palace'){
         showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
@@ -8700,7 +8711,68 @@ function gainEspionage(burgId){
   const strengthLine = describeArmyStrength(getArmyStrength(kingdom));
   const musterLine = marching ? ` Word is they already have banners on the march.` : ` No muster seems underway, for now.`;
   showToast(`Your coin buys a rumor: ${kingdom} fields ${strengthLine}.${musterLine}`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+}
+
+// Caravan Escort — the Expansion Research idea of the same name: a paid Guard House action that
+// discounts the ambush chance for exactly the next road trip (not a duration like Temple's
+// Warding blessing — a one-time consumable, cleared the moment that trip actually arrives,
+// win or lose). Stacks multiplicatively with everything else rollAmbush already weighs (night,
+// perks, Warding, a Shortcut's own risk bump) via its extraMult parameter — see beginTravel.
+const CARAVAN_ESCORT_KEY = "goblinwar_caravanEscort"; // "true" | "false" — consumed on arrival of the next road trip
+const CARAVAN_ESCORT_COST = 25;
+const CARAVAN_ESCORT_AMBUSH_MULT = 0.5; // 50% safer for that one trip
+// A short arrival beat using the existing dialogue-tree engine (renderDialogueBody/
+// wireDialogueChoices — see showTavernRegularChapter for the same reuse pattern), shown instead
+// of going straight to the destination's action list once an escorted trip actually lands safely
+// (see beginTravel's completion callback) — a single line, no real choice, same "(Leave)"
+// synthesized-choice shape every other flavor-only dialogue node in this file already uses.
+const CARAVAN_ARRIVAL_LINES = [
+  "The caravan master waves farewell at the gates. \"Safe travels from here, friend — the road behind us was kinder today.\"",
+  "\"Made it in one piece,\" the caravan master grins, swinging down from the lead wagon. \"Pleasure doing business.\"",
+  "The caravan guards peel off toward the stables, their captain giving you a curt nod goodbye.",
+];
+function hasCaravanEscort(){ return localStorage.getItem(CARAVAN_ESCORT_KEY) === 'true'; }
+function buildCaravanEscortHTML(burgId){
+  if(hasCaravanEscort()){
+    return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Caravan Hired</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5;">A caravan is waiting to escort you on your next road trip.</div>
+    </div>`;
+  }
+  const afford = playerGold >= CARAVAN_ESCORT_COST;
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Hire a Caravan Escort</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Armed guards accompany you on your very next road trip, cutting the chance of an ambush along the way.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">-${CARAVAN_ESCORT_COST}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="caravan-escort-btn" ${afford ? '' : 'disabled'}>Hire Escort</button>
+      </div>
+    </div>`;
+}
+function acceptCaravanEscort(burgId){
+  if(playerGold < CARAVAN_ESCORT_COST || hasCaravanEscort()) return;
+  setGold(playerGold - CARAVAN_ESCORT_COST);
+  localStorage.setItem(CARAVAN_ESCORT_KEY, 'true');
+  showToast(`You hire a caravan to escort your next trip.`);
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+}
+function wireCaravanEscortButton(burgId){
+  const btn = document.getElementById('caravan-escort-btn');
+  if(btn) btn.addEventListener('click', ()=> acceptCaravanEscort(burgId));
+}
+// Reuses the existing dialogue engine the way showTavernRegularChapter does: opens the normal
+// location view first (so Back/the rest of the action list is already correctly wired), then
+// overwrites #loc-action-list with a single flavor line and a synthesized "(Leave)" choice that
+// returns to the real action list.
+function showCaravanArrivalDialogue(burgId){
+  showLocationView(burgId);
+  const node = { text: CARAVAN_ARRIVAL_LINES[Math.floor(Math.random()*CARAVAN_ARRIVAL_LINES.length)], choices:[] };
+  const list = document.getElementById('loc-action-list');
+  list.innerHTML = renderDialogueBody(node);
+  wireDialogueChoices(node, ()=> showLocationView(burgId));
 }
 
 // Hire a Mercenary — the first real use of the party roster. Still anonymous per the project
@@ -9127,7 +9199,7 @@ function hireMercenary(burgId, typeId){
   mercs.push({ instanceId:`${type.id}_${gameDay}_${Math.floor(Math.random()*100000)}`, typeId:type.id, hiredDay:gameDay, lastUpkeepDay:gameDay });
   saveMercenaries(mercs);
   showToast(`${type.title} joins you — ${type.hireCost}g paid, ${type.upkeep}g/day upkeep from here.`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
 }
 function wireMercenaryButtons(burgId){
   document.querySelectorAll('[data-hire]').forEach(btn=>{
@@ -10630,6 +10702,7 @@ function collectCharacterSnapshot(){
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
     tavernRegularProgress: localStorage.getItem(TAVERN_REGULAR_PROGRESS_KEY) || "{}",
     templeBlessing: localStorage.getItem(TEMPLE_BLESSING_KEY) || "null",
+    caravanEscort: localStorage.getItem(CARAVAN_ESCORT_KEY) || "false",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }

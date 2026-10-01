@@ -329,7 +329,7 @@ Everything below came from the "Goblin War — Expansion Research" doc, a pass t
 ### World Map & Travel
 
 - **Route fork at travel-accept time — done.** The info-card's travel quote now offers a second "Shortcut" button alongside Travel Here (road routes only) — same route/edges, `SHORTCUT_HOURS_MULT` (25% faster) but `SHORTCUT_AMBUSH_MULT` (60% riskier) fed into `rollAmbush`'s new `extraMult` parameter. No new pathfinding system. See [travel-and-map.md](travel-and-map.md)'s "Route fork."
-- **Caravan escort.** A paid Guard House/Marketplace action that applies a temporary ambush-chance discount to the next trip, with a short arrival conversation using the existing dialogue-tree engine.
+- **Caravan escort — done.** A Guard House action (`CARAVAN_ESCORT_KEY`, 25g) that halves the ambush chance (`CARAVAN_ESCORT_AMBUSH_MULT`) for exactly the next road trip — a one-time consumable, not a duration like Temple's Warding blessing, cleared on that trip's actual arrival. A safe, uneventful arrival shows a short one-line beat from the caravan master using the existing dialogue-tree engine (`showCaravanArrivalDialogue`, same reuse pattern as Tavern Regulars) instead of going straight to the destination's action list.
 - **A Cartographer purchase per settlement.** A one-time fee that reveals nearby settlements' Quest Board / Notable Figure / companion status, using data the game already computes — gives fog-of-war (once built) or today's static map a reason to scout ahead.
 
 ### Settlements & Economy

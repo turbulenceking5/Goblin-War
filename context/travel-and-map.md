@@ -88,6 +88,13 @@ otherwise, multiplied in alongside the existing night/perk/Temple-Warding-blessi
 shortcut trip is never a different event from a normal one — same arrival flow, same ambush/world-
 event roll order in `beginTravel`'s completion callback — just quoted faster and weighted riskier.
 
+A Guard House **Caravan Escort** (see [roadmap.md](roadmap.md)'s "Caravan escort") feeds
+`rollAmbush`'s same `extraMult` the other direction — `CARAVAN_ESCORT_AMBUSH_MULT` (0.5, safer)
+instead of `SHORTCUT_AMBUSH_MULT` (1.6, riskier) — and the two multiply together if a player
+somehow takes both on the same trip (hired an escort, then taps Shortcut anyway). Unlike the
+shortcut, an escort is consumed by the trip's actual arrival (`beginTravel` clears
+`CARAVAN_ESCORT_KEY`), not a per-tap choice re-quoted each time.
+
 ## Calendar and the clock
 
 Two stored time values now, not one: `gameDay` (key `goblinwar_gameDay`, a whole-number day counter, unchanged in meaning) and `gameHour` (key `goblinwar_gameHour`, a real hour-of-day, `0` up to but not including `24`, float-precision so a clock reading like "2:30 PM" is exact, not rounded to the hour). `DAYS_PER_MONTH=30`, `MONTHS_PER_YEAR=12` are fixed constants used to derive day/month/year for display; `timeStr(hour)` formats `gameHour` as a 12-hour clock string. Both — plus `refreshCalendarUI()`, the render function — are duplicated in character.html and settings.html rather than shared, since there's no module system (see root [CLAUDE.md](../CLAUDE.md)); those two pages are static snapshots on load, not live tickers, so they just read the stored value once.

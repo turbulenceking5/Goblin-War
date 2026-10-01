@@ -1067,5 +1067,12 @@
     "changes": [
       "Tapping a destination on the map can now offer a Shortcut alongside the normal route — noticeably faster, but a riskier road."
     ]
+  },
+  {
+    "id": 144,
+    "date": "2026-10-01",
+    "changes": [
+      "The Guard House can now hire you a Caravan Escort — armed guards for your very next road trip, cutting the odds of an ambush along the way."
+    ]
   }
 ]

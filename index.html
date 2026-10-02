@@ -117,7 +117,7 @@
        silently win and flatten every label back to one color) rather than here, so each
        settlement's name can be colored by its controlling kingdom (kingdomColor()). */
     font-family:'Cinzel', serif; text-anchor:middle;
-    paint-order:stroke; stroke:#0d1220; stroke-width:.75px; stroke-linejoin:round;
+    paint-order:stroke; stroke:#0d1220; stroke-width:1.1px; stroke-linejoin:round;
   }
   .road-line{ fill:none; stroke-linecap:round; stroke-linejoin:round; }
   .road-line.road-road-edge{ stroke:#5c4326; stroke-width:2.2; opacity:.4; }
@@ -315,9 +315,13 @@
      actually has a pending What's New popup to compete with (see checkForWhatsNew's own "silent
      on a brand-new game" comment), but ranking the tutorial above it means a brand-new *second*
      character on an account that does have unseen changelog entries still sees the tutorial
-     first, with What's New naturally revealing itself the moment the tutorial is dismissed
-     (both modals are independent `.show`-toggled siblings at the same inset:0, so dismissing the
-     top one just exposes whichever's still flagged open underneath). */
+     first. What's New no longer just relies on z-index for this, though — relying on z-index
+     alone let its own async fetch (changelogReady) race the synchronous tutorial-modal open and
+     occasionally resolve while the tutorial (or its chained onboarding tour, z-index 93) was
+     still on screen, which could read as either overlay interrupting or half-covering the other
+     depending on exactly when the network call landed. checkForWhatsNew() now explicitly checks
+     both are closed before showing itself, and the tutorial-dismiss/endOnboardingTour handlers
+     call it again once they're actually done — see those for the real sequencing. */
   #tutorial-modal{
     position:fixed; inset:0; z-index:92; display:none;
     background:rgba(8,10,18,.75);
@@ -2258,6 +2262,16 @@ function checkForWhatsNew(){
       <ul>${entry.changes.map(c=>`<li>${c}</li>`).join('')}</ul>
     </div>
   `).join('');
+  // Never pop up on top of (or interleaved with) the first-run tutorial or its onboarding tour —
+  // both are also full-screen/centered overlays shown on a brand-new character's very first load,
+  // and this check runs behind its own async fetch (changelogReady) racing independently against
+  // those two, which used to let it render while either was still on screen depending purely on
+  // which network call happened to resolve first. If either is still active, defer — the
+  // tutorial-dismiss and endOnboardingTour handlers below both call this again once they're done,
+  // and recomputing the unseen-list HTML above again there is cheap, so no separate "pending"
+  // state needs to be stored for the retry.
+  if(document.getElementById('tutorial-modal').classList.contains('show')
+    || document.getElementById('onboarding-overlay').classList.contains('show')) return;
   document.getElementById('whats-new-modal').classList.add('show');
   });
 }
@@ -2280,6 +2294,11 @@ document.getElementById('tutorial-dismiss').addEventListener('click', ()=>{
   localStorage.setItem(TUTORIAL_SEEN_KEY, 'true');
   document.getElementById('tutorial-modal').classList.remove('show');
   maybeStartOnboardingTour();
+  // Re-check now that the tutorial is accounted for — a no-op if the tour above just started
+  // (checkForWhatsNew's own guard sees #onboarding-overlay showing and defers again until
+  // endOnboardingTour calls it), but this is what actually surfaces a pending What's New the
+  // moment it's safe to when there's no tour to chain into (an already-seen-tour account).
+  checkForWhatsNew();
 });
 
 // HUD/toolbar onboarding tooltip pass — the Expansion Research idea of the same name. The welcome
@@ -2339,6 +2358,7 @@ function advanceOnboardingTour(){
 function endOnboardingTour(){
   localStorage.setItem(TOOLTIP_TOUR_SEEN_KEY, 'true');
   document.getElementById('onboarding-overlay').classList.remove('show');
+  checkForWhatsNew(); // surfaces a pending What's New (see its own guard) now that the tour's done
 }
 document.getElementById('onboarding-next').addEventListener('click', advanceOnboardingTour);
 document.getElementById('onboarding-skip').addEventListener('click', endOnboardingTour);
@@ -6744,11 +6764,17 @@ function buildHitzones(){
 // size across every tier deliberately, per the project owner: an earlier pass scaled Capital
 // labels up to 8 and hid Town/Village labels until zoomed in, which read as inconsistent
 // (some names huge, most just missing) rather than as decluttered. Every settlement's name is
-// always shown now — small text under a small dot, all the way down. Sizes bumped up again
-// (per the project owner, still hard to read) — proportions across tiers, and the offset/stroke
-// that keep bigger text clear of its dot and legible over terrain, scaled up to match.
-const LABEL_FONT_SIZE = { village:4, town:4, city:5, capital:6 };
-const LABEL_OFFSET_Y = { village:6.5, town:6.5, city:11.5, capital:14 };
+// always shown now — small text under a small dot, all the way down.
+// Sizes bumped up again (per the project owner — both the icons and the names were still too
+// small to read, and the settlement-icon size bump below left its own icon tall enough to cover
+// these labels at their old, unchanged offset). LABEL_OFFSET_Y is no longer an arbitrary small
+// gap — it's each tier's actual icon half-height (SETTLEMENT_ICON_W * CITY_ICON_ASPECT / 2,
+// below) plus a flat padding, so the label is guaranteed to clear the icon by construction
+// rather than by a number that happens to work until one of the two is retuned again. Written as
+// a literal here rather than a live formula since SETTLEMENT_ICON_W/CITY_ICON_ASPECT are declared
+// later in the file (buildCityIcons' own section) — recompute by hand if either changes again.
+const LABEL_FONT_SIZE = { village:8, town:9, city:11, capital:14 };
+const LABEL_OFFSET_Y = { village:20, town:27, city:36, capital:49 };
 
 // One stable color per kingdom, evenly spaced around the hue wheel by that kingdom's index in
 // ALL_KINGDOMS (fixed for the session once buildFactionData() runs at load) — used to color both
@@ -6921,8 +6947,11 @@ function positionKingdomLabels(){
 const CITY_ICON_HREF = "assets/icons/Map/Cities.png"; // 1024x848, transparent outside the coin
 const CITY_ICON_ASPECT = 848/1024;
 const CITY_ICON_OFFSET_Y = 0; // logical units above the point — the icon *is* the marker now
-const SETTLEMENT_ICON_W = { village:28, town:40, city:56, capital:80 }; // 4x, per the project owner
-const SETTLEMENT_ICON_CLEARANCE = { village:16, town:20, city:28, capital:28 }; // scaled with the icon size above so a bigger icon still doesn't overlap a close neighbor
+// Bumped again (~1.3x on top of the prior 4x pass, per the project owner — still too small to
+// read) — see LABEL_OFFSET_Y above, which is derived directly from these widths so the name
+// labels keep clearing the icon whenever this changes.
+const SETTLEMENT_ICON_W = { village:36, town:52, city:72, capital:104 };
+const SETTLEMENT_ICON_CLEARANCE = { village:21, town:26, city:36, capital:36 }; // scaled with the icon size above so a bigger icon still doesn't overlap a close neighbor
 function buildCityIcons(){
   const g = document.getElementById('city-icons');
   g.innerHTML = '';

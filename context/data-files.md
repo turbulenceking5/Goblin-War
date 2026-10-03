@@ -135,11 +135,55 @@ write-ups: the generated world is much smaller than the original hand-authored o
 45-65 settlements/15-18 kingdoms per world, vs. the original's 426 settlements/24 kingdoms) —
 Realm Forge's own settlement-spacing constants cap how dense a world its grid size can produce;
 raising `RF_SETTLEMENT_TARGET` further hits that spacing ceiling rather than actually adding more
-settlements. Tier (village/town/city/capital) and population are synthesized (seeded, roughly
-matching the original's tier-mix proportions) since Realm Forge itself only ever distinguished
-capital-or-not. `NOTABLE_FIGURES`/`COMPANIONS` no longer have fixed `homeBurgId` literals —
-`assignDynamicHomes()` (index.html) picks fresh, distinct Good-alliance settlements for all eight
-of them each load, deterministically from the map seed.
+settlements. Population is synthesized (seeded) from tier. `NOTABLE_FIGURES`/`COMPANIONS` no longer
+have fixed `homeBurgId` literals — `assignDynamicHomes()` (index.html) picks fresh, distinct
+Good-alliance settlements for all eight of them each load, deterministically from the map seed.
+
+**Settlement placement — real suitability scoring, done.** Previously the single weakest part of
+this generator, found by a dedicated research pass (5 parallel audits — current algorithm, every
+downstream consumer, map rendering, outside procedural-placement literature, and project history)
+rather than a player report: placement was pure "first valid random point wins," no scoring at
+all, and tier (village/town/city) was an *independent random roll per settlement*, completely
+disconnected from where that settlement actually sat — a desert-interior site and a coastal-plains
+site had identical odds of becoming a city. Fixed by oversampling a pool of valid candidate sites
+(`RF_CANDIDATE_POOL_MULT`×target, same land/sub-mountain-elevation gates as before), scoring each
+on coastal access (`landShoreDist`, new — see below) plus biome (`RF_BIOME_SUITABILITY`: plains/
+forest favored, swamp/desert/snow penalized), then accepting the *best-scored* candidates first
+(sorted descending) against the same flat minimum-spacing floor as before. Tier is assigned in a
+separate pass once the real final settlement count is known, by rank among the accepted sites
+(top ~15% city, next ~67% town, rest village — the same proportions the old random roll
+approximated) — doing this against the *realized* count rather than the nominal
+`RF_SETTLEMENT_TARGET` (160) matters: the realized count is typically only ~55-65, so computing
+rank fractions against the nominal target instead would put nearly every settlement in the
+city/town bracket and leave village almost empty, a bug caught only by generating and inspecting
+real worlds, not by reading the formula. Capitals still use the original farthest-point-spread
+selection (even geographic coverage across the map is a real requirement a quality-ranked pick
+alone wouldn't give), but now draw only from this world's better-scored ~60% of sites rather than
+any accepted settlement regardless of quality — verified empirically (not just by reading the
+code): across sampled seeds, capitals land on a port site roughly 60-85% of the time versus
+roughly 35-45% for non-capital settlements. Dwarf hold placement (geology-driven, not scored) is
+unchanged except its own intra-range minimum spacing moved from 5x to 6x `RF_GRID_SCALE`, closing
+a margin an audit found too thin against a dwarf capital's own icon overlapping a same-range
+city's — see [travel-and-map.md](travel-and-map.md)'s icon-size table for the actual numbers. A
+tier-aware (not just flat) spacing floor was also tried for the main placement loop and then
+dropped: it cost a measured ~20-25% of total settlement density for zero actual
+overlap-prevention benefit, since the flat floor already clears every tier pairing's real icon
+overlap threshold with margin to spare — not worth it against this generator's own
+already-documented density ceiling above. Verified with `node --check` plus standalone runs of the
+extracted generator across 15+ seeds: zero icon-overlap collisions, settlement count unchanged
+from before (~55-65), reasonable tier/port distribution.
+
+**The `port` flag was silently wrong for every single settlement until this same pass — a bug
+this research incidentally found, not something it was looking for.** It read `shoreDist[gi]` at
+a burg's own grid cell — but `shoreDist` is seeded from every *land* cell (for the water-side
+shallow-water rendering `renderWorldRaster()` needs — see the paragraph above), so it's `0` at
+every land cell by construction, and a burg is always on land. `port = shoreDist[gi] <= 2`
+therefore evaluated `true` for literally every settlement ever generated. Fixed by adding
+`landShoreDist` — the mirror BFS, seeded from *water* cells instead, capped at
+`LAND_SHORE_BFS_RADIUS` (8) since nothing needs it further inland — which gives a real "how close
+is this land cell to the coast" value; `port` now reads that instead, and it's also what the new
+placement scoring's coastal bonus uses. `shoreDist` itself is untouched; the water-rendering
+distance-from-shore use it already had was correct all along.
 
 **History worth knowing if you're touching ground textures again**: real photo textures for grass,
 desert, forest, swamp, snow, and beach shipped in one pass, and the port was reviewed as complete —

@@ -9679,7 +9679,7 @@ function showLocationView(burgId){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
       }
       else if(btn.dataset.action === 'guardhouse'){
-        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
       }
       else if(btn.dataset.action === 'palace'){
         showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
@@ -10255,6 +10255,28 @@ function buildGuardHouseStats(burgId){
   `;
 }
 
+// Guard House lockout at Hostile reputation — the "possible small follow-up" this file's own
+// per-kingdom-reputation section flagged as not built. Reuses reputationLabel's existing Hostile
+// boundary rather than a new magic number, and is a hard cutoff (no action offered at all), unlike
+// getReputationDiscount above which only makes Marketplace/Blacksmith pricier — Espionage, Caravan
+// Escort, and Hire a Mercenary all stop being offered outright once a kingdom's watch is Hostile
+// to you, while the stats card above (including the reputation row itself) stays visible so the
+// player can see why.
+function isGuardHouseLockedOut(burgId){
+  return reputationLabel(getReputation(getControllerKingdom(burgId))) === 'Hostile';
+}
+function buildGuardHouseActionsHTML(burgId){
+  if(isGuardHouseLockedOut(burgId)){
+    return `
+      <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+        <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:#e07a5f; margin-bottom:4px;">The Watch Turns You Away</div>
+        <div style="font-size:13px; color:#a9926a; line-height:1.5;">"We don't deal with the likes of you," the captain says flatly. "No intel, no escorts, no mercenaries — not until you've mended things with this kingdom."</div>
+      </div>
+    `;
+  }
+  return buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId);
+}
+
 // Espionage — a Guard House action per the Expansion Research idea of the same name. Pays gold for
 // a one-time read on the bordering at-war enemy's own army strength and whether it has a muster
 // underway, entirely off data the game already computes (getArmyStrength/getArmies) — no new state
@@ -10297,14 +10319,14 @@ function buildEspionageHTML(burgId){
 }
 function gainEspionage(burgId){
   const kingdom = getFrontlineEnemyKingdom(burgId);
-  if(!kingdom || hasSpiedToday(burgId) || playerGold < ESPIONAGE_COST){ showLocationView(burgId); return; }
+  if(!kingdom || hasSpiedToday(burgId) || playerGold < ESPIONAGE_COST || isGuardHouseLockedOut(burgId)){ showLocationView(burgId); return; }
   setGold(playerGold - ESPIONAGE_COST);
   recordSpied(burgId);
   const marching = getArmies().some(a => a.kingdom === kingdom && a.status === 'marching');
   const strengthLine = describeArmyStrength(getArmyStrength(kingdom));
   const musterLine = marching ? ` Word is they already have banners on the march.` : ` No muster seems underway, for now.`;
   showToast(`Your coin buys a rumor: ${kingdom} fields ${strengthLine}.${musterLine}`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
 }
 
 // Caravan Escort — the Expansion Research idea of the same name: a paid Guard House action that
@@ -10346,11 +10368,11 @@ function buildCaravanEscortHTML(burgId){
     </div>`;
 }
 function acceptCaravanEscort(burgId){
-  if(playerGold < CARAVAN_ESCORT_COST || hasCaravanEscort()) return;
+  if(playerGold < CARAVAN_ESCORT_COST || hasCaravanEscort() || isGuardHouseLockedOut(burgId)) return;
   setGold(playerGold - CARAVAN_ESCORT_COST);
   localStorage.setItem(CARAVAN_ESCORT_KEY, 'true');
   showToast(`You hire a caravan to escort your next trip.`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
 }
 function wireCaravanEscortButton(burgId){
   const btn = document.getElementById('caravan-escort-btn');
@@ -10865,7 +10887,7 @@ function buildMercenaryHireHTML(burgId){
 }
 function hireMercenary(burgId, typeId){
   const type = MERCENARY_TYPES.find(t => t.id === typeId);
-  if(!type) return;
+  if(!type || isGuardHouseLockedOut(burgId)) return;
   if(getActivePartySize() >= MAX_PARTY_SIZE){ showToast("Your party is full."); return; }
   if(playerGold < type.hireCost){ showToast("Not enough gold to hire them."); return; }
   setGold(playerGold - type.hireCost);
@@ -10873,7 +10895,7 @@ function hireMercenary(burgId, typeId){
   mercs.push({ instanceId:`${type.id}_${gameDay}_${Math.floor(Math.random()*100000)}`, typeId:type.id, hiredDay:gameDay, lastUpkeepDay:gameDay });
   saveMercenaries(mercs);
   showToast(`${type.title} joins you — ${type.hireCost}g paid, ${type.upkeep}g/day upkeep from here.`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
 }
 function wireMercenaryButtons(burgId){
   document.querySelectorAll('[data-hire]').forEach(btn=>{

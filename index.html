@@ -108,7 +108,11 @@
      about the overview zoom, not the zoomed-in one. #map-img and #overlay are both plain children
      of #map-stage and scale for free via its single transform. */
   #map-img{ position:absolute; left:0; top:0; width:10240px; height:5108px; display:block; user-select:none; -webkit-user-drag:none; }
-  #overlay{ position:absolute; inset:0; width:10240px; height:5108px; }
+  /* Padded 480px (MAP_EDGE_PAD=120 logical units * 4, see that constant's own comment in the
+     script below) past #map-img's own edge on every side, with a matching negative left/top, so
+     a settlement icon/label right at the map's border has room to draw instead of being clipped
+     by the SVG's own default overflow:hidden — clampView() allows panning into this same margin. */
+  #overlay{ position:absolute; left:-480px; top:-480px; width:11200px; height:6068px; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
   .map-label{
@@ -720,7 +724,7 @@
   <div id="map-viewport">
     <div id="map-stage">
       <img id="map-img" alt="World map" draggable="false">
-      <svg id="overlay" viewBox="0 0 2560 1277" xmlns="http://www.w3.org/2000/svg">
+      <svg id="overlay" viewBox="-120 -120 2800 1517" xmlns="http://www.w3.org/2000/svg">
         <g id="roads" style="pointer-events:none"></g>
         <g id="border-markers" style="pointer-events:none"></g>
         <path id="route-preview"/>
@@ -1909,6 +1913,13 @@ const LOGICAL_W = 2560, LOGICAL_H = 1277;   // coordinate space our data uses (1
 // unchanged above, just upscales a slightly softer bitmap rather than distorting it) while landing
 // at ~13.1M px — comfortably under the ceiling with real margin, not shaving it razor-close.
 const RASTER_W = STAGE_W / 2, RASTER_H = STAGE_H / 2; // 5120 x 2554
+// Slack beyond the raster's own edge, in logical units, so a settlement icon/label sitting right
+// at the map's border (buildCityIcons()/buildLabels() can draw a capital icon/label up to ~100
+// logical units past a burg's own point) isn't clipped by the old hard edge-of-world pan clamp —
+// #overlay's own viewBox/left/top/width/height below are padded by this exact same number (can't
+// share the literal via CSS, so it's duplicated there with a comment pointing back here — same
+// "write it down, recompute by hand if either changes" precedent LABEL_OFFSET_Y already set).
+const MAP_EDGE_PAD = 120;
 const START_X = 705, START_Y = 448;         // placeholder pre-recenter position — immediately overridden once this character's own generated world/currentBurg resolves, see the LOAD init block
 const REGION_W = 260;                        // default zoom shows this many logical units wide
 
@@ -1926,8 +1937,11 @@ function clampView(){
   mapMinScale = minScale;
   view.scale = Math.max(minScale, Math.min(maxScale, view.scale));
   const scaledW = STAGE_W*view.scale, scaledH = STAGE_H*view.scale;
-  view.tx = Math.max(vw - scaledW, Math.min(0, view.tx));
-  view.ty = Math.max(vh - scaledH, Math.min(0, view.ty));
+  // Allow panning MAP_EDGE_PAD logical units past the raster's own edge on every side — see that
+  // constant's own comment — instead of hard-stopping exactly at the image boundary.
+  const padPx = MAP_EDGE_PAD * (STAGE_W/LOGICAL_W) * view.scale;
+  view.tx = Math.max(vw - scaledW - padPx, Math.min(padPx, view.tx));
+  view.ty = Math.max(vh - scaledH - padPx, Math.min(padPx, view.ty));
 }
 function applyView(){
   clampView();

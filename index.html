@@ -5954,6 +5954,9 @@ function endCombat(result){
   const onEnd = combat ? combat.onEnd : null;
   const enemyRace = combat ? combat.race : null;
   const attackerKingdom = combat ? combat.attackerKingdom : null;
+  // Protect a Caravan — see questMatchesRace/triggerAmbushFight below. Captured here, before
+  // combat is nulled, the same way enemyRace/attackerKingdom already are.
+  const isAmbush = combat ? !!combat.isAmbush : false;
   const fallenAllies = combat ? combat.fallenAllies : [];
   // Nulled synchronously (not inside the setTimeout below) so a click during the
   // victory/defeat delay hits combatAttack/combatFlee's `if(!combat) return;` guard
@@ -6039,7 +6042,15 @@ function endCombat(result){
         const questMatchesRace = q =>
           (q.type==='kill_bandits' && enemyRace==='bandit') ||
           (q.type==='kill_raiders' && (enemyRace==='goblin' || enemyRace==='ork') && (!q.targetKingdom || q.targetKingdom === attackerKingdom)) ||
-          (q.type==='companion_kill' && q.targetRaces && q.targetRaces.includes(enemyRace));
+          (q.type==='companion_kill' && q.targetRaces && q.targetRaces.includes(enemyRace)) ||
+          // A Favor for a Kingdom — same ask as Drive Off the Raiders (any goblin/ork kill,
+          // anywhere), just a different type string so questTitle/questDesc/the payout below read
+          // differently. See getKingdomFavorTier/isKingdomFavorEligible near generateBoardOffers.
+          (q.type==='kingdom_favor' && (enemyRace==='goblin' || enemyRace==='ork')) ||
+          // Bounty: <variant> — matches by the enemy's exact name rather than its race, so it
+          // doesn't need its own branch in the forEach below the way protect_caravan/
+          // destroy_goblin_nest do; it still only ever completes on a single matching victory.
+          (q.type==='bounty_variant' && enemies.some(e => e.name === q.targetVariant));
         const quests = getQuests();
         const remaining = [];
         const rewarded = [];
@@ -6060,6 +6071,9 @@ function endCombat(result){
               progressNotes.push(`${q.killsProgress} of ${q.killsRequired} goblins slain for ${q.giverName}'s nest.`);
             }
           }
+          // Protect a Caravan — not race-specific at all; any ambush victory (road or camp)
+          // completes it, same "the caravan made it through" framing regardless of who attacked.
+          else if(q.status==='active' && q.type==='protect_caravan' && isAmbush) rewarded.push(q);
           else if(q.status==='active' && questMatchesRace(q)) rewarded.push(q);
           else remaining.push(q);
         });
@@ -6074,9 +6088,19 @@ function endCombat(result){
               const loyaltyNote = adjustCompanionLoyalty(questReward.companionId, questReward.reward.loyalty || COMPANION_QUEST_LOYALTY_GAIN);
               msg += ` ${questReward.giverName}'s personal request is fulfilled — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${loyaltyNote}`;
             } else {
-              const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
+              // A Favor for a Kingdom pays bigger reputation (it's meant to read as a step up from
+              // an ordinary kill quest) and advances its own tier/chain; every other type here pays
+              // the usual medium amount with the giver settlement's current controller.
+              const isFavor = questReward.type === 'kingdom_favor';
+              const repTarget = isFavor ? questReward.targetKingdom : getControllerKingdom(questReward.giverBurgId);
+              const repNote = adjustReputation(repTarget, isFavor ? REP_GAIN_MAJOR : REP_GAIN_MEDIUM);
               if(questReward.figureId) recordNotableFigureProgress(questReward.figureId);
-              const verb = questReward.type === 'destroy_goblin_nest' ? 'nest is destroyed' : 'task is complete';
+              if(isFavor) recordKingdomFavorCompleted(questReward.targetKingdom);
+              const verb = questReward.type === 'destroy_goblin_nest' ? 'nest is destroyed'
+                : questReward.type === 'protect_caravan' ? 'caravan makes it through safely'
+                : questReward.type === 'bounty_variant' ? 'bounty is claimed'
+                : isFavor ? 'favor is repaid'
+                : 'task is complete';
               msg += ` ${questReward.giverName}'s ${verb} — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
             }
           });
@@ -6196,6 +6220,10 @@ function triggerAmbushFight(burgId, onEnd, context){
   // Kingdom-specific kill quests — same ad-hoc field, set right after startCombat, that
   // triggerSiegeDefenseFight already uses for its own attacker (see endCombat's questMatchesRace).
   if(combat) combat.attackerKingdom = attackerKingdom;
+  // Protect a Caravan — the only Board quest type that completes on winning any ambush
+  // (road or camp, any race) rather than matching a specific race/variant/count. Marked here,
+  // the one place an ambush fight is actually started, rather than inferring it after the fact.
+  if(combat) combat.isAmbush = true;
 }
 // How much tougher an ambush here should skew — the closer a settlement sits to the frontline
 // (isFrontlineBurg) and the longer its kingdom's longest-running war has dragged on (same
@@ -8878,6 +8906,11 @@ function questTitle(q){
   if(q.type === 'deliver_message') return 'Deliver a Message';
   if(q.type === 'deliver_cargo') return 'Deliver Cargo';
   if(q.type === 'destroy_goblin_nest') return 'Destroy a Goblin Nest';
+  if(q.type === 'protect_caravan') return 'Protect a Caravan';
+  if(q.type === 'train_villagers') return 'Train the Villagers';
+  if(q.type === 'ask_for_news') return 'Ask Around for News';
+  if(q.type === 'bounty_variant') return `Bounty: ${q.targetVariant}`;
+  if(q.type === 'kingdom_favor') return `A Favor for ${q.targetKingdom}`;
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
@@ -8896,6 +8929,11 @@ function questDesc(q){
   // ever set once accepted; a fresh Board offer object has no such field yet, so ||0 reads as "0
   // of N" there too, the same description shown before and after accepting.
   if(q.type === 'destroy_goblin_nest') return `${q.giverName} wants a goblin nest thinned out before it grows bold — ${Math.min(q.killsProgress||0, q.killsRequired)} of ${q.killsRequired} goblins slain.`;
+  if(q.type === 'protect_caravan') return `${q.giverName} has hired you to guard the next caravan leaving town — defend it from whatever finds it on the road.`;
+  if(q.type === 'train_villagers') return `${q.giverName} wants the local militia drilled — a day's Work here in town will see to it.`;
+  if(q.type === 'ask_for_news') return `${q.giverName} wants to know what's being said around town.`;
+  if(q.type === 'bounty_variant') return `A bounty's been posted on ${q.targetVariant}, a notorious threat last seen prowling this region. Bring proof of the kill.`;
+  if(q.type === 'kingdom_favor') return `${q.giverName} asks you to prove your continued goodwill toward ${q.targetKingdom} by driving off the goblin and ork raiders threatening the region.`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
   if(q.type === 'kill_raiders') return q.targetKingdom
     ? `${q.giverName} asked you to drive off ${q.targetKingdom}'s raiders threatening the region.`
@@ -8925,42 +8963,168 @@ function getBoardQuestCount(burgId){
   const month = getBoardMonthIndex();
   return Math.floor(seededRandom(hashSeed(`board_count_${burgId}_${month}`)) * (max + 1));
 }
-// Minor, board-sourced offers — regenerated fresh each call, filtered against what's already
-// active so accepting one doesn't leave a duplicate sitting on the board the same month. Each
-// slot is independently seeded as either a Deliver a Message or a heavier-paying Deliver Cargo
-// — both complete identically on arrival (see checkQuestTurnIns), only the flavor and reward
-// differ, per quests.md's "mostly a new offer-generator, not new architecture" pattern. Targets
-// are drawn only from settlements not currently hostile to the giver (see isEnemyTerritory) —
-// per the project owner, delivering into enemy territory doesn't make sense — and reward scales
-// up with real travel distance from the giver, not just a flat random roll.
 // Destroy a Goblin Nest's own kills-required range — 3-5, enough to need more than one fight,
 // unlike every other kill quest which pays out on a single matching victory (see endCombat).
 const GOBLIN_NEST_KILLS_MIN = 3;
 const GOBLIN_NEST_KILLS_RANGE = 3; // 3, 4, or 5
+
+// Bounty Board variants — the "fuller Randomised Bounty Board" roadmap idea. Rather than a
+// hand-authored second roster, these name the handful of variants already in ENEMY_VARIANTS that
+// stand out as a real "boss" (every smart:true entry, plus the wildlife apex predator) — finding
+// and beating one specific named variant is a lot rarer than any ordinary raiding-party kill, so
+// it's framed as a bounty rather than a routine job. Reward derives from that variant's own
+// goldRange/xpRange (so retuning a variant's stats elsewhere automatically retunes its bounty too)
+// times BOUNTY_REWARD_MULT. Doesn't force a spawn — ambush composition is still whatever
+// pickWeightedVariant/getAmbushToughnessBias already rolls; a bounty is a reason to hunt, not a
+// guarantee you'll find one.
+const BOUNTY_VARIANT_NAMES = ['Goblin Chieftain', 'Goblin Shaman', 'Ork Warlord', 'Ork Shaman', 'Dire Bear'];
+const BOUNTY_REWARD_MULT = 2.5;
+function findVariantSpec(name){
+  for(const race in ENEMY_VARIANTS){
+    const found = ENEMY_VARIANTS[race].find(v => v.name === name);
+    if(found) return found;
+  }
+  return null;
+}
+
+// A Favor for a Kingdom — the "Faction Reputation Chain" roadmap idea: a kingdom you've built
+// real standing with eventually asks a bigger favor in return, tiered on that same reputation
+// number rather than a separate progress stat. goblinwar_kingdomFavorTier ({kingdomName:
+// tiersCompleted}, sparse) is a genuinely new top-level key — unlike destroy_goblin_nest's
+// killsRequired/killsProgress above, which just ride along inside the already-round-tripped
+// goblinwar_quests array, this one needed the real character-snapshot triplicate (see
+// context/characters.md).
+const KINGDOM_FAVOR_KEY = "goblinwar_kingdomFavorTier";
+const KINGDOM_FAVOR_MAX_TIER = 2;
+function getKingdomFavorTier(kingdom){
+  try{ return (JSON.parse(localStorage.getItem(KINGDOM_FAVOR_KEY)) || {})[kingdom] || 0; }catch(e){ return 0; }
+}
+function recordKingdomFavorCompleted(kingdom){
+  if(!kingdom) return;
+  let map; try{ map = JSON.parse(localStorage.getItem(KINGDOM_FAVOR_KEY)) || {}; }catch(e){ map = {}; }
+  map[kingdom] = Math.min(KINGDOM_FAVOR_MAX_TIER, getKingdomFavorTier(kingdom) + 1);
+  localStorage.setItem(KINGDOM_FAVOR_KEY, JSON.stringify(map));
+}
+// Tier 1 unlocks once Friendly, the harder/better-paying tier 2 only once Trusted — reusing
+// reputationLabel's own existing boundaries rather than inventing new thresholds.
+function isKingdomFavorEligible(kingdom){
+  if(!kingdom || getKingdomFavorTier(kingdom) >= KINGDOM_FAVOR_MAX_TIER) return false;
+  const label = reputationLabel(getReputation(kingdom));
+  return getKingdomFavorTier(kingdom) === 0 ? (label === 'Friendly' || label === 'Trusted') : label === 'Trusted';
+}
+
+// One weighted roll per Board slot decides which quest type it is, rather than the old fixed
+// coin-flip/one-third split — the actual "fuller Randomised Bounty Board" fix: real variety, with
+// real odds, instead of two or three hardcoded types. Delivery (message/cargo, split the same way
+// as always once picked) stays the common case; everything else is rarer flavor/mechanic variety.
+// kingdom_favor only enters the pool at all once this settlement's controller is actually eligible
+// (see above) — its presence, not just its odds, reacts to real standing.
+function getBoardTypeWeights(controllerKingdom){
+  const weights = [
+    { type:'delivery', weight:5 },
+    { type:'destroy_goblin_nest', weight:2 },
+    { type:'bounty_variant', weight:1 },
+    { type:'protect_caravan', weight:1 },
+    { type:'train_villagers', weight:1 },
+    { type:'ask_for_news', weight:1 },
+  ];
+  if(isKingdomFavorEligible(controllerKingdom)) weights.push({ type:'kingdom_favor', weight:2 });
+  return weights;
+}
+function pickWeightedBoardType(weights, roll01){
+  const total = weights.reduce((sum,w) => sum + w.weight, 0);
+  let roll = roll01 * total;
+  for(const w of weights){ if(roll < w.weight) return w.type; roll -= w.weight; }
+  return weights[weights.length-1].type;
+}
+
+// Minor, board-sourced offers — regenerated fresh each call, filtered against what's already
+// active so accepting one doesn't leave a duplicate sitting on the board the same month. Targets
+// for a delivery-type slot are drawn only from settlements not currently hostile to the giver (see
+// isEnemyTerritory) — per the project owner, delivering into enemy territory doesn't make sense —
+// and reward scales up with real travel distance from the giver, not just a flat random roll.
 function generateBoardOffers(burgId){
   const active = getActiveQuests();
   const month = getBoardMonthIndex();
   const count = getBoardQuestCount(burgId);
   const candidateIds = Object.keys(graph.burgs).filter(id => id !== burgId && !isEnemyTerritory(burgId, id));
+  const controllerKingdom = getControllerKingdom(burgId);
   const offers = [];
   for(let i=0;i<count;i++){
-    // Destroy a Goblin Nest — a third, non-delivery Board option, rolled independently before
-    // the delivery coin flip below so that existing deliver_message/deliver_cargo split (and its
-    // own seed) is untouched either way. No targetBurgId at all — like kill_bandits/kill_raiders,
-    // it pays out on a matching combat victory anywhere, just several of them instead of one.
-    const isNest = seededRandom(hashSeed(`board_${burgId}_${month}_${i}_nest`)) < 1/3;
-    if(isNest){
+    const slotType = pickWeightedBoardType(getBoardTypeWeights(controllerKingdom), seededRandom(hashSeed(`board_${burgId}_${month}_${i}_slot`)));
+
+    if(slotType === 'destroy_goblin_nest'){
       const killsRequired = GOBLIN_NEST_KILLS_MIN + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_kills`)) * GOBLIN_NEST_KILLS_RANGE);
       const gold = 20 + killsRequired*10 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 11);
       const xp = 12 + killsRequired*6 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 7);
-      const alreadyActive = active.some(q => q.type === 'destroy_goblin_nest' && q.giverBurgId === burgId);
-      if(!alreadyActive){
+      if(!active.some(q => q.type === 'destroy_goblin_nest' && q.giverBurgId === burgId)){
         offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'destroy_goblin_nest', source:'board',
           giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
           killsRequired, reward:{gold, xp} });
       }
       continue;
     }
+
+    if(slotType === 'bounty_variant'){
+      const variantName = BOUNTY_VARIANT_NAMES[Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_variant`)) * BOUNTY_VARIANT_NAMES.length)];
+      const variant = findVariantSpec(variantName);
+      if(variant && !active.some(q => q.type === 'bounty_variant' && q.giverBurgId === burgId)){
+        const gold = Math.round((variant.goldRange[0]+variant.goldRange[1])/2 * BOUNTY_REWARD_MULT);
+        const xp = Math.round((variant.xpRange[0]+variant.xpRange[1])/2 * BOUNTY_REWARD_MULT);
+        offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'bounty_variant', source:'board',
+          giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
+          targetVariant:variantName, reward:{gold, xp} });
+      }
+      continue;
+    }
+
+    if(slotType === 'protect_caravan'){
+      if(!active.some(q => q.type === 'protect_caravan' && q.giverBurgId === burgId)){
+        const gold = 25 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 21); // 25-45
+        const xp = 15 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 11);   // 15-25
+        offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'protect_caravan', source:'board',
+          giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
+          reward:{gold, xp} });
+      }
+      continue;
+    }
+
+    if(slotType === 'train_villagers'){
+      if(!active.some(q => q.type === 'train_villagers' && q.giverBurgId === burgId)){
+        const gold = 10 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 11); // 10-20
+        const xp = 10 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 9);    // 10-18
+        offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'train_villagers', source:'board',
+          giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
+          reward:{gold, xp} });
+      }
+      continue;
+    }
+
+    if(slotType === 'ask_for_news'){
+      // No "already active" check — it pays out the instant it's accepted (see
+      // showQuestBoardPanel), so there's never a lingering active one to collide with; it simply
+      // rerolls with everything else each month.
+      const gold = 3 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 6); // 3-8
+      const xp = 3 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 5);    // 3-7
+      offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'ask_for_news', source:'board',
+        giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
+        reward:{gold, xp} });
+      continue;
+    }
+
+    if(slotType === 'kingdom_favor'){
+      if(!active.some(q => q.type === 'kingdom_favor' && q.targetKingdom === controllerKingdom)){
+        const tier = getKingdomFavorTier(controllerKingdom) + 1;
+        const gold = 35*tier + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 16);
+        const xp = 25*tier + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 11);
+        offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'kingdom_favor', source:'board',
+          giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
+          targetKingdom:controllerKingdom, tier, reward:{gold, xp} });
+      }
+      continue;
+    }
+
+    // Fallback: delivery, the original Deliver a Message/Deliver Cargo split, untouched.
     if(!candidateIds.length) continue; // no non-hostile target exists at all — extremely rare
     const targetId = candidateIds[Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_t`)) * candidateIds.length)];
     const target = graph.burgs[targetId];
@@ -9250,6 +9414,21 @@ function showQuestBoardPanel(burgId){
     btn.addEventListener('click', ()=>{
       const offer = offers.find(o => o.offerId === btn.dataset.offer);
       if(!offer) return;
+      // Ask Around for News completes the instant it's accepted — there's nothing to deliver or
+      // kill, just news to hear, so it never joins goblinwar_quests at all. Still recorded into
+      // history (recordCompletedQuest) so quests.html's Recently Completed shows it like anything
+      // else. The "news" itself is a real line off getTownsfolkLines(burgId) — the same reactive
+      // pool Talk to Townsfolk already draws from, not a separate hand-written pool.
+      if(offer.type === 'ask_for_news'){
+        setGold(playerGold + offer.reward.gold);
+        const leveledUp = addXp(offer.reward.xp);
+        const newsLines = getTownsfolkLines(burgId);
+        const news = newsLines[Math.floor(Math.random()*newsLines.length)];
+        recordCompletedQuest(offer);
+        showToast(`"${news}" +${offer.reward.gold}g, +${offer.reward.xp} XP.` + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : ''));
+        showQuestBoardPanel(burgId);
+        return;
+      }
       const quests = getQuests();
       quests.push({ id:`q_${Date.now()}_${Math.floor(Math.random()*1e6)}`, type:offer.type, source:offer.source,
         giverBurgId:offer.giverBurgId, giverName:offer.giverName, targetBurgId:offer.targetBurgId, targetName:offer.targetName,
@@ -9262,6 +9441,8 @@ function showQuestBoardPanel(burgId){
         // Destroy a Goblin Nest only — undefined on offer.killsRequired for every other type, so
         // killsProgress stays undefined there too rather than adding a meaningless field.
         killsRequired: offer.killsRequired, killsProgress: offer.type === 'destroy_goblin_nest' ? 0 : undefined,
+        // Bounty: <variant> and A Favor for <kingdom> only — undefined on every other type's offer.
+        targetVariant: offer.targetVariant, targetKingdom: offer.targetKingdom, tier: offer.tier,
         reward:offer.reward, acceptedDay:gameDay, status:'active' });
       saveQuests(quests);
       buildQuestMarkers();
@@ -9823,7 +10004,25 @@ function doWork(burgId){
   recordWorked(burgId);
   const pool = WORK_LINES.concat(getReactiveWorkLines(burgId));
   const line = pool[Math.floor(Math.random()*pool.length)];
-  showToast(`${line} You earn ${earned} gold.`);
+  let msg = `${line} You earn ${earned} gold.`;
+  // Train the Villagers — a Board quest type that doesn't fit the delivery or kill family at
+  // all: it completes the next time the player does a day's Work at the giver's own settlement
+  // ("drilling the militia" instead of odd jobs), so it's checked here rather than in
+  // checkQuestTurnIns or endCombat. Only ever one active per settlement (see generateBoardOffers'
+  // alreadyActive check), so at most one can complete off a single Work action.
+  const quests = getQuests();
+  const trainQuest = quests.find(q => q.status==='active' && q.type==='train_villagers' && q.giverBurgId===burgId);
+  if(trainQuest){
+    setGold(playerGold + trainQuest.reward.gold);
+    const leveledUp = addXp(trainQuest.reward.xp);
+    recordCompletedQuest(trainQuest);
+    saveQuests(quests.filter(q => q.id !== trainQuest.id));
+    const repNote = adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
+    refreshQuestBadge();
+    msg += ` You also spend part of the shift drilling the local militia — ${trainQuest.giverName}'s request is fulfilled. +${trainQuest.reward.gold}g, +${trainQuest.reward.xp} XP.${repNote}`
+      + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '');
+  }
+  showToast(msg);
   showLocationView(burgId);
 }
 
@@ -12609,6 +12808,7 @@ function collectCharacterSnapshot(){
     mercenaries: localStorage.getItem(MERCENARY_KEY) || "[]",
     companionLoyalty: localStorage.getItem(LOYALTY_KEY) || "{}",
     reputation: localStorage.getItem(REPUTATION_KEY) || "{}",
+    kingdomFavorTier: localStorage.getItem(KINGDOM_FAVOR_KEY) || "{}",
     territoryControl: localStorage.getItem(TERRITORY_KEY) || "{}",
     relations: localStorage.getItem(RELATIONS_KEY) || "{}",
     reinforcements: localStorage.getItem(REINFORCE_KEY) || "{}",

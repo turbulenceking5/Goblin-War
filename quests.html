@@ -197,6 +197,11 @@ function questTitle(q){
   if(q.type === 'deliver_message') return 'Deliver a Message';
   if(q.type === 'deliver_cargo') return 'Deliver Cargo';
   if(q.type === 'destroy_goblin_nest') return 'Destroy a Goblin Nest';
+  if(q.type === 'protect_caravan') return 'Protect a Caravan';
+  if(q.type === 'train_villagers') return 'Train the Villagers';
+  if(q.type === 'ask_for_news') return 'Ask Around for News';
+  if(q.type === 'bounty_variant') return `Bounty: ${q.targetVariant}`;
+  if(q.type === 'kingdom_favor') return `A Favor for ${q.targetKingdom}`;
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
@@ -210,6 +215,11 @@ function questDesc(q){
   if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'destroy_goblin_nest') return `${q.giverName} wants a goblin nest thinned out before it grows bold — ${Math.min(q.killsProgress||0, q.killsRequired)} of ${q.killsRequired} goblins slain.`;
+  if(q.type === 'protect_caravan') return `${q.giverName} has hired you to guard the next caravan leaving town — defend it from whatever finds it on the road.`;
+  if(q.type === 'train_villagers') return `${q.giverName} wants the local militia drilled — a day's Work here in town will see to it.`;
+  if(q.type === 'ask_for_news') return `${q.giverName} wants to know what's being said around town.`;
+  if(q.type === 'bounty_variant') return `A bounty's been posted on ${q.targetVariant}, a notorious threat last seen prowling this region. Bring proof of the kill.`;
+  if(q.type === 'kingdom_favor') return `${q.giverName} asks you to prove your continued goodwill toward ${q.targetKingdom} by driving off the goblin and ork raiders threatening the region.`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.${questRivalNote(q)}`;
   if(q.type === 'kill_raiders') return (q.targetKingdom
     ? `${q.giverName} asked you to drive off ${q.targetKingdom}'s raiders threatening the region.`

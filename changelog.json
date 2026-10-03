@@ -1248,5 +1248,13 @@
     "changes": [
       "The Quest Board can now post a Destroy a Goblin Nest bounty — clear out a set number of goblins (wherever you find them) to collect a reward that scales with how many it takes."
     ]
+  },
+  {
+    "id": 167,
+    "date": "2026-10-03",
+    "changes": [
+      "The Quest Board is a lot more varied now — alongside deliveries and Destroy a Goblin Nest, it can post Protect a Caravan (defend the next thing that ambushes you on the road), Train the Villagers (fulfilled just by doing a day's Work in that same town), Ask Around for News (a quick paid chat that pays off immediately), and a Bounty on one of the realm's named, nastier threats (Goblin Chieftain, Ork Warlord, and others).",
+      "Kingdoms you've earned real trust with can now ask a favor of their own — once a kingdom's opinion of you is Friendly or better, their settlements' Quest Boards may offer 'A Favor for' them, with a second, better-paying tier once you're Trusted."
+    ]
   }
 ]

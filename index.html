@@ -141,6 +141,11 @@
   .tag.ork,.tag.goblin{ background:#6e2626; }
 
   #route-preview{ fill:none; stroke:#d1a445; stroke-width:2.6; stroke-dasharray:1 5; stroke-linecap:round; opacity:0; pointer-events:none; }
+  /* Visible severed supply route — a faint broken amber line from a cut-off settlement back
+     toward its own capital (see buildSupplyRouteLines), same muted amber as the supply-cut badge
+     above it rather than the war border's own danger-red, so a long-neglected corridor reads as
+     "severed" without competing with an active war front on the same map. */
+  .supply-route-line{ fill:none; stroke:#d1a445; stroke-width:1.6; stroke-dasharray:3 7; stroke-linecap:round; opacity:.55; pointer-events:none; }
 
   .player-token{ pointer-events:none; }
 
@@ -732,6 +737,7 @@
         <g id="labels" style="pointer-events:none"></g>
         <g id="city-icons" style="pointer-events:none"></g>
         <g id="frontline-markers" style="pointer-events:none"></g>
+        <g id="supply-routes" style="pointer-events:none"></g>
         <g id="supply-markers" style="pointer-events:none"></g>
         <g id="army-markers" style="pointer-events:none"></g>
         <g id="battle-markers"></g>
@@ -2607,6 +2613,38 @@ function isFrontlineBurg(burgId){ return !!getFrontlineEnemyKingdom(burgId); }
 // no war involved at all, which isn't the "supply lines fail because of a war" story this feature
 // is telling. (Confirmed live: a fresh, entirely-peacetime game was already showing supply-cut
 // markers before this fix.)
+// Raid the Supply Line / Escort the Supply Line — the first direct player lever on this whole
+// system (see showLocationView's conditional actions and acceptRaidSupplyLine/
+// acceptEscortSupplyLine below). One sparse map covers both, since a given waystation is never
+// both at once: {burgId: {type:'raided'|'escorted', expiresDay}}.
+const SUPPLY_INTERVENTION_KEY = "goblinwar_supplyInterventions";
+const SUPPLY_INTERVENTION_COOLDOWN_KEY = "goblinwar_supplyInterventionCooldowns"; // {burgId: gameDay}, shared daily cooldown for both actions at a given settlement
+const SUPPLY_RAID_DURATION_DAYS = 10;
+const SUPPLY_ESCORT_DURATION_DAYS = 10;
+function getSupplyInterventions(){
+  if(_tickCache) return _tickCache.supplyInterventions;
+  try{ return JSON.parse(localStorage.getItem(SUPPLY_INTERVENTION_KEY)) || {}; }catch(e){ return {}; }
+}
+function setSupplyInterventions(map){ localStorage.setItem(SUPPLY_INTERVENTION_KEY, JSON.stringify(map)); }
+function getSupplyIntervention(burgId){
+  const entry = getSupplyInterventions()[burgId];
+  if(!entry || gameDay > entry.expiresDay) return null;
+  return entry;
+}
+function setSupplyIntervention(burgId, type, durationDays){
+  const map = getSupplyInterventions();
+  map[burgId] = { type, expiresDay: gameDay + durationDays };
+  setSupplyInterventions(map);
+}
+function isSupplyRaided(burgId){ const e = getSupplyIntervention(burgId); return !!e && e.type === 'raided'; }
+function isSupplyEscorted(burgId){ const e = getSupplyIntervention(burgId); return !!e && e.type === 'escorted'; }
+function getSupplyInterventionCooldowns(){ try{ return JSON.parse(localStorage.getItem(SUPPLY_INTERVENTION_COOLDOWN_KEY)) || {}; }catch(e){ return {}; } }
+function hasIntervenedInSupplyToday(burgId){ return getSupplyInterventionCooldowns()[burgId] === gameDay; }
+function recordSupplyIntervention(burgId){
+  const cd = getSupplyInterventionCooldowns();
+  cd[burgId] = gameDay;
+  localStorage.setItem(SUPPLY_INTERVENTION_COOLDOWN_KEY, JSON.stringify(cd));
+}
 function getSupplyCutBurgs(kingdom){
   const capital = Object.values(graph.burgs).find(b => b.tier === 'capital' && getControllerKingdom(b.id) === kingdom);
   const owned = Object.keys(graph.burgs).filter(id => getControllerKingdom(id) === kingdom);
@@ -2619,12 +2657,24 @@ function getSupplyCutBurgs(kingdom){
       if(reached.has(nid)) return;
       const nKingdom = getControllerKingdom(nid);
       if(nKingdom && nKingdom !== kingdom && getRelation(kingdom, nKingdom) === 'war') return; // only an at-war enemy's territory actually blocks the path
+      // A player-sabotaged waystation also temporarily blocks passage THROUGH it (it can still be
+      // reached some other way around, same as any real chokepoint) — see Raid the Supply Line.
+      if(isSupplyRaided(nid)) return;
       reached.add(nid);
       next.push(nid);
     }));
     frontier = next;
   }
   return new Set(owned.filter(id => !reached.has(id)));
+}
+// A kingdom whose own supply network is majority severed is losing the supply war outright, not
+// just fighting a long one — see pass 1's peace-roll bonus below, and the "they'd welcome peace"
+// Negotiate Peace flavor (buildNegotiatePeaceHTML).
+const SUPPLY_EXHAUSTION_PEACE_BONUS = 0.02;
+function isSupplyExhausted(kingdom){
+  const owned = Object.keys(graph.burgs).filter(id => getControllerKingdom(id) === kingdom);
+  if(!owned.length) return false;
+  return getSupplyCutBurgs(kingdom).size / owned.length > 0.5;
 }
 
 // goblinwar_territoryControl overrides store the specific conquering KINGDOM now (e.g.
@@ -3031,7 +3081,7 @@ function getArmyStrength(kingdom){
   const base = Object.keys(graph.burgs).reduce((sum,id)=>{
     if(getControllerKingdom(id) !== kingdom) return sum;
     const pop = getPopulation(id);
-    return sum + (cutOff.has(id) ? pop * SUPPLY_CUT_GARRISON_MULT : pop);
+    return sum + ((cutOff.has(id) && !isSupplyEscorted(id)) ? pop * SUPPLY_CUT_GARRISON_MULT : pop);
   }, 0) * MILITARY_FRACTION;
   return base + getReinforcementBonus(kingdom);
 }
@@ -3054,7 +3104,7 @@ function findNearestPeacefulSettlement(fromBurgId){
 // settlement's population, not lost) rather than the whole loss simply vanishing.
 function applyWarLoss(burgId, rate){
   const kingdom = getControllerKingdom(burgId);
-  if(kingdom && getSupplyCutBurgs(kingdom).has(burgId)) rate *= SUPPLY_CUT_LOSS_MULT;
+  if(kingdom && getSupplyCutBurgs(kingdom).has(burgId) && !isSupplyEscorted(burgId)) rate *= SUPPLY_CUT_LOSS_MULT;
   const pop = getPopulation(burgId);
   const loss = pop * rate;
   if(loss <= 0) return;
@@ -3211,10 +3261,36 @@ function removeFieldBattle(id){
 // whole mobilizable strength) — surfaced in the Guard House panel alongside an active siege, and
 // now a real mechanical input to advanceSiege's own math too (see "An army's own strength, not
 // the whole kingdom's" in context/factions-and-territory.md), not just a displayed number.
+// A capital's walls hold out longer than a village fence's would at the exact same population —
+// getArmyStrength stays population-only (a kingdom's whole mobilizable strength shouldn't care
+// how fortified any *one* settlement is), but a settlement's own local defense should. Stacks on
+// top of the existing supply-cut multiplier below.
+const GARRISON_TIER_MULT = { village: 1.0, town: 1.1, city: 1.25, capital: 1.5 };
+// "Forted chokepoint" bonus — a settlement that's a real chokepoint for its own kingdom's supply
+// network (see getChokepointValue) defends a little harder, the mirror image of
+// pickBestRaidCandidate scoring the same signal as an attacker's incentive to take it. Each
+// chokepoint point is worth a flat multiplier bump, capped so this alone can never trivialize a
+// siege. Only meaningful (and only ever called) from inside advanceSiege's own tick context — see
+// getChokepointValue's comment for why this can't be called outside runFactionAITick.
+const FORTED_CHOKEPOINT_MULT_PER_POINT = 0.08;
+const FORTED_CHOKEPOINT_MAX_MULT = 1.4;
 function getGarrisonStrength(burgId){
   const kingdom = getControllerKingdom(burgId);
-  const cutMult = (kingdom && getSupplyCutBurgs(kingdom).has(burgId)) ? SUPPLY_CUT_GARRISON_MULT : 1;
-  return getPopulation(burgId) * MILITARY_FRACTION * cutMult;
+  // Escort the Supply Line (see acceptEscortSupplyLine) waives the cut-off penalty here for a
+  // while even though the settlement structurally still reads as cut off — volunteers are
+  // physically getting supplies through despite the severed line, not un-severing it.
+  const cutMult = (kingdom && getSupplyCutBurgs(kingdom).has(burgId) && !isSupplyEscorted(burgId)) ? SUPPLY_CUT_GARRISON_MULT : 1;
+  const b = graph.burgs[burgId];
+  const tierMult = (b && GARRISON_TIER_MULT[b.tier]) || 1;
+  let fortedMult = 1;
+  if(kingdom && _tickCache){
+    const enemy = getFrontlineEnemyKingdom(burgId);
+    if(enemy){
+      const chokepointValue = getChokepointValue(burgId, kingdom, enemy);
+      fortedMult = Math.min(FORTED_CHOKEPOINT_MAX_MULT, 1 + chokepointValue * FORTED_CHOKEPOINT_MULT_PER_POINT);
+    }
+  }
+  return getPopulation(burgId) * MILITARY_FRACTION * cutMult * tierMult * fortedMult;
 }
 
 // A small log of real siege/attack outcomes — the "news you hear" behind Tavern Talk's rumour
@@ -3377,13 +3453,69 @@ function pickRaidTarget(attackerKingdom, defenderKingdom){
 
   const ownBurgIds = new Set(ownBurgs.map(b=>b.id));
   const borderCandidates = defenderBurgs.filter(b => (burgAdjacency[b.id]||[]).some(n => ownBurgIds.has(n)));
-  if(borderCandidates.length) return borderCandidates[Math.floor(Math.random()*borderCandidates.length)];
+  if(borderCandidates.length) return pickBestRaidCandidate(borderCandidates, attackerKingdom, defenderKingdom);
 
   const cx = ownBurgs.reduce((s,b)=>s+b.x,0) / ownBurgs.length;
   const cy = ownBurgs.reduce((s,b)=>s+b.y,0) / ownBurgs.length;
   const sorted = defenderBurgs.slice().sort((a,b)=> Math.hypot(a.x-cx,a.y-cy) - Math.hypot(b.x-cx,b.y-cy));
   const candidates = sorted.slice(0, RAID_CANDIDATE_POOL);
   return candidates[Math.floor(Math.random()*candidates.length)];
+}
+// How many of KINGDOM's own settlements would newly join its cut-off set (see getSupplyCutBurgs)
+// if burgId itself changed hands to otherKingdom — the real chokepoint/articulation-point
+// question ("what does losing this settlement actually cost them"), answered cheaply by
+// temporarily flipping one override and re-running the exact same BFS that set already uses,
+// rather than a general graph algorithm. Only safe to call from inside runFactionAITick's own
+// tick: it mutates getTerritoryControl()'s live cached object and restores it before returning,
+// which only works because every caller of this (pickBestRaidCandidate, getGarrisonStrength's
+// forted-chokepoint bonus) is itself only ever reached from inside that tick's own try block
+// (pickRaidTarget <- spawnArmy/advanceSiege; getGarrisonStrength <- advanceSiege), so nothing else
+// reads the territory map mid-simulation — this whole function runs synchronously with no other
+// code interleaved. Outside a tick, getTerritoryControl() returns a fresh, unshared parse on every
+// call instead of the live cached object, so the mutate-and-restore trick would silently do
+// nothing there — this function must never be called outside runFactionAITick for that reason.
+function getChokepointValue(burgId, kingdom, otherKingdom){
+  const beforeCut = getSupplyCutBurgs(kingdom).size;
+  const overrides = getTerritoryControl();
+  const prior = overrides[burgId];
+  overrides[burgId] = otherKingdom; // simulate: what if this one already belonged to otherKingdom?
+  const afterCut = getSupplyCutBurgs(kingdom).size;
+  if(prior === undefined) delete overrides[burgId]; else overrides[burgId] = prior; // always restored before returning — never actually persisted
+  // -1: burgId itself always "joins" the cut-off count on paper the moment it changes hands (it's
+  // no longer kingdom's own territory to begin with), which isn't a real chokepoint effect on
+  // anything else — only credit settlements newly cut off *beyond* the one that actually fell.
+  return Math.max(0, afterCut - beforeCut - 1);
+}
+// Each "chokepoint point" (a defender settlement that would be newly cut off from its own capital
+// if this candidate fell) is worth this many weakness points, stacked against how lightly
+// garrisoned the candidate already is — see pickBestRaidCandidate below. First-pass balance
+// number, easy to retune later, same spirit as every other constant in this file.
+const CHOKEPOINT_SUPPLY_WEIGHT = 2;
+// A chokepoint strike worth narrating to the player — see pickBestRaidCandidate's own
+// recordWorldEvent call below. Deliberately high so this stays a rare, special-feeling beat
+// rather than firing on every ordinary muster that happens to touch the border.
+const CHOKEPOINT_NARRATE_THRESHOLD = 2;
+// Picks the single most attractive border settlement to besiege instead of a flat coin flip — the
+// "smarter AI" fix every one of this session's three research passes converged on independently.
+// Weighs (a) how lightly garrisoned the candidate already is (getGarrisonStrength — weaker is more
+// attractive) against (b) its real chokepoint value (getChokepointValue above). A small random
+// term keeps ties (and near-ties) from always resolving the exact same way, so the AI reads as
+// opportunistic rather than perfectly, roboticly optimal. Narrates the pick via recordWorldEvent
+// when it's a genuine chokepoint strike (see CHOKEPOINT_NARRATE_THRESHOLD) — the player should be
+// able to tell the AI is doing something purposeful, not just see slightly different numbers.
+function pickBestRaidCandidate(candidates, attackerKingdom, defenderKingdom){
+  if(candidates.length === 1) return candidates[0];
+  let best = null, bestScore = -Infinity, bestChokepointValue = 0;
+  candidates.forEach(candidate=>{
+    const chokepointValue = getChokepointValue(candidate.id, defenderKingdom, attackerKingdom);
+    const weakness = 50 / (1 + getGarrisonStrength(candidate.id));
+    const score = weakness + chokepointValue * CHOKEPOINT_SUPPLY_WEIGHT + Math.random();
+    if(score > bestScore){ bestScore = score; best = candidate; bestChokepointValue = chokepointValue; }
+  });
+  if(best && bestChokepointValue >= CHOKEPOINT_NARRATE_THRESHOLD){
+    recordWorldEvent(`Word has it ${attackerKingdom}'s scouts have marked ${best.name} as the lone road feeding ${defenderKingdom}'s lines beyond it — a target worth the risk.`);
+  }
+  return best;
 }
 
 // Starts a new siege (if attackerKingdom has none running against defenderKingdom yet) or
@@ -3405,6 +3537,57 @@ function pickRaidTarget(attackerKingdom, defenderKingdom){
 // only for the dead "create on first call" branch below, unreachable in practice since an army
 // always creates the siege entry itself on arrival (see advanceArmies) — kept as a safe fallback
 // rather than assuming that invariant always holds.
+// Siege equipment — a kingdom's siegecraft, not just its headcount, now shapes how it presses a
+// siege. Picked once at muster time (see spawnArmy) and kept for that army's life, same
+// iconVariant precedent. 'ladders' is the free default every army can field; 'rams'/'catapults'
+// need a City/Capital-tier origin (a real siege train isn't something a village can field) and
+// each only pays off at a different stage — a ram punches harder against a fresh wall early in a
+// siege, a catapult's sustained bombardment pays off once it's had time to work a wall down.
+const SIEGE_EQUIPMENT_TIER_GATE = ['city','capital'];
+const SIEGE_EQUIPMENT_RAM_EARLY_MULT = 1.25;
+const SIEGE_EQUIPMENT_CATAPULT_LATE_MULT = 1.25;
+const SIEGE_EQUIPMENT_PROGRESS_SPLIT = 40; // % progress below which "early" (rams) applies, at/above which "late" (catapults) applies
+function pickSiegeEquipment(originTier){
+  if(SIEGE_EQUIPMENT_TIER_GATE.includes(originTier) && Math.random() < 0.5) return Math.random() < 0.5 ? 'rams' : 'catapults';
+  return 'ladders';
+}
+function getSiegeEquipmentMultiplier(equipment, progress){
+  if(equipment === 'rams') return progress < SIEGE_EQUIPMENT_PROGRESS_SPLIT ? SIEGE_EQUIPMENT_RAM_EARLY_MULT : 1;
+  if(equipment === 'catapults') return progress >= SIEGE_EQUIPMENT_PROGRESS_SPLIT ? SIEGE_EQUIPMENT_CATAPULT_LATE_MULT : 1;
+  return 1;
+}
+// Morale/exhaustion — an army camped outside a wall wears down the longer it sits there, distinct
+// from (and on top of) supply-line attrition (applySupplyAttrition handles that separately, daily
+// — this is the weekly, siege-specific half). weeksSieging increments once per tick this exact
+// army presses a siege (see below) and resets to 0 the moment a reinforcement actually merges
+// into it (mergeArmies) — fresh blood restores morale.
+const MORALE_DECAY_PER_WEEK = 0.04;
+const MORALE_DECAY_FLOOR = 0.6; // never decays an army's effective strength below 60% from morale alone
+function getMoraleMultiplier(weeksSieging){ return Math.max(MORALE_DECAY_FLOOR, 1 - (weeksSieging||0) * MORALE_DECAY_PER_WEEK); }
+// Terrain modifiers — the siege-side counterpart to combat.md's own biome combat modifiers,
+// reusing the exact same burg.biome field (no new data). Values are an attacker-side multiplier:
+// terrain that favors a defender (hills/mountains/coast chokepoints, swamp mud) slows the attack;
+// open plains speed it. Port settlements use the coast figure, same precedent getFightBiome sets.
+const SIEGE_BIOME_MULT = { hills:0.85, mountains:0.8, swamp:0.9, coast:0.9, plains:1.1 };
+function getSiegeBiomeMultiplier(burgId){
+  const b = graph.burgs[burgId];
+  const biome = (b && b.port) ? 'coast' : (b && b.biome) || 'forest';
+  return SIEGE_BIOME_MULT[biome] || 1;
+}
+// Sortie — a garrison that clearly outclasses the army outside its walls doesn't just sit there
+// losing a slow war of attrition; it hits back, directly cutting the besieger's own army strength
+// (mirroring Field Battle's "Raid the Enemy Camp" precedent — a strength cut outlasts this one
+// tick, unlike progress, which the defender can't touch).
+const SORTIE_STRENGTH_THRESHOLD = 1.5; // defender must clearly outclass the besieger (this x attacker strength) for a sortie to even roll
+const SORTIE_CHANCE = 0.25;
+const SORTIE_DAMAGE_MIN = 0.1, SORTIE_DAMAGE_MAX = 0.25;
+// How many ticks in a row a siege can sit at the success-chance floor (or be personally beaten
+// back by the player's own Defend the Walls — see resolveSiegeDefense, which bumps this same
+// counter) before the attacker gives up and withdraws — the "smarter AI" fix for a siege that can
+// currently never truly be lost, only slow, and the same lever that quietly reroutes future
+// musters away from a target the player keeps personally defending without ever changing who
+// ultimately wins the war (the AI just tries somewhere else next time).
+const SIEGE_STALL_RETREAT_TICKS = 4;
 function advanceSiege(attackerKingdom, defenderKingdom, attackerArmy){
   const sieges = getSieges();
   const existing = Object.entries(sieges).find(([bid, s]) => s.attackerKingdom===attackerKingdom && s.defenderKingdom===defenderKingdom);
@@ -3415,32 +3598,52 @@ function advanceSiege(attackerKingdom, defenderKingdom, attackerArmy){
     const target = pickRaidTarget(attackerKingdom, defenderKingdom);
     if(!target) return null;
     burgId = target.id;
-    siege = { attackerKingdom, defenderKingdom, startedDay: gameDay, progress: 0 };
+    siege = { attackerKingdom, defenderKingdom, startedDay: gameDay, progress: 0, stalledTicks: 0 };
   }
 
-  const attackerStrength = attackerArmy ? attackerArmy.strength : getArmyStrength(attackerKingdom);
+  if(attackerArmy) attackerArmy.weeksSieging = (attackerArmy.weeksSieging||0) + 1;
+  const equipmentMult = attackerArmy ? getSiegeEquipmentMultiplier(attackerArmy.equipment, siege.progress) : 1;
+  const moraleMult = attackerArmy ? getMoraleMultiplier(attackerArmy.weeksSieging) : 1;
+  const biomeMult = getSiegeBiomeMultiplier(burgId);
+  const attackerStrength = (attackerArmy ? attackerArmy.strength : getArmyStrength(attackerKingdom)) * equipmentMult * moraleMult * biomeMult;
   // War Help payoff of per-kingdom reputation (see context/factions-and-territory.md's
   // "Per-kingdom reputation") — a Trusted defender's own garrison fights harder in the background,
   // a flat multiplier on its effective strength here rather than anything touching the player's
   // own Defend the Walls fight (startCombat/triggerSiegeDefenseFight are untouched by this).
   const defenderStrength = getGarrisonStrength(burgId)
     * (reputationLabel(getReputation(defenderKingdom)) === 'Trusted' ? TRUSTED_DEFENSE_BONUS : 1);
+
+  let sortied = false;
+  if(attackerArmy && defenderStrength > attackerStrength * SORTIE_STRENGTH_THRESHOLD && Math.random() < SORTIE_CHANCE){
+    const dmgFraction = SORTIE_DAMAGE_MIN + Math.random()*(SORTIE_DAMAGE_MAX - SORTIE_DAMAGE_MIN);
+    attackerArmy.strength = Math.max(1, Math.round(attackerArmy.strength * (1 - dmgFraction)));
+    sortied = true;
+    recordWorldEvent(`Word has it ${defenderKingdom}'s garrison at ${graph.burgs[burgId].name} sortied out and bled ${attackerKingdom}'s besieging army.`);
+  }
+
   const rawChance = attackerStrength / ((attackerStrength + defenderStrength) || 1);
   const successChance = Math.min(RAID_SUCCESS_MAX, Math.max(RAID_SUCCESS_MIN, rawChance));
+  siege.lastSuccessChance = successChance; // display-only — see buildGuardHouseStats' ETA readout
+  siege.stalledTicks = (successChance <= RAID_SUCCESS_MIN + 0.001) ? (siege.stalledTicks||0) + 1 : 0;
   siege.progress += successChance * SIEGE_PROGRESS_MAX_PER_TICK;
   applyWarLoss(burgId, RAID_DAMAGE_RATE);
 
   const target = graph.burgs[burgId];
-  let captured = false;
+  let captured = false, stalled = false;
   if(siege.progress >= 100){
     setController(burgId, attackerKingdom);
     delete sieges[burgId];
     captured = true;
+  } else if(siege.stalledTicks >= SIEGE_STALL_RETREAT_TICKS){
+    delete sieges[burgId];
+    stalled = true;
+    recordWorldEvent(`Word has it ${attackerKingdom}'s host outside ${target.name} has abandoned the siege, unable to break through.`);
   } else {
     sieges[burgId] = siege;
   }
   setSieges(sieges);
-  return { captured, target };
+  if(attackerArmy) saveArmies(getArmies());
+  return { captured, stalled, target, sortied };
 }
 
 // Where a marching army musters from — the attacking kingdom's own capital, falling back to
@@ -3527,6 +3730,8 @@ function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
     routePts: points, routeMiles: route.miles, progressMiles: 0,
     x: origin.x, y: origin.y, strength,
     status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay,
+    equipment: pickSiegeEquipment(origin.tier), weeksSieging: 0, // see advanceSiege's own siege-equipment/morale comments
+
     // Picked once and kept for this army's whole life (not re-rolled on every buildArmyMarkers
     // rebuild) so simultaneous armies visibly read as different banners rather than one icon
     // flickering between variants — see buildArmyMarkers' own ARMY_ICON_POOLS.
@@ -3534,6 +3739,45 @@ function spawnArmy(kingdom, defenderKingdom, sharedTargetBurgId){
   };
   armies.push(army);
   saveArmies(armies);
+  return army;
+}
+// Relief armies — a besieged kingdom isn't purely passive: it can muster its own force and send
+// it racing to its OWN besieged settlement, where it sits ready (status 'garrisoning', once
+// arrived — see advanceArmies' arrival branch) to intercept the besieging army the instant
+// detectFieldBattles' existing opposite-alliance radius check catches them. Deliberately not
+// built on spawnArmy above — that function's target/defenderKingdom fields assume an attacker
+// marching into enemy territory to start a siege; a relief force marches into its OWN territory
+// to defend one, so this is its own small, isolated muster. Same population-cost precedent as
+// spawnArmy (a randomized fraction of the origin's current population, genuinely subtracted).
+const RELIEF_CHANCE = 0.2; // per kingdom per tick, while it's defending at least one active siege and can spare the troops
+function spawnReliefArmy(kingdom, besiegedBurgId){
+  const target = graph.burgs[besiegedBurgId];
+  if(!target) return null;
+  const origin = findArmyOrigin(kingdom, target);
+  if(!origin || origin.id === target.id) return null;
+  const route = computeDistanceBetween(origin.id, target.id);
+  if(!route || !route.edges) return null;
+  const { points } = buildRoutePolyline({x:origin.x, y:origin.y}, target.id, route.edges);
+  const originPop = getPopulation(origin.id);
+  const musterFraction = ARMY_MUSTER_FRACTION_MIN + Math.random() * (ARMY_MUSTER_FRACTION_MAX - ARMY_MUSTER_FRACTION_MIN);
+  const strength = originPop * musterFraction;
+  setPopulation(origin.id, originPop - strength);
+  const armies = getArmies();
+  const race = KINGDOM_RACE[kingdom];
+  const iconPool = ARMY_ICON_POOLS[ALLIANCE[race]];
+  const army = {
+    id: `relief_${gameDay}_${Math.floor(Math.random()*1e6)}`,
+    kingdom, defenderKingdom: kingdom, race, // defenderKingdom === kingdom here: a relief force defends its own territory, not someone else's
+    originBurgId: origin.id, targetBurgId: target.id,
+    routePts: points, routeMiles: route.miles, progressMiles: 0,
+    x: origin.x, y: origin.y, strength,
+    status: 'marching', spawnedDay: gameDay, lastAdvancedDay: gameDay,
+    isRelief: true, equipment: 'ladders', weeksSieging: 0,
+    iconVariant: Math.floor(Math.random() * (iconPool && iconPool.length ? iconPool.length : 1))
+  };
+  armies.push(army);
+  saveArmies(armies);
+  recordWorldEvent(`Word has it ${kingdom} has sent a relief force racing to break the siege of ${target.name}.`);
   return army;
 }
 // Same-kingdom armies marching or sieging toward the exact same settlement combine into one
@@ -3559,6 +3803,7 @@ function mergeArmies(){
         if(a.kingdom !== b.kingdom || a.targetBurgId !== b.targetBurgId) continue;
         if(Math.hypot(a.x-b.x, a.y-b.y) > ARMY_MERGE_RADIUS) continue;
         a.strength += b.strength;
+        a.weeksSieging = 0; // fresh blood arriving restores morale, same reasoning as the comment by MORALE_DECAY_PER_WEEK
         if(b.status === 'sieging') a.status = 'sieging';
         if(a.status === 'sieging'){
           const t = graph.burgs[a.targetBurgId];
@@ -3591,7 +3836,7 @@ function mergeArmies(){
 // call so a third nearby army can't double-book one that was just claimed.
 function detectFieldBattles(){
   const armies = getArmies();
-  const candidates = armies.filter(a => a.status === 'marching' || a.status === 'sieging');
+  const candidates = armies.filter(a => a.status === 'marching' || a.status === 'sieging' || a.status === 'garrisoning');
   const matched = new Set();
   let changed = false;
   for(let i = 0; i < candidates.length; i++){
@@ -3667,13 +3912,18 @@ function advanceArmies(){
     const pos = pointAlongPolyline(army.routePts, frac);
     army.x = pos.x; army.y = pos.y;
     if(frac >= 1){
-      if(getControllerKingdom(army.targetBurgId) === army.defenderKingdom){
+      if(army.isRelief){
+        // Reached its own besieged settlement — sits ready (detectFieldBattles' candidate filter
+        // below includes 'garrisoning') to intercept the besieger, rather than trying to start a
+        // siege against its own territory.
+        army.status = 'garrisoning';
+      } else if(getControllerKingdom(army.targetBurgId) === army.defenderKingdom){
         army.status = 'sieging';
         // Don't clobber an already-running siege at this settlement — a reinforcement army
         // arriving after an earlier one is already sieging joins it (mergeArmies below combines
         // their strength once they're at the same spot), it doesn't restart that siege's progress.
         if(!sieges[army.targetBurgId]){
-          sieges[army.targetBurgId] = { attackerKingdom: army.kingdom, defenderKingdom: army.defenderKingdom, startedDay: gameDay, progress: 0 };
+          sieges[army.targetBurgId] = { attackerKingdom: army.kingdom, defenderKingdom: army.defenderKingdom, startedDay: gameDay, progress: 0, stalledTicks: 0 };
         }
       } else {
         return false; // arrived to find someone else already took it — nothing left to besiege
@@ -3728,6 +3978,41 @@ function applySupplyAttrition(){
   return changed;
 }
 
+// Multi-front prioritization — see its own call site's comment in runFactionAITick's pass 2.
+// "Winnable" is approximated cheaply off data the tick already has in hand: a weaker enemy army
+// scores higher (easier fight), and an enemy already supply-cut scores a flat bonus on top (its
+// garrisons are already weaker — see getGarrisonStrength — so pressing it now compounds that).
+const MULTI_FRONT_ACTIVE_CAMPAIGNS = 2; // how many fronts a kingdom will start a *brand-new* push on in the same tick
+function rankEnemiesByCampaignValue(kingdom, enemies){
+  return enemies.slice()
+    .map(enemy => ({ enemy, score: 1/(1+getArmyStrength(enemy)) + (getSupplyCutBurgs(enemy).size ? 0.5 : 0) }))
+    .sort((a,b) => b.score - a.score)
+    .map(e => e.enemy);
+}
+// Overextension flavor — a kingdom fighting on this many fronts at once is worth an occasional
+// Chronicle line, same "state of the realm" spirit as every other recordWorldEvent call in this
+// file. Rolled, not guaranteed, so it doesn't become a weekly drumbeat for a kingdom that just
+// happens to run hot for a long stretch.
+const OVEREXTENDED_FRONT_COUNT = 3;
+const OVEREXTENDED_NARRATE_CHANCE = 0.08;
+// A "great host gathers" warning — the player's own heads-up that a real push is building against
+// a specific settlement, before it actually arrives. Fires once per campaign the moment this
+// kingdom's total strength aimed at one target crosses MASSING_WARNING_MULT times that target's
+// own garrison — flagged on the first army in the group (massingWarned) so it only ever narrates
+// once per push, the same single-field-on-an-existing-object trick siege/army mutations elsewhere
+// in this file already use rather than a new top-level key.
+const MASSING_WARNING_MULT = 2;
+function maybeWarnOfMassingHost(pairArmies){
+  if(!pairArmies.length || pairArmies[0].massingWarned) return;
+  const target = graph.burgs[pairArmies[0].targetBurgId];
+  if(!target) return;
+  const totalStrength = pairArmies.reduce((s,a)=>s+a.strength, 0);
+  if(totalStrength < getGarrisonStrength(target.id) * MASSING_WARNING_MULT) return;
+  pairArmies[0].massingWarned = true;
+  saveArmies(getArmies());
+  recordWorldEvent(`Word has it a great host gathers before ${target.name}'s walls.`);
+}
+
 // Runs the whole weekly tick and returns a short list of {text} events worth telling the player
 // about (captures, plus a war-exhaustion peace that produced a clear winner — see
 // settleWarExhaustionPeace — since a whole war ending with reparations changing hands is at least
@@ -3755,6 +4040,7 @@ function runFactionAITick(){
     warHistory: getWarHistoryMap(),
     warCooldowns: getWarCooldownsMap(),
     tribute: getTributeMap(),
+    supplyInterventions: getSupplyInterventions(),
     warState: {}, // see getWarState — populated lazily, safe for the whole tick once the declare/peace pass below finishes
   };
   try{
@@ -3779,7 +4065,11 @@ function runFactionAITick(){
           // WAR_PEACE_CHANCE is just the floor for a war still inside its grace period.
           const weeksAtWar = Math.floor((gameDay - getWarStartDay(k1, k2)) / WAR_TICK_INTERVAL_DAYS);
           const exhaustionWeeks = Math.max(0, weeksAtWar - WAR_EXHAUSTION_GRACE_WEEKS);
-          const peaceChance = Math.min(WAR_PEACE_CHANCE_MAX, WAR_PEACE_CHANCE + exhaustionWeeks * WAR_EXHAUSTION_PEACE_BONUS_PER_WEEK);
+          let peaceChance = Math.min(WAR_PEACE_CHANCE_MAX, WAR_PEACE_CHANCE + exhaustionWeeks * WAR_EXHAUSTION_PEACE_BONUS_PER_WEEK);
+          // Losing the supply war should hasten peace on its own, not only raw time-at-war —
+          // a side whose own network is majority severed sues for peace sooner than the flat
+          // exhaustion curve above alone implies.
+          if(isSupplyExhausted(k1) || isSupplyExhausted(k2)) peaceChance = Math.min(WAR_PEACE_CHANCE_MAX, peaceChance + SUPPLY_EXHAUSTION_PEACE_BONUS);
           if(Math.random() < peaceChance){
             setRelation(k1, k2, 'peace');
             cancelSiegesBetween(k1, k2);
@@ -3798,6 +4088,18 @@ function runFactionAITick(){
       // a settlement already captured away from `kingdom` shouldn't keep bleeding under its old
       // owner's war status forever; it's the new controller's war (if any) that should apply to it.
       Object.values(graph.burgs).filter(b=>getControllerKingdom(b.id)===kingdom).forEach(b=> applyWarLoss(b.id, WAR_ATTRITION_RATE));
+      // Multi-front prioritization — a kingdom fighting several wars at once shouldn't spray a
+      // fresh muster at every single one with equal odds. Rank every enemy by how winnable a
+      // fresh campaign against it looks right now (weaker armies, or ones already supply-cut,
+      // score higher) and only let the top MULTI_FRONT_ACTIVE_CAMPAIGNS highest-scoring fronts
+      // actually start a *new* push this tick — an already-in-flight campaign against a
+      // lower-ranked enemy still advances/reinforces normally either way, only starting a brand
+      // new one is throttled. Only worth computing (and narrating) once there's an actual choice
+      // to make.
+      const prioritized = enemies.length > MULTI_FRONT_ACTIVE_CAMPAIGNS ? rankEnemiesByCampaignValue(kingdom, enemies).slice(0, MULTI_FRONT_ACTIVE_CAMPAIGNS) : null;
+      if(enemies.length >= OVEREXTENDED_FRONT_COUNT && Math.random() < OVEREXTENDED_NARRATE_CHANCE){
+        recordWorldEvent(`Word has it ${kingdom} is stretched thin, fighting on every border at once.`);
+      }
       enemies.forEach(enemy=>{
         // A siege only actually progresses once a marching army has arrived (see
         // "Armies march before a siege starts" in context/factions-and-territory.md) — an army
@@ -3819,12 +4121,34 @@ function runFactionAITick(){
             // That capture may have been enemy's very last settlement — see isKingdomEliminated/
             // eliminateKingdom above for what happens next.
             if(isKingdomEliminated(enemy)) eliminateKingdom(enemy, events);
+          } else if(result && result.stalled){
+            // The whole push against this target fell apart — every army still aimed at it
+            // (sieging or still marching in to reinforce) turns back with it, not just the one
+            // that was actually sieging.
+            pairArmies.forEach(a => removeArmy(a.id));
           }
         }
-        if(pairArmies.length < MAX_ARMIES_PER_ENEMY_PAIR && Math.random() < RAID_CHANCE){
-          spawnArmy(kingdom, enemy, pairArmies[0] ? pairArmies[0].targetBurgId : null);
+        // A brand-new campaign (nothing of this kingdom's already aimed at this enemy) is
+        // throttled by the multi-front ranking above; reinforcing an already-started one never is
+        // — see MULTI_FRONT_ACTIVE_CAMPAIGNS' own comment for why.
+        const canStartFresh = !prioritized || pairArmies.length > 0 || prioritized.includes(enemy);
+        if(pairArmies.length < MAX_ARMIES_PER_ENEMY_PAIR && canStartFresh && Math.random() < RAID_CHANCE){
+          const spawned = spawnArmy(kingdom, enemy, pairArmies[0] ? pairArmies[0].targetBurgId : null);
+          if(spawned) maybeWarnOfMassingHost([...pairArmies, spawned]);
         }
       });
+      // Relief armies — a kingdom currently defending at least one active siege can occasionally
+      // send help of its own, racing to its own besieged settlement where it sits ready to
+      // intercept the besieger via the existing field-battle detection (see spawnReliefArmy's own
+      // comment for why this is a separate, isolated muster rather than reusing spawnArmy). Never
+      // from a kingdom that's already losing the supply war itself — it can't spare the troops —
+      // and never a second relief force toward the same settlement while one's already there.
+      const ownSieges = Object.entries(getSieges()).filter(([bid,s]) => s.defenderKingdom === kingdom);
+      if(ownSieges.length && !isSupplyExhausted(kingdom) && Math.random() < RELIEF_CHANCE){
+        const [reliefTargetId] = ownSieges.sort((a,b)=> b[1].progress - a[1].progress)[0]; // help whichever siege is furthest along — most urgent
+        const alreadyRelieving = getArmies().some(a => a.isRelief && a.kingdom === kingdom && a.targetBurgId === reliefTargetId && (a.status==='marching'||a.status==='garrisoning'));
+        if(!alreadyRelieving) spawnReliefArmy(kingdom, reliefTargetId);
+      }
     });
     // Field battles — armies that met in the open field (see detectFieldBattles, called daily
     // from advanceArmies) resolve here too, same weekly cadence as sieges, weighing each side's
@@ -3919,6 +4243,7 @@ function maybeRunFactionAI(){
   buildFrontlineMarkers();
   buildBorderMarkers();
   buildSupplyMarkers();
+  buildSupplyRouteLines();
   buildLabels();
   buildKingdomTerritoryLabels();
   buildArmyMarkers();
@@ -7036,6 +7361,36 @@ function buildSupplyMarkers(){
   });
 }
 
+// Visible severed supply route — per the supply-lines research, the badge icon above a cut-off
+// settlement said "something's wrong here" but not "this is the corridor that failed." Draws the
+// real road/sea route from each cut-off settlement back to its own kingdom's capital (the exact
+// same pathfinding army markers already use) as a faint broken line. Rebuilt alongside
+// buildSupplyMarkers everywhere that's called — same triggers, same reasoning: territory control
+// only ever changes inside advanceSiege, so this can only ever go stale at the same moments that
+// function already handles.
+function buildSupplyRouteLines(){
+  const g = document.getElementById('supply-routes');
+  if(!g) return;
+  g.innerHTML = '';
+  const ns = "http://www.w3.org/2000/svg";
+  ALL_KINGDOMS.forEach(kingdom=>{
+    const capital = Object.values(graph.burgs).find(b => b.tier === 'capital' && getControllerKingdom(b.id) === kingdom);
+    if(!capital) return;
+    getSupplyCutBurgs(kingdom).forEach(id=>{
+      const b = graph.burgs[id];
+      if(!b || id === capital.id) return;
+      const route = computeDistanceBetween(id, capital.id);
+      if(!route || !route.edges) return;
+      const { points } = buildRoutePolyline({x:b.x, y:b.y}, capital.id, route.edges);
+      if(!points || points.length < 2) return;
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", "M" + points.map(p=>`${p.x},${p.y}`).join(" L"));
+      path.setAttribute("class", "supply-route-line");
+      g.appendChild(path);
+    });
+  });
+}
+
 // A small marker per marching/sieging goblinwar_armies entry — see "Armies march before a siege
 // starts" in context/factions-and-territory.md. Rebuilt from scratch (same pattern as
 // buildFrontlineMarkers/buildQuestMarkers) rather than diffed, whenever the army list actually
@@ -9256,6 +9611,17 @@ function showLocationView(burgId){
   if(hasRecentRefugeeArrival(burgId)){
     actions.push({ icon:`<circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5"/><path d="M13 20c.3-2.3 2-4 3.5-4.2"/>`, title:"Refugee Camp", desc:"Help those who fled the fighting", action:'refugee_camp' });
   }
+  // Raid the Supply Line (any real frontline settlement) / Escort the Supply Line (any settlement
+  // that's itself currently cut off) — see getFrontlineEnemyKingdom/getSupplyCutBurgs above.
+  if(getFrontlineEnemyKingdom(burgId)){
+    const done = hasIntervenedInSupplyToday(burgId);
+    actions.push({ icon:`<path d="M4 17l6-6 4 4 6-6"/><path d="M14 5h6v6"/>`, title:"Raid the Supply Line", desc: done ? "Already struck here today — come back tomorrow" : "Sabotage the depot, cutting what lies beyond it", action:'raid_supply_line', disabled: done });
+  }
+  const burgKingdom = getControllerKingdom(burgId);
+  if(burgKingdom && getSupplyCutBurgs(burgKingdom).has(burgId)){
+    const done = hasIntervenedInSupplyToday(burgId);
+    actions.push({ icon:`<path d="M4 17l6-6 4 4 6-6"/><path d="M20 5h-6v6"/>`, title:"Escort the Supply Line", desc: done ? "Already arranged an escort today — come back tomorrow" : "Pay to keep this garrison fed despite the cut road", action:'escort_supply_line', disabled: done });
+  }
   const pendingSettlementEvent = getPendingSettlementEvent(burgId);
   if(pendingSettlementEvent){
     actions.push({ icon:`<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>`, title: pendingSettlementEvent.title, desc:"Something's happening here", action:'settlement_event' });
@@ -9305,6 +9671,16 @@ function showLocationView(burgId){
         showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
         const raidBtn = document.getElementById('raid-village-btn');
         if(raidBtn) raidBtn.addEventListener('click', ()=> acceptRaidVillage(burgId));
+      }
+      else if(btn.dataset.action === 'raid_supply_line'){
+        showFlavorPanel(burgId, 'Raid the Supply Line', SUPPLY_RAID_LINES, buildSupplyRaidHTML(burgId));
+        const btn2 = document.getElementById('raid-supply-line-btn');
+        if(btn2) btn2.addEventListener('click', ()=> acceptRaidSupplyLine(burgId));
+      }
+      else if(btn.dataset.action === 'escort_supply_line'){
+        showFlavorPanel(burgId, 'Escort the Supply Line', SUPPLY_ESCORT_LINES, buildSupplyEscortHTML(burgId));
+        const btn3 = document.getElementById('escort-supply-line-btn');
+        if(btn3) btn3.addEventListener('click', ()=> acceptEscortSupplyLine(burgId));
       }
       else showToast("Not built yet — coming in a future update.");
     });
@@ -9792,14 +10168,39 @@ const FLAVOR_TREES = {
 // two lingering effects: reparations (getTribute) and a standing treaty barring this kingdom from
 // re-attacking whoever it just made peace with (getTreatyBoundEnemies) — see the "War exhaustion"
 // const block above.
+// Named siege stages, purely for display — progress itself (and every formula reading it) is
+// completely unchanged; this just gives the same 0-100 number a name worth reading.
+function getSiegePhase(progress){
+  if(progress < 33) return 'Investment';
+  if(progress < 70) return 'Breach';
+  return 'Sack';
+}
+// A rough weeks-to-fall readout off the siege's own last-computed success chance (siege.lastSuccessChance,
+// set in advanceSiege) — an estimate, not a promise (the real rate can shift week to week as armies
+// merge/decay/sortie), absent entirely until a siege has actually ticked at least once.
+function getSiegeEtaWeeks(siege){
+  if(!siege.lastSuccessChance) return null;
+  const remaining = Math.max(0, 100 - siege.progress);
+  const perWeek = siege.lastSuccessChance * SIEGE_PROGRESS_MAX_PER_TICK;
+  if(perWeek <= 0) return null;
+  return Math.max(1, Math.ceil(remaining / perWeek));
+}
 function buildGuardHouseStats(burgId){
   const controllerKingdom = getControllerKingdom(burgId);
   const pop = getPopulation(burgId);
   const army = getArmyStrength(controllerKingdom);
   const siege = getSieges()[burgId];
-  const siegeRow = siege
-    ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#e07a5f;"><span>Under siege by ${siege.attackerKingdom}</span><b>${Math.round(Math.min(100,siege.progress))}%</b></div>`
-    : '';
+  let siegeRow = '';
+  if(siege){
+    const eta = getSiegeEtaWeeks(siege);
+    const etaNote = eta ? ` &middot; ~${eta} week${eta===1?'':'s'} at this rate` : '';
+    siegeRow = `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#e07a5f;"><span>${getSiegePhase(siege.progress)} — under siege by ${siege.attackerKingdom}</span><b>${Math.round(Math.min(100,siege.progress))}%${etaNote}</b></div>`;
+    const attackingArmy = getArmies().find(a => a.status === 'sieging' && a.targetBurgId === burgId);
+    if(attackingArmy && attackingArmy.daysCutOff > 0){
+      const daysLeft = Math.max(0, SUPPLY_CUT_RETREAT_DAYS - attackingArmy.daysCutOff);
+      siegeRow += `<div style="display:flex; justify-content:space-between; margin-top:4px; color:#e0a860;"><span>Besiegers cut off from supply</span><b>${daysLeft} day${daysLeft===1?'':'s'} until they withdraw</b></div>`;
+    }
+  }
   const tribute = getTribute(controllerKingdom);
   const tributeRow = tribute
     ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:${tribute.role==='payer' ? '#e07a5f' : '#7fbf6a'};"><span>${tribute.role==='payer' ? 'Paying war reparations to' : 'Receiving reparations from'} ${tribute.counterpart}</span></div>`
@@ -10508,7 +10909,18 @@ function findAllyNeedingReinforcement(kingdom){
   if(getWarState(kingdom) !== 'peace') return null; // can't spare troops while fighting your own war
   const allies = ALL_KINGDOMS.filter(k => k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] === alliance && getWarState(k) === 'war');
   if(!allies.length) return null;
-  allies.sort((a,b) => getReinforcementBonus(a) - getReinforcementBonus(b));
+  // Favor whoever's actually in the most trouble right now — under an active siege, or with its
+  // own supply line already cut — over just "whoever has the least reinforcement so far," so
+  // Trusted help (and the player's own Petition for Troops, which calls this same function) lands
+  // where it actually matters most this week rather than just spreading evenly.
+  const isUnderSiege = k => Object.values(getSieges()).some(s => s.defenderKingdom === k);
+  const isSupplyStrained = k => getSupplyCutBurgs(k).size > 0;
+  allies.sort((a,b) => {
+    const aUrgency = (isUnderSiege(a) ? 2 : 0) + (isSupplyStrained(a) ? 1 : 0);
+    const bUrgency = (isUnderSiege(b) ? 2 : 0) + (isSupplyStrained(b) ? 1 : 0);
+    if(aUrgency !== bUrgency) return bUrgency - aUrgency; // more urgent first
+    return getReinforcementBonus(a) - getReinforcementBonus(b); // tie-break: least-helped first, original behavior
+  });
   return allies[0];
 }
 // Regenerated fresh each call, seeded by kingdom+gameDay like the Quest Board/Notable Figure
@@ -10579,10 +10991,17 @@ function generateNegotiatePeaceOffer(burgId){
 function buildNegotiatePeaceHTML(burgId){
   const offer = generateNegotiatePeaceOffer(burgId);
   if(!offer) return '';
+  // Pure narrative legibility — the discount isSupplyExhausted implies is already baked into
+  // offer.cost via getArmyStrength's own supply-cut-aware strength figure; this just tells the
+  // player *why* the asking price looks soft, instead of leaving it an invisible number.
+  const desperateNote = isSupplyExhausted(offer.enemy)
+    ? `<div style="font-size:12px; color:#7fbf6a; margin-top:-4px; margin-bottom:10px;">Their supply lines are cut — they'd welcome peace.</div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Negotiate Peace</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at war with ${offer.enemy}. Bribe envoys to broker a truce between them.</div>
+      ${desperateNote}
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; color:#e0a860; font-weight:700;">${offer.cost}g</span>
         <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="negotiate-peace-btn">Negotiate</button>
@@ -10971,6 +11390,82 @@ function acceptRaidVillage(burgId){
   showFlavorPanel(burgId, 'Raid the Village', RAID_LINES, buildRaidVillageHTML(burgId));
 }
 
+// Raid the Supply Line / Escort the Supply Line — the player's first direct lever on this file's
+// own supply-line system (see getSupplyCutBurgs/SUPPLY_INTERVENTION_KEY above), distinct from
+// Raid a Village: this doesn't touch a settlement's population at all, it disrupts (or shores up)
+// the specific waystation's own place in its kingdom's supply chain. Raid is only offered at a
+// real frontline settlement (getFrontlineEnemyKingdom — the same gate Espionage already uses);
+// Escort is only offered at a settlement that's *itself* currently cut off, same "shown only when
+// it actually applies" convention as Refugee Camp/Defend the Walls.
+const SUPPLY_RAID_GOLD_RANGE = [10,25];
+const SUPPLY_ESCORT_GOLD_COST = 20;
+const SUPPLY_RAID_LOYALTY_PENALTY = 8; // smaller than Raid a Village's — sabotage, not looting a town's people
+const SUPPLY_RAID_LINES = [
+  "You slip into the depot and put a torch to the grain sacks before anyone notices.",
+  "A quiet word and a few coins buys you ten minutes alone with the supply wagons.",
+  "You slash the harnesses and scatter the draft horses into the dark.",
+  "The waystation's ledgers go up in smoke along with half its stores.",
+];
+const SUPPLY_ESCORT_LINES = [
+  "You hire on with a handful of teamsters willing to risk the cut road for coin.",
+  "Wagon wheels creak past the usual checkpoint, guided along a route only the locals know.",
+  "A few bribed guards look the other way as the supply train rolls through.",
+  "You ride alongside the wagons yourself, just in case the road lives up to its reputation.",
+];
+function buildSupplyRaidHTML(burgId){
+  const b = graph.burgs[burgId];
+  const done = hasIntervenedInSupplyToday(burgId);
+  const already = isSupplyRaided(burgId);
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Raid the Supply Line</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${done ? "You've already struck the depot here today — come back tomorrow." : already ? `${b.name}'s own supply depot is already disrupted — sabotaging it again keeps the road cut a while longer.` : `Sabotage the wagons and waystation here, severing anything beyond it that routes through this exact spot.`}</div>
+      ${done ? '' : `<button class="btn btn-primary" style="padding:8px 16px;" id="raid-supply-line-btn">Sabotage</button>`}
+    </div>
+  `;
+}
+function acceptRaidSupplyLine(burgId){
+  if(hasIntervenedInSupplyToday(burgId)){ showLocationView(burgId); return; }
+  const b = graph.burgs[burgId];
+  const gold = randRange(SUPPLY_RAID_GOLD_RANGE);
+  setGold(playerGold + gold);
+  setSupplyIntervention(burgId, 'raided', SUPPLY_RAID_DURATION_DAYS);
+  recordSupplyIntervention(burgId);
+  buildSupplyMarkers();
+  buildSupplyRouteLines();
+  const loyaltyNote = adjustPartyLoyalty(-SUPPLY_RAID_LOYALTY_PENALTY);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_LOSS_MAJOR);
+  recordWorldEvent(`Word has it the supply road through ${b.name} has been sabotaged — whatever lies beyond it is feeling the pinch.`);
+  showToast(`You sabotage the supply depot at ${b.name} for ${gold}g.` + loyaltyNote + repNote);
+  showLocationView(burgId);
+}
+function buildSupplyEscortHTML(burgId){
+  const b = graph.burgs[burgId];
+  const done = hasIntervenedInSupplyToday(burgId);
+  const afford = playerGold >= SUPPLY_ESCORT_GOLD_COST;
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Escort the Supply Line</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${done ? "You've already arranged an escort here today — come back tomorrow." : `${b.name}'s own supply line is cut. Pay for volunteers to run wagons through anyway, keeping the garrison fed for a while despite it.`}</div>
+      ${done ? '' : `<button class="btn btn-primary" style="padding:8px 16px;" id="escort-supply-line-btn" ${afford ? '' : 'disabled'}>-${SUPPLY_ESCORT_GOLD_COST}g</button>`}
+    </div>
+  `;
+}
+function acceptEscortSupplyLine(burgId){
+  if(hasIntervenedInSupplyToday(burgId) || playerGold < SUPPLY_ESCORT_GOLD_COST){ showLocationView(burgId); return; }
+  const b = graph.burgs[burgId];
+  setGold(playerGold - SUPPLY_ESCORT_GOLD_COST);
+  setSupplyIntervention(burgId, 'escorted', SUPPLY_ESCORT_DURATION_DAYS);
+  recordSupplyIntervention(burgId);
+  buildSupplyMarkers();
+  buildSupplyRouteLines();
+  const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
+  const repNote = adjustReputation(getControllerKingdom(burgId), REP_GAIN_MINOR);
+  recordWorldEvent(`Word has it volunteers are running supply wagons through to ${b.name} despite the cut road, keeping its garrison fed.`);
+  showToast(`You arrange an escort for ${b.name}'s supply wagons.` + loyaltyNote + repNote);
+  showLocationView(burgId);
+}
+
 // Defend the Walls — fighting in an active siege's defense (see goblinwar_sieges/advanceSiege).
 // Once per settlement per day (same cooldown pattern as Work, see hasWorkedToday), so it can't
 // be spammed to trivialize every siege — per the project's own "player can grow strong but never
@@ -11010,8 +11505,11 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   // only that second, ambush-flavored line with siege-appropriate wording instead of
   // discarding the story beat above it.
   const log = document.getElementById('combat-log');
+  const attackingArmy = getArmies().find(a => a.status === 'sieging' && a.kingdom === siege.attackerKingdom && a.defenderKingdom === siege.defenderKingdom && a.targetBurgId === burgId);
+  const equipmentLine = attackingArmy && attackingArmy.equipment === 'rams' ? ' Rams batter at the gates.'
+    : attackingArmy && attackingArmy.equipment === 'catapults' ? ' Catapults hurl stone over the walls.' : '';
   log.innerHTML = log.querySelector('.combat-intro-line').outerHTML
-    + `<div>${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!</div>`;
+    + `<div>${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!${equipmentLine}</div>`;
 }
 // Combat's onEnd hook, per-siege: victory knocks a meaningful chunk off progress (not an
 // instant win) plus a reward; defeat/flee simply leaves the siege to advance normally on the
@@ -11023,6 +11521,11 @@ function resolveSiegeDefense(burgId, result){
   recordSiegeDefended(burgId);
   if(result === 'victory'){
     siege.progress = Math.max(0, siege.progress - SIEGE_DEFENSE_PROGRESS_RELIEF);
+    // Counts the same way a natural success-chance-floor tick does (see SIEGE_STALL_RETREAT_TICKS)
+    // — the player personally beating back this attacker reads, mechanically, as one more sign
+    // this siege isn't going anywhere, so repeatedly defending the same city quietly reroutes the
+    // AI's *next* muster elsewhere without ever changing who ultimately wins the underlying war.
+    siege.stalledTicks = (siege.stalledTicks||0) + 1;
     setSieges(sieges);
     const gold = randRange(SIEGE_DEFENSE_GOLD_RANGE);
     const xp = randRange(SIEGE_DEFENSE_XP_RANGE);
@@ -11897,6 +12400,7 @@ Promise.all([
   buildCityIcons();
   buildFrontlineMarkers();
   buildSupplyMarkers();
+  buildSupplyRouteLines();
   buildArmyMarkers();
   buildBattleMarkers();
   buildLandmarkMarkers();
@@ -12014,6 +12518,8 @@ function collectCharacterSnapshot(){
     sieges: localStorage.getItem(SIEGE_KEY) || "{}",
     refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
+    supplyInterventions: localStorage.getItem(SUPPLY_INTERVENTION_KEY) || "{}",
+    supplyInterventionCooldowns: localStorage.getItem(SUPPLY_INTERVENTION_COOLDOWN_KEY) || "{}",
     recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
     warHistory: localStorage.getItem(WAR_HISTORY_KEY) || "{}",

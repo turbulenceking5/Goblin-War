@@ -811,7 +811,7 @@ function freshCharacterData(name, burgId, difficulty, mapSeed, isNewCharacter){
     quests: "[]", completedQuests: "[]", questsCompletedTotal: 0,
     visitedBurgs: "[]", defeatedVariants: "{}", party: "[]", mercenaries: "[]", companionLoyalty: "{}", reputation: "{}",
     territoryControl: "{}", relations: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
-    sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", recentEvents: "[]",
+    sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", supplyInterventions: "{}", supplyInterventionCooldowns: "{}", recentEvents: "[]",
     warStarts: "{}", warHistory: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
     fieldBattles: "[]", fieldBattleCooldowns: "{}",
     companionQuestsCompleted: "[]", companionHomeStatus: "{}", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", tooltipTourSeen: isNewCharacter ? "false" : "true", achievementsUnlocked: "{}", boardMonthSeen: "", landmarksClaimed: "[]", allyEquipped: "{}",
@@ -876,6 +876,8 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_sieges", merged.sieges);
   localStorage.setItem("goblinwar_refugeeArrivals", merged.refugeeArrivals);
   localStorage.setItem("goblinwar_siegeDefenseCooldowns", merged.siegeDefenseCooldowns);
+  localStorage.setItem("goblinwar_supplyInterventions", merged.supplyInterventions);
+  localStorage.setItem("goblinwar_supplyInterventionCooldowns", merged.supplyInterventionCooldowns);
   localStorage.setItem("goblinwar_recentEvents", merged.recentEvents);
   localStorage.setItem("goblinwar_warStarts", merged.warStarts);
   localStorage.setItem("goblinwar_warHistory", merged.warHistory);

@@ -791,6 +791,8 @@ const POPULATION_KEY = "goblinwar_population";
 const SIEGE_KEY = "goblinwar_sieges";
 const REFUGEE_ARRIVAL_KEY = "goblinwar_refugeeArrivals";
 const SIEGE_DEFENSE_COOLDOWN_KEY = "goblinwar_siegeDefenseCooldowns";
+const SUPPLY_INTERVENTION_KEY = "goblinwar_supplyInterventions";
+const SUPPLY_INTERVENTION_COOLDOWN_KEY = "goblinwar_supplyInterventionCooldowns";
 const RECENT_EVENTS_KEY = "goblinwar_recentEvents"; // JSON array of {text} — real siege/attack outcomes, see index.html's recordWorldEvent
 const WARSTART_KEY = "goblinwar_warStarts"; // {"KingdomA::KingdomB": gameDay} — feeds index.html's war exhaustion
 const WAR_HISTORY_KEY = "goblinwar_warHistory"; // {"KingdomA::KingdomB": count} — see index.html's war-history ledger
@@ -973,6 +975,8 @@ function collectCharacterSnapshot(){
     sieges: localStorage.getItem(SIEGE_KEY) || "{}",
     refugeeArrivals: localStorage.getItem(REFUGEE_ARRIVAL_KEY) || "{}",
     siegeDefenseCooldowns: localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY) || "{}",
+    supplyInterventions: localStorage.getItem(SUPPLY_INTERVENTION_KEY) || "{}",
+    supplyInterventionCooldowns: localStorage.getItem(SUPPLY_INTERVENTION_COOLDOWN_KEY) || "{}",
     recentEvents: localStorage.getItem(RECENT_EVENTS_KEY) || "[]",
     warStarts: localStorage.getItem(WARSTART_KEY) || "{}",
     warHistory: localStorage.getItem(WAR_HISTORY_KEY) || "{}",

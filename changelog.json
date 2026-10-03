@@ -1234,5 +1234,12 @@
       "Guard House now shows a siege's phase (Investment/Breach/Sack), a rough ETA, and a countdown if the besieging army itself is running out of supply.",
       "Kingdoms are a little smarter about diplomacy and reinforcement too: Trusted/Petitioned troops now go to whoever's actually under siege or cut off first, a kingdom losing the supply war sues for peace sooner, and Negotiate Peace tells you when an enemy's supply lines are cut and they'd welcome peace."
     ]
+  },
+  {
+    "id": 165,
+    "date": "2026-10-03",
+    "changes": [
+      "A kingdom that's Hostile toward you now actually turns you away at the Guard House — no more buying intel, hiring a caravan escort, or hiring a mercenary there until you've mended things, though you can still see exactly where you stand with them on the stats card."
+    ]
   }
 ]

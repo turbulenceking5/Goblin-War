@@ -1224,5 +1224,15 @@
       "Fixed the What's New popup occasionally showing on top of (or interleaved with) the first-run tutorial on a brand-new character — it now always waits for the tutorial and its tour to finish first.",
       "City/Town/Village/Capital icons on the map no longer cover their own name labels, and both the icons and the name text are bigger and easier to read."
     ]
+  },
+  {
+    "id": 164,
+    "date": "2026-10-03",
+    "changes": [
+      "Sieges got a lot smarter and more strategic: attacking kingdoms now target real chokepoints in your supply network instead of a random border town, a siege that's clearly stalled (including one you've personally beaten back) eventually withdraws instead of grinding forever, capitals and cities hold out longer than villages, a siege can field rams/catapults for a real tactical edge, a garrison that badly outclasses its besiegers can sortie out and bleed them, terrain now affects how fast a siege goes, and a besieged kingdom can send a relief army of its own to try to break the siege.",
+      "You can now fight over supply lines directly: Raid the Supply Line at any frontier settlement to sabotage its depot, or Escort the Supply Line to pay for volunteers to keep a cut-off garrison fed. Cut supply routes also now draw as a faint broken line on the map back to the kingdom's capital.",
+      "Guard House now shows a siege's phase (Investment/Breach/Sack), a rough ETA, and a countdown if the besieging army itself is running out of supply.",
+      "Kingdoms are a little smarter about diplomacy and reinforcement too: Trusted/Petitioned troops now go to whoever's actually under siege or cut off first, a kingdom losing the supply war sues for peace sooner, and Negotiate Peace tells you when an enemy's supply lines are cut and they'd welcome peace."
+    ]
   }
 ]

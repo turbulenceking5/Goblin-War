@@ -994,6 +994,22 @@ const RF_MIN_EDGE_CLUSTER = 480;
 const RF_DWARF_MAX_RANGES = 3;
 const RF_DWARF_RANGE_SEPARATION = Math.round(32 * RF_GRID_SCALE);
 
+// Suitability-scored settlement placement — see context/data-files.md's "Known simplifications"
+// for the history (placement used to be pure random-point acceptance with no scoring at all).
+// RF_CANDIDATE_POOL_MULT oversamples valid candidate sites before scoring/sorting/accepting them
+// best-first; the attempt cap is sized for a ~2% raw hit rate (land + sub-mountain-elevation) with
+// real headroom, since this only ever runs once per character at creation.
+const RF_CANDIDATE_POOL_MULT = 10;
+const LAND_SHORE_PORT_RADIUS = 2;   // a site this close to water is a real port
+const LAND_SHORE_NEAR_RADIUS = 6;   // a site this close gets a smaller "near the coast" bonus
+const LAND_SHORE_BFS_RADIUS = 8;    // nothing below needs landShoreDist past this
+const RF_COASTAL_BONUS = 40;
+const RF_NEAR_COAST_BONUS = 15;
+// Matches RF_BIOME_TO_GAME's own output categories — plains/forest are the easiest ground to
+// settle, swamp/desert/snow are the hardest; mountains is here for completeness even though a
+// regular (non-dwarf) settlement's own elevation cap means it can never actually land there.
+const RF_BIOME_SUITABILITY = { plains:25, forest:15, hills:5, swamp:-20, desert:-15, snow:-20, mountains:-30 };
+
 const RF_NAME_PRE = ["Bal","Kar","Thal","Or","Vin","Sil","Mor","Bre","Gal","Hex","Dun","Fen","Wyn","Sor","Vael","Rax","Nor","Ith","Cael","Bryn"];
 const RF_NAME_MID = ["a","o","i","e","","ae","or","an"];
 const RF_NAME_SUF = ["dor","mere","gard","heim","wick","shire","hold","reach","fall","moor","stead","crag"];
@@ -1141,6 +1157,38 @@ function generateWorld(seed){
     }
   }
 
+  // Distance from a LAND cell to the nearest water cell — the mirror image of shoreDist above
+  // (which measures a WATER cell's distance to the nearest land, for shallow-water rendering —
+  // every land cell's own shoreDist is always 0 by construction, since land cells are exactly
+  // what seed that BFS). Needed for two things: a real coastal-suitability signal for settlement
+  // placement scoring below, and fixing the burg `port` flag built further down, which read
+  // shoreDist at a burg's own (always-land) cell and so was unintentionally true for every single
+  // settlement in the game — a latent bug this pass also closes.
+  const landShoreDist = new Float32Array(VW * VH).fill(Infinity);
+  {
+    const queue = [];
+    for(let gy = 0; gy < VH; gy++){
+      for(let gx = 0; gx < VW; gx++){
+        if(!isLand(gx, gy)){ const idx = gy*VW+gx; landShoreDist[idx] = 0; queue.push(idx); }
+      }
+    }
+    let head = 0;
+    while(head < queue.length){
+      const idx = queue[head++];
+      const d = landShoreDist[idx];
+      if(d >= LAND_SHORE_BFS_RADIUS) continue;
+      const cx2 = idx % VW, cy2 = (idx / VW) | 0;
+      [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+        const nx = cx2+dx, ny = cy2+dy;
+        if(nx < 0 || nx >= VW || ny < 0 || ny >= VH) return;
+        const nIdx = ny*VW+nx;
+        if(landShoreDist[nIdx] <= d+1) return;
+        landShoreDist[nIdx] = d+1;
+        queue.push(nIdx);
+      });
+    }
+  }
+
   const isMountainCore = (gx, gy) => gx>=0 && gx<VW && gy>=0 && gy<VH && elevation[gy*VW+gx] >= RF_MOUNTAIN_CORE;
   function isMountainEdge(gx, gy){
     const e = elevation[gy*VW+gx];
@@ -1197,7 +1245,10 @@ function generateWorld(seed){
     const placed = [];
     for(const [gx,gy] of shuffled){
       if(placed.length >= targetCount) break;
-      if(placed.some(p => Math.hypot(p.x-gx,p.y-gy) < 5*RF_GRID_SCALE)) continue;
+      // 6x, not the original 5x — tightened after an audit found the old value left only a ~4%
+      // margin against a dwarf capital's icon overlapping a same-range city's icon on the map
+      // (see context/travel-and-map.md's icon-size table); 6x clears every tier pairing with room.
+      if(placed.some(p => Math.hypot(p.x-gx,p.y-gy) < 6*RF_GRID_SCALE)) continue;
       placed.push({ x: gx, y: gy });
     }
     if(!placed.length) return;
@@ -1207,28 +1258,80 @@ function generateWorld(seed){
   });
   const dwarfCapitals = dwarfSettlements.filter(s => s.isCapital);
 
-  const settlements = [];
-  let attempts = 0;
-  while(settlements.length < RF_SETTLEMENT_TARGET && attempts < 8000){
-    attempts++;
+  // Suitability-scored placement, replacing a pure "first valid random point wins" accept loop.
+  // Oversample a pool of valid candidate sites (still gated by the same land/sub-mountain checks
+  // as before), score each by real terrain desirability — coastal access plus biome — then accept
+  // the BEST-scored candidates first (sorted descending) rather than in arrival order, subject to
+  // the same minimum-spacing rule as before. Tier (city/town/village) is then assigned by
+  // ACCEPTANCE RANK among these candidates rather than an independent reroll per settlement
+  // (rfPickTier below is kept only for dwarf settlements, whose placement is already driven by
+  // real mountain geology rather than this score) — so a settlement's tier now actually reflects
+  // how good its own ground is, using the same ~15%/67%/18% proportions the random roll used to
+  // approximate. Spacing itself stays flat across tiers — a tier-aware version was tried and
+  // measured to cost real settlement density for no actual overlap-prevention benefit (see the
+  // comment on the spacing check itself, below), so it was dropped rather than kept "for realism."
+  const candidatePool = [];
+  const candidateTarget = RF_SETTLEMENT_TARGET * RF_CANDIDATE_POOL_MULT;
+  let poolAttempts = 0;
+  while(candidatePool.length < candidateTarget && poolAttempts < candidateTarget * 50){
+    poolAttempts++;
     const gx = 2 + rng() * (RF_COLS - 4);
     const gy = 2 + rng() * (RF_ROWS - 4);
     const vx = Math.round(gx), vy = Math.round(gy);
     if(!isLand(vx, vy)) continue;
-    if(elevation[vy*VW+vx] >= RF_MOUNTAIN_EDGE_LO) continue;
-    if(settlements.some(s => Math.hypot(s.x-gx, s.y-gy) < 9*RF_GRID_SCALE)) continue;
-    if(dwarfSettlements.some(s => Math.hypot(s.x-gx, s.y-gy) < 9*RF_GRID_SCALE)) continue;
-    settlements.push({ x: gx, y: gy });
+    const e = elevation[vy*VW+vx];
+    if(e >= RF_MOUNTAIN_EDGE_LO) continue;
+    const gi = vy*VW+vx;
+    let score = rng() * 10; // small jitter — otherwise equally-plain sites would tie-sort identically every time
+    const sd = landShoreDist[gi];
+    if(sd <= LAND_SHORE_PORT_RADIUS) score += RF_COASTAL_BONUS;
+    else if(sd <= LAND_SHORE_NEAR_RADIUS) score += RF_NEAR_COAST_BONUS;
+    const biomeKey = RF_BIOME_TO_GAME[rfTerrainColor(e, moisture[gi])] || 'plains';
+    score += RF_BIOME_SUITABILITY[biomeKey] || 0;
+    candidatePool.push({ x: gx, y: gy, score });
   }
+  candidatePool.sort((a,b) => b.score - a.score);
+
+  const settlements = [];
+  for(const cand of candidatePool){
+    if(settlements.length >= RF_SETTLEMENT_TARGET) break;
+    // Flat spacing, not tier-scaled — measured directly (see the overlap math in
+    // context/travel-and-map.md): this 9x floor already clears every tier pairing's real icon
+    // half-width sum with margin to spare, so a tier-aware multiplier would only have cost real
+    // settlement density (confirmed empirically — it dropped a typical world from ~57-62
+    // settlements to ~45-47) for zero actual overlap-prevention benefit. Not worth it against the
+    // generator's own already-documented density ceiling (see data-files.md).
+    if(settlements.some(s => Math.hypot(s.x-cand.x, s.y-cand.y) < 9*RF_GRID_SCALE)) continue;
+    if(dwarfSettlements.some(s => Math.hypot(s.x-cand.x, s.y-cand.y) < 9*RF_GRID_SCALE)) continue;
+    settlements.push({ x: cand.x, y: cand.y, score: cand.score });
+  }
+  // Tier by rank, assigned in a separate pass now that settlements.length is final — the map's own
+  // spacing/attempt limits mean the realized count almost never reaches RF_SETTLEMENT_TARGET (160;
+  // typically ~55-65), so computing each rank's fraction against that nominal target instead of the
+  // real count would put nearly every settlement in the city/town bracket and leave village nearly
+  // empty — caught by testing actual generated worlds, not just reading the formula.
+  settlements.forEach((s, i) => {
+    const frac = i / settlements.length;
+    s.tier = frac < 0.15 ? 'city' : frac < 0.82 ? 'town' : 'village';
+  });
 
   const totalTarget = Math.max(4, Math.min(18, Math.round((settlements.length + dwarfSettlements.length) / 3)));
   const otherKingdomCount = Math.max(2, Math.min(settlements.length, totalTarget - dwarfCapitals.length));
+  // Capitals: still farthest-point spread (unchanged — a kingdom's seat needs even geographic
+  // coverage across the map, not just the single best site, so the spread mechanism itself stays)
+  // but drawn only from this world's better-scored sites rather than any accepted settlement
+  // regardless of quality — a small, additive bias toward decent capital ground. Falls back toward
+  // the full list if filtering would leave fewer candidates than capitals actually needed (slice
+  // naturally caps at the array's own length, and otherKingdomCount never exceeds settlements.length,
+  // so this can't starve the farthest-point search below).
+  const scoredDesc = settlements.slice().sort((a,b) => (b.score||0) - (a.score||0));
+  const capitalCandidates = scoredDesc.slice(0, Math.max(otherKingdomCount, Math.ceil(scoredDesc.length * 0.6)));
   const otherCapitals = [];
-  if(settlements.length){
-    otherCapitals.push(settlements[Math.floor(rng()*settlements.length)]);
+  if(capitalCandidates.length){
+    otherCapitals.push(capitalCandidates[Math.floor(rng()*capitalCandidates.length)]);
     while(otherCapitals.length < otherKingdomCount){
       let best = null, bestD = -1;
-      for(const s of settlements){
+      for(const s of capitalCandidates){
         let d = Infinity;
         for(const c of otherCapitals) d = Math.min(d, Math.hypot(s.x-c.x, s.y-c.y));
         if(d > bestD){ bestD = d; best = s; }
@@ -1442,12 +1545,15 @@ function generateWorld(seed){
     if(idx === 0) startBurgId = id;
     const x = s.x * RF_LOGICAL_SCALE_X, y = s.y * RF_LOGICAL_SCALE_Y;
     const cell = cellIdFor(s.x, s.y);
-    const tier = s.isCapital ? 'capital' : rfPickTier(rfMulberry32((seed ^ (idx*2654435761)) >>> 0)());
+    // s.tier is set at placement time now for regular settlements (score-ranked, see above);
+    // dwarf settlements carry no such field (their placement is geology-driven, not scored), so
+    // they keep the original independent random roll.
+    const tier = s.isCapital ? 'capital' : (s.tier || rfPickTier(rfMulberry32((seed ^ (idx*2654435761)) >>> 0)()));
     const popRng = rfMulberry32((seed ^ (idx*40503 + 7)) >>> 0)();
     const gx = Math.round(s.x), gy = Math.round(s.y);
     const gi = Math.min(VH-1, Math.max(0, gy)) * VW + Math.min(VW-1, Math.max(0, gx));
     const biome = RF_BIOME_TO_GAME[rfTerrainColor(elevation[gi], moisture[gi])] || 'plains';
-    const port = shoreDist[gi] <= 2;
+    const port = landShoreDist[gi] <= LAND_SHORE_PORT_RADIUS;
     burgs[id] = {
       id, name: s.name, tier, x, y, cell,
       stateId: s.kingdom, state: names[s.kingdom],

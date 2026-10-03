@@ -139,6 +139,15 @@ across many fresh seeds (zero false positives at Day 1, before any war) and by f
 opposite-alliance kingdom pair to war (real geographic chokepoints still correctly show up as cut off
 where they exist).
 
+Note for anyone revisiting this: a later pass made settlement placement itself coastal/biome-aware
+and biased capital selection toward better sites (see [data-files.md](data-files.md)'s
+settlement-placement writeup) — kingdom assignment (straight-line distance to nearest capital) is
+still exactly what it was when the bug above was found, untouched by that pass on purpose, since
+changing it would ripple into war balance/kingdom shape in ways nobody asked for. Better-sited
+settlements probably make pathologically boxed-in geography somewhat less common in practice, but
+that's an incidental side effect, not a fix — the real safeguard is still the war-only BFS above,
+which holds regardless of how good or bad any given world's geography turns out to be.
+
 No new resource, currency, or treasury was introduced for this — kingdoms carry none anywhere in this
 codebase, and supply lines plug directly into the three formulas that already decide sieges/attrition
 instead of inventing one:

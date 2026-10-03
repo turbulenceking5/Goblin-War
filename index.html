@@ -6043,11 +6043,27 @@ function endCombat(result){
         const quests = getQuests();
         const remaining = [];
         const rewarded = [];
+        // Destroy a Goblin Nest — unlike every other kill quest here, it doesn't pay out on the
+        // first matching victory; it needs killsRequired goblins total, so a match just advances
+        // killsProgress (by every goblin that died in this one fight, not just one) and stays
+        // active until the count's met. progressNotes holds a line per quest that advanced but
+        // didn't finish, folded into the same combined victory toast below.
+        const progressNotes = [];
+        let progressChanged = false;
         quests.forEach(q => {
-          if(q.status==='active' && questMatchesRace(q)) rewarded.push(q);
+          if(q.status==='active' && q.type==='destroy_goblin_nest' && enemyRace==='goblin'){
+            q.killsProgress = (q.killsProgress || 0) + enemies.length;
+            progressChanged = true;
+            if(q.killsProgress >= q.killsRequired) rewarded.push(q);
+            else {
+              remaining.push(q);
+              progressNotes.push(`${q.killsProgress} of ${q.killsRequired} goblins slain for ${q.giverName}'s nest.`);
+            }
+          }
+          else if(q.status==='active' && questMatchesRace(q)) rewarded.push(q);
           else remaining.push(q);
         });
-        if(rewarded.length){
+        if(rewarded.length || progressChanged){
           saveQuests(remaining);
           rewarded.forEach(questReward => {
             setGold(playerGold + questReward.reward.gold);
@@ -6060,9 +6076,11 @@ function endCombat(result){
             } else {
               const repNote = adjustReputation(getControllerKingdom(questReward.giverBurgId), REP_GAIN_MEDIUM);
               if(questReward.figureId) recordNotableFigureProgress(questReward.figureId);
-              msg += ` ${questReward.giverName}'s task is complete — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
+              const verb = questReward.type === 'destroy_goblin_nest' ? 'nest is destroyed' : 'task is complete';
+              msg += ` ${questReward.giverName}'s ${verb} — +${questReward.reward.gold}g, +${questReward.reward.xp} XP.${repNote}`;
             }
           });
+          progressNotes.forEach(note => { msg += ` ${note}`; });
           refreshQuestBadge();
         }
       }
@@ -8859,6 +8877,7 @@ function hashSeed(str){
 function questTitle(q){
   if(q.type === 'deliver_message') return 'Deliver a Message';
   if(q.type === 'deliver_cargo') return 'Deliver Cargo';
+  if(q.type === 'destroy_goblin_nest') return 'Destroy a Goblin Nest';
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
@@ -8872,6 +8891,11 @@ function questDistanceNote(q){
 function questDesc(q){
   if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
+  // Destroy a Goblin Nest — a counted kill quest, unlike every other kill type which pays out on
+  // the very next matching victory (see endCombat's questMatchesRace below). killsProgress is only
+  // ever set once accepted; a fresh Board offer object has no such field yet, so ||0 reads as "0
+  // of N" there too, the same description shown before and after accepting.
+  if(q.type === 'destroy_goblin_nest') return `${q.giverName} wants a goblin nest thinned out before it grows bold — ${Math.min(q.killsProgress||0, q.killsRequired)} of ${q.killsRequired} goblins slain.`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
   if(q.type === 'kill_raiders') return q.targetKingdom
     ? `${q.giverName} asked you to drive off ${q.targetKingdom}'s raiders threatening the region.`
@@ -8909,6 +8933,10 @@ function getBoardQuestCount(burgId){
 // are drawn only from settlements not currently hostile to the giver (see isEnemyTerritory) —
 // per the project owner, delivering into enemy territory doesn't make sense — and reward scales
 // up with real travel distance from the giver, not just a flat random roll.
+// Destroy a Goblin Nest's own kills-required range — 3-5, enough to need more than one fight,
+// unlike every other kill quest which pays out on a single matching victory (see endCombat).
+const GOBLIN_NEST_KILLS_MIN = 3;
+const GOBLIN_NEST_KILLS_RANGE = 3; // 3, 4, or 5
 function generateBoardOffers(burgId){
   const active = getActiveQuests();
   const month = getBoardMonthIndex();
@@ -8916,7 +8944,24 @@ function generateBoardOffers(burgId){
   const candidateIds = Object.keys(graph.burgs).filter(id => id !== burgId && !isEnemyTerritory(burgId, id));
   const offers = [];
   for(let i=0;i<count;i++){
-    if(!candidateIds.length) break; // no non-hostile target exists at all — extremely rare
+    // Destroy a Goblin Nest — a third, non-delivery Board option, rolled independently before
+    // the delivery coin flip below so that existing deliver_message/deliver_cargo split (and its
+    // own seed) is untouched either way. No targetBurgId at all — like kill_bandits/kill_raiders,
+    // it pays out on a matching combat victory anywhere, just several of them instead of one.
+    const isNest = seededRandom(hashSeed(`board_${burgId}_${month}_${i}_nest`)) < 1/3;
+    if(isNest){
+      const killsRequired = GOBLIN_NEST_KILLS_MIN + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_kills`)) * GOBLIN_NEST_KILLS_RANGE);
+      const gold = 20 + killsRequired*10 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_g`)) * 11);
+      const xp = 12 + killsRequired*6 + Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_x`)) * 7);
+      const alreadyActive = active.some(q => q.type === 'destroy_goblin_nest' && q.giverBurgId === burgId);
+      if(!alreadyActive){
+        offers.push({ offerId:`board_${burgId}_${month}_${i}`, type:'destroy_goblin_nest', source:'board',
+          giverBurgId:burgId, giverName:graph.burgs[burgId].name, targetBurgId:null, targetName:null,
+          killsRequired, reward:{gold, xp} });
+      }
+      continue;
+    }
+    if(!candidateIds.length) continue; // no non-hostile target exists at all — extremely rare
     const targetId = candidateIds[Math.floor(seededRandom(hashSeed(`board_${burgId}_${month}_${i}_t`)) * candidateIds.length)];
     const target = graph.burgs[targetId];
     const dist = computeDistanceBetween(burgId, targetId) || { miles:0, hours:1 };
@@ -9178,7 +9223,7 @@ function showQuestBoardPanel(burgId){
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <span style="font-size:12px; color:#7fbf6a; font-weight:700;">${o.reward.gold}g &middot; ${o.reward.xp} XP</span>
         <div style="display:flex; gap:8px;">
-          <button class="btn btn-secondary" style="flex:none; padding:8px 14px;" data-view="${o.targetBurgId}">View Location</button>
+          ${o.targetBurgId ? `<button class="btn btn-secondary" style="flex:none; padding:8px 14px;" data-view="${o.targetBurgId}">View Location</button>` : ''}
           <button class="btn btn-primary" style="flex:none; padding:8px 16px;" data-offer="${o.offerId}">Accept</button>
         </div>
       </div>
@@ -9214,11 +9259,14 @@ function showQuestBoardPanel(burgId){
         // refusal/abandonment" in context/quests.md.
         giverKingdom: getControllerKingdom(offer.giverBurgId),
         distanceMiles:offer.distanceMiles, distanceHours:offer.distanceHours,
+        // Destroy a Goblin Nest only — undefined on offer.killsRequired for every other type, so
+        // killsProgress stays undefined there too rather than adding a meaningless field.
+        killsRequired: offer.killsRequired, killsProgress: offer.type === 'destroy_goblin_nest' ? 0 : undefined,
         reward:offer.reward, acceptedDay:gameDay, status:'active' });
       saveQuests(quests);
       buildQuestMarkers();
       refreshQuestBadge();
-      showToast(`Accepted: ${questTitle(offer)} to ${offer.targetName}.`);
+      showToast(offer.targetName ? `Accepted: ${questTitle(offer)} to ${offer.targetName}.` : `Accepted: ${questTitle(offer)}.`);
       showQuestBoardPanel(burgId);
     });
   });

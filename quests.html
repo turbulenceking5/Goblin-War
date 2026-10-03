@@ -196,6 +196,7 @@ const COMPANION_QUESTS = {
 function questTitle(q){
   if(q.type === 'deliver_message') return 'Deliver a Message';
   if(q.type === 'deliver_cargo') return 'Deliver Cargo';
+  if(q.type === 'destroy_goblin_nest') return 'Destroy a Goblin Nest';
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
@@ -208,6 +209,7 @@ function questDistanceNote(q){
 function questDesc(q){
   if(q.type === 'deliver_message') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'deliver_cargo') return `Carry a shipment from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
+  if(q.type === 'destroy_goblin_nest') return `${q.giverName} wants a goblin nest thinned out before it grows bold — ${Math.min(q.killsProgress||0, q.killsRequired)} of ${q.killsRequired} goblins slain.`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.${questRivalNote(q)}`;
   if(q.type === 'kill_raiders') return (q.targetKingdom
     ? `${q.giverName} asked you to drive off ${q.targetKingdom}'s raiders threatening the region.`

@@ -1241,5 +1241,12 @@
     "changes": [
       "A kingdom that's Hostile toward you now actually turns you away at the Guard House — no more buying intel, hiring a caravan escort, or hiring a mercenary there until you've mended things, though you can still see exactly where you stand with them on the stats card."
     ]
+  },
+  {
+    "id": 166,
+    "date": "2026-10-03",
+    "changes": [
+      "The Quest Board can now post a Destroy a Goblin Nest bounty — clear out a set number of goblins (wherever you find them) to collect a reward that scales with how many it takes."
+    ]
   }
 ]

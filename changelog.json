@@ -1313,7 +1313,10 @@
     "id": 175,
     "date": "2026-10-04",
     "changes": [
-      "Defending the Walls against a Human or Dwarf kingdom's siege no longer shows you fighting Ork Raiders — you now face unbranded renegade troops instead, until real Human/Dwarf soldier art is ready."
+      "Negotiate Peace and Incite War now require a court that actually trusts you — a kingdom you're Unfriendly or worse with won't let you broker its peace, and Incite War needs at least Friendly standing. Both cards also now mention it when a pair of kingdoms has a real history of fighting each other.",
+      "A kingdom under active siege can now get rescued by its own peacetime allies even if you've never built up Trusted reputation anywhere — the world looks after its own sometimes, not just when you've earned it.",
+      "Defending the Walls against a Human or Dwarf kingdom's siege no longer shows you fighting Ork Raiders — you now face unbranded renegade troops instead, until real Human/Dwarf soldier art is ready.",
+      "Refugees fleeing a war-torn settlement now actually travel real roads to find safety, and lean away from havens that are already bursting at the seams, instead of always piling onto whichever peaceful settlement happens to be nearest as the crow flies."
     ]
   }
 ]

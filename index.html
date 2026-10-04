@@ -253,6 +253,54 @@
     min-width:74px; text-align:center; line-height:1.25;
   }
 
+  /* Map legend — a small, dismissible reference panel for what the map's markers mean. The
+     toggle button matches #recenter-btn's own circular size/style convention, mirrored onto the
+     left edge and stacked above #wait-controls the same way #camp-here-btn stacks above
+     #recenter-btn on the right (76px clears #wait-controls' own ~50px height with room to spare). */
+  #legend-btn{
+    position:fixed; left:12px; bottom:calc(76px + env(safe-area-inset-bottom)); z-index:26;
+    width:52px; height:52px; border-radius:50%;
+    background:rgba(13,18,32,.88);
+    border:2px solid var(--gold-lt); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:9px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+  }
+  #legend-btn:active{ transform:scale(.94); }
+  /* A transparent tap-to-dismiss layer rather than a darkened backdrop — this is a reference
+     aid meant to sit lightly over the map, not a modal that needs to demand attention. Sits just
+     below the panel itself but still well under #toast's 80 (see root CLAUDE.md's z-index-
+     layering convention) and above the ordinary map chrome (26). */
+  #legend-backdrop{ position:fixed; inset:0; z-index:39; display:none; }
+  #legend-backdrop.show{ display:block; }
+  #legend-panel{
+    position:fixed; left:12px; bottom:calc(136px + env(safe-area-inset-bottom)); z-index:40;
+    width:240px; max-width:calc(100vw - 24px); max-height:60vh; overflow-y:auto;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:1.5px solid var(--gold); border-radius:12px;
+    padding:12px 14px; box-shadow:0 6px 18px rgba(0,0,0,.5);
+    display:none;
+  }
+  #legend-panel.show{ display:block; }
+  #legend-panel-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  #legend-panel-header h2{ font-family:'Cinzel Decorative', serif; font-size:13px; color:var(--gold-lt); margin:0; }
+  #legend-close-btn{
+    background:transparent; border:none; color:var(--parchment-shadow); font-family:'Cinzel', serif;
+    font-size:17px; line-height:1; padding:2px 6px; cursor:pointer;
+  }
+  #legend-close-btn:active{ color:var(--gold-lt); }
+  .legend-row{
+    display:flex; align-items:center; gap:10px; padding:6px 0;
+    border-top:1px solid rgba(209,164,69,.18);
+  }
+  .legend-row:first-of-type{ border-top:none; }
+  /* min-width (not a fixed width) so every row's icon column lines up by default, but a wider
+     swatch — the Settlements row shows all four tier sizes side by side — grows instead of
+     clipping into the label text next to it. */
+  .legend-swatch{ flex:none; min-width:30px; display:flex; align-items:center; justify-content:center; gap:3px; }
+  .legend-swatch img, .legend-swatch svg{ display:block; }
+  .legend-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:.2px; color:var(--parchment); line-height:1.3; }
+  .legend-label b{ color:var(--gold-lt); font-weight:700; }
+
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
     background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
@@ -838,6 +886,16 @@
     <button class="wait-btn" id="wait-pause-btn" title="Pause" disabled>&#10074;&#10074;</button>
     <button class="wait-btn" id="wait-speed-btn" title="3&times; Speed">3&times;</button>
     <div id="wait-status">Wait here</div>
+  </div>
+
+  <button id="legend-btn" title="Map Legend">MAP<br>KEY</button>
+  <div id="legend-backdrop"></div>
+  <div id="legend-panel">
+    <div id="legend-panel-header">
+      <h2>Map Legend</h2>
+      <button id="legend-close-btn" aria-label="Close">&times;</button>
+    </div>
+    <div id="legend-rows"></div>
   </div>
 
   <div id="travel-controls">
@@ -2226,6 +2284,12 @@ viewport.addEventListener('wheel', (e)=>{
 }, {passive:false});
 
 function handleTap(clientX, clientY){
+  // A tap on the map (marker or otherwise) dismisses the legend panel if it's open — it's a
+  // reference overlay, not meant to sit on top of #info-card once the player's actually acting on
+  // the map again. closeLegendPanel is a hoisted function declaration (defined further down,
+  // alongside the rest of the Map Legend code), so calling it here ahead of its own definition is
+  // safe.
+  closeLegendPanel();
   const el = document.elementFromPoint(clientX, clientY);
   if(el && el.dataset && el.dataset.battle){
     onBattleMarkerTap(el.dataset.battle);
@@ -8646,6 +8710,8 @@ function beginTravelToBattle(battleId){
 const LANDMARK_TYPES = [
   { type:'ruins', name:"Old Ruins", flavor:"Weathered stonework pokes up through the undergrowth — something stood here once." },
   { type:'campsite', name:"Abandoned Campsite", flavor:"A cold fire ring and a half-collapsed lean-to — whoever camped here left in a hurry." },
+  { type:'cache', name:"Hidden Cache", flavor:"A battered strongbox, half-buried under a root — forced open long ago, but whoever did it didn't take everything." },
+  { type:'watchtower', name:"Old Watchtower", flavor:"A crumbling stone tower, its stair long since given way — whatever watch it once kept ended badly." },
 ];
 const LANDMARK_COUNT = 10;
 const LANDMARK_OFFSET_MIN = 25, LANDMARK_OFFSET_MAX = 70; // logical units off the nearest road
@@ -8690,10 +8756,18 @@ function claimLandmark(id){
 const LANDMARK_REWARDS = {
   ruins: { gold:[15,35], xp:[10,20] },
   campsite: { itemNames:['Food', 'Healing Potion'], xp:[6,14] },
+  // Pure gold, no XP — weighted toward a bigger payout than Ruins since finding one carries no
+  // ongoing risk beyond the arrival roll every landmark already shares (no digging, no fight).
+  cache: { gold:[30,60] },
+  // Pure XP, no gold/item — the "climb up, take in the view, come back down" reward a lore/flavor
+  // perk (e.g. revealing nearby map) would've needed a fog-of-war/map-reveal system this codebase
+  // doesn't have; kept reward-only like every other landmark type instead.
+  watchtower: { xp:[20,35] },
 };
-// One-time reward, granted on a safe arrival (see beginTravelToLandmark) — gold+XP for Ruins,
-// a foraged item+XP for a Campsite. Marks the landmark claimed either way so it can't be farmed
-// twice and its marker disappears on the next buildLandmarkMarkers() rebuild.
+// One-time reward, granted on a safe arrival (see beginTravelToLandmark) — gold+XP for Ruins, a
+// foraged item+XP for a Campsite, pure gold for a Cache, pure XP for a Watchtower. Marks the
+// landmark claimed either way so it can't be farmed twice and its marker disappears on the next
+// buildLandmarkMarkers() rebuild.
 function grantLandmarkReward(landmark){
   claimLandmark(landmark.id);
   let msg = landmark.flavor;
@@ -8704,7 +8778,7 @@ function grantLandmarkReward(landmark){
     const leveledUp = addXp(xp);
     msg += ` You pick through the rubble and come away with ${gold}g in old coin and trinkets. (+${xp} XP)`;
     if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
-  } else {
+  } else if(landmark.type === 'campsite'){
     const names = LANDMARK_REWARDS.campsite.itemNames;
     const name = names[Math.floor(Math.random() * names.length)];
     const mi = MARKET_ITEMS.find(m => m.name === name);
@@ -8712,6 +8786,15 @@ function grantLandmarkReward(landmark){
     if(mi && addItem(mi.name, 1, mi.weight, mi.price)) msg += ` You find a bit of ${mi.name} left behind.`;
     const leveledUp = addXp(xp);
     msg += ` (+${xp} XP)`;
+    if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
+  } else if(landmark.type === 'cache'){
+    const gold = randRange(LANDMARK_REWARDS.cache.gold);
+    setGold(playerGold + gold);
+    msg += ` You force open the strongbox and come away with ${gold}g.`;
+  } else if(landmark.type === 'watchtower'){
+    const xp = randRange(LANDMARK_REWARDS.watchtower.xp);
+    const leveledUp = addXp(xp);
+    msg += ` You pick your way up what's left of the stair and take in the lay of the land. (+${xp} XP)`;
     if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
   }
   showToast(msg);
@@ -8809,10 +8892,36 @@ function beginTravelToLandmark(landmarkId){
 }
 // Small marker per unclaimed landmark — same "invisible hitzone circle + separate visual" split
 // battle markers use (buildBattleMarkers), placeholder shapes for now (ruins: a small broken-
-// column glyph; campsite: a small flame glyph) pending any real art, same "ship the mechanic,
-// swap in real art later" precedent the rest of this codebase already sets. Rebuilt on load and
+// column glyph; campsite: a small flame glyph; cache: a small chest glyph; watchtower: a small
+// crumbling-turret glyph) pending any real art, same "ship the mechanic, swap in real art later"
+// precedent the rest of this codebase already sets. `LANDMARK_GLYPHS` below is also what the map
+// legend panel's own landmark rows draw from (see populateLegendPanel), so both read from the
+// exact same shape per type. Rebuilt on load and
 // again right after a landmark is claimed (see beginTravelToLandmark), so a claimed landmark's
 // marker disappears for good.
+const LANDMARK_GLYPHS = {
+  ruins: {
+    d:(x,y)=> `M${x-5},${y+6} L${x-5},${y-6} M${x},${y+6} L${x},${y-8} M${x+5},${y+6} L${x+5},${y-4}`,
+    fill:"none",
+  },
+  campsite: {
+    d:(x,y)=> `M${x},${y+6} L${x-4},${y-2} Q${x},${y-10} ${x+4},${y-2} Z`,
+    fill:"#d9a15a",
+  },
+  cache: {
+    // A small chest/strongbox: a body rectangle with a curved lid on top.
+    d:(x,y)=> `M${x-6},${y+6} L${x-6},${y-3} L${x+6},${y-3} L${x+6},${y+6} Z M${x-6},${y-3} Q${x},${y-9} ${x+6},${y-3} Z`,
+    fill:"#8a6b42",
+  },
+  watchtower: {
+    // A crumbling tower silhouette — one open (unclosed) polyline, same "broken structure"
+    // unfilled-line language as Ruins' columns: a tall left wall stepping up to one remaining
+    // merlon, then an uneven, lower-cut right wall where the top has collapsed away, with no
+    // closing segment across the top (the tower's roof is simply gone).
+    d:(x,y)=> `M${x-5},${y+6} L${x-5},${y-7} L${x-2},${y-7} L${x-2},${y-10} L${x+1},${y-10} L${x+1},${y-4} L${x+4},${y-4} L${x+4},${y+6}`,
+    fill:"none",
+  },
+};
 function buildLandmarkMarkers(){
   const g = document.getElementById('landmark-markers');
   if(!g) return;
@@ -8827,18 +8936,85 @@ function buildLandmarkMarkers(){
     hit.setAttribute("r", 16);
     hit.dataset.landmark = landmark.id;
     g.appendChild(hit);
+    const glyph = LANDMARK_GLYPHS[landmark.type] || LANDMARK_GLYPHS.ruins;
     const mark = document.createElementNS(ns, "path");
-    mark.setAttribute("d", landmark.type === 'ruins'
-      ? `M${landmark.x-5},${landmark.y+6} L${landmark.x-5},${landmark.y-6} M${landmark.x},${landmark.y+6} L${landmark.x},${landmark.y-8} M${landmark.x+5},${landmark.y+6} L${landmark.x+5},${landmark.y-4}`
-      : `M${landmark.x},${landmark.y+6} L${landmark.x-4},${landmark.y-2} Q${landmark.x},${landmark.y-10} ${landmark.x+4},${landmark.y-2} Z`);
+    mark.setAttribute("d", glyph.d(landmark.x, landmark.y));
     mark.setAttribute("stroke", "#a9926a");
     mark.setAttribute("stroke-width", "2");
     mark.setAttribute("stroke-linecap", "round");
-    mark.setAttribute("fill", landmark.type === 'campsite' ? "#d9a15a" : "none");
+    mark.setAttribute("fill", glyph.fill);
     mark.style.pointerEvents = "none";
     g.appendChild(mark);
   });
 }
+
+// ===================== MAP LEGEND =====================
+// A small, dismissible reference panel for what the map's various non-obvious markers mean — per
+// the project owner, there was no in-game key for settlement-tier icon sizes, moving army
+// markers, field-battle markers, or landmark markers. Pure reference UI: no state, nothing
+// persisted, just a toggleable panel. Deliberately reuses the exact same marker art/constants the
+// live map itself draws from (CITY_ICON_HREF/SETTLEMENT_ICON_W/CITY_ICON_ASPECT, ARMY_ICON_POOLS,
+// BATTLE_MARKER_ICONS, LANDMARK_TYPES/LANDMARK_GLYPHS) rather than separately hand-drawn swatches,
+// so the legend can never visually drift from what's actually shown on the map.
+const LEGEND_LANDMARK_HINTS = {
+  ruins: "Gold &amp; XP", campsite: "A foraged item &amp; XP", cache: "Gold (no fight, no risk beyond getting there)", watchtower: "XP",
+};
+function legendRow(swatchHTML, labelHTML){
+  return `<div class="legend-row"><div class="legend-swatch">${swatchHTML}</div><div class="legend-label">${labelHTML}</div></div>`;
+}
+function populateLegendPanel(){
+  const el = document.getElementById('legend-rows');
+  if(!el) return;
+  let rows = '';
+  // Settlements — the same Cities.png coin icon buildCityIcons() draws, just at thumbnail scale,
+  // one per tier so the size difference itself IS the legend.
+  const tierImgs = ['village','town','city','capital'].map(t => {
+    const s = Math.max(6, Math.round(SETTLEMENT_ICON_W[t] / 4));
+    return `<img src="${CITY_ICON_HREF}" style="width:${s}px;height:${Math.round(s*CITY_ICON_ASPECT)}px">`;
+  }).join('');
+  rows += legendRow(tierImgs, `<b>Settlements</b> — larger icon = bigger tier (Village &rarr; Capital)`);
+  // Marching armies — the same two alliance emblem pools buildArmyMarkers() draws from (falls
+  // back to the same flat-color diamond buildArmyMarkers itself falls back to, if the pool is
+  // ever empty).
+  const goodIcon = (ARMY_ICON_POOLS.Good && ARMY_ICON_POOLS.Good[0]);
+  const badIcon = (ARMY_ICON_POOLS.Bad && ARMY_ICON_POOLS.Bad[0]);
+  const armySwatch = (goodIcon && badIcon)
+    ? `<img src="${goodIcon.href}" style="width:17px;height:${Math.round(17*goodIcon.aspect)}px">`
+      + `<img src="${badIcon.href}" style="width:17px;height:${Math.round(17*badIcon.aspect)}px">`
+    : `<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7,1 L11,7 L7,13 L3,7 Z" fill="${ARMY_MARKER_COLOR.Good}"/></svg>`
+      + `<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7,1 L11,7 L7,13 L3,7 Z" fill="${ARMY_MARKER_COLOR.Bad}"/></svg>`;
+  rows += legendRow(armySwatch, `<b>Marching army</b> — emblem shows which alliance, Good or Bad`);
+  // Field battle — the same crossed-weapons/medallion icon pool buildBattleMarkers() draws from.
+  if(BATTLE_MARKER_ICONS.length){
+    const battleIcon = BATTLE_MARKER_ICONS[0];
+    rows += legendRow(
+      `<img src="${battleIcon.href}" style="width:19px;height:${Math.round(19*battleIcon.aspect)}px">`,
+      `<b>Field battle</b> — tap to travel there or join the fight`
+    );
+  }
+  // Off-road landmarks — the exact same placeholder glyphs buildLandmarkMarkers() draws, built
+  // from the same LANDMARK_GLYPHS lookup at the same (11,11)-centered coordinates in a small
+  // 22x22 viewBox, so a new landmark type added to LANDMARK_TYPES/LANDMARK_GLYPHS automatically
+  // gets its own legend row for free.
+  LANDMARK_TYPES.forEach(t => {
+    const glyph = LANDMARK_GLYPHS[t.type] || LANDMARK_GLYPHS.ruins;
+    const svg = `<svg width="22" height="22" viewBox="0 0 22 22"><path d="${glyph.d(11,11)}" stroke="#a9926a" stroke-width="2" stroke-linecap="round" fill="${glyph.fill}"/></svg>`;
+    rows += legendRow(svg, `<b>${t.name}</b> — ${LEGEND_LANDMARK_HINTS[t.type] || 'a one-time find'}`);
+  });
+  el.innerHTML = rows;
+}
+populateLegendPanel(); // static content — doesn't depend on this character's own generated world
+function openLegendPanel(){
+  document.getElementById('legend-panel').classList.add('show');
+  document.getElementById('legend-backdrop').classList.add('show');
+}
+function closeLegendPanel(){
+  document.getElementById('legend-panel').classList.remove('show');
+  document.getElementById('legend-backdrop').classList.remove('show');
+}
+document.getElementById('legend-btn').addEventListener('click', openLegendPanel);
+document.getElementById('legend-close-btn').addEventListener('click', closeLegendPanel);
+document.getElementById('legend-backdrop').addEventListener('click', closeLegendPanel);
 
 // Cancels the current journey in place — the character stops exactly where the
 // animation had gotten to (snapped to the nearest real road-graph point), not

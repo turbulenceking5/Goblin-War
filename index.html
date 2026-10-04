@@ -12695,7 +12695,14 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   const siege = getSieges()[burgId];
   if(!siege) return;
   const attackerRace = KINGDOM_RACE[siege.attackerKingdom] || 'ork';
-  const variants = ENEMY_VARIANTS[attackerRace] || ENEMY_VARIANTS.ork;
+  // ENEMY_VARIANTS has no 'human'/'dwarf' entry (no race-specific art/stats exist for a
+  // Good-alliance attacker yet — an asset-generation decision for the project owner, not
+  // something to invent here), so a Human/Dwarf attacking kingdom falls back to the Bandit
+  // pool rather than Ork: Bandits are already unbranded human-looking raiders, so this stops
+  // the fight from actively mislabeling the attacker as the wrong hostile race. attackerRace
+  // itself is untouched below — combat.attackerKingdom/the log text/getSiegeBackdrop still key
+  // off the real kingdom, only the enemy variant stat/portrait pool changes.
+  const variants = ENEMY_VARIANTS[attackerRace] || ENEMY_VARIANTS.bandit;
   const count = 2 + Math.floor(Math.random()*2); // 2 or 3
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);

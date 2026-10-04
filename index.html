@@ -10460,6 +10460,167 @@ function showCompanionPanel(burgId){
   }
 }
 
+// Village/Town flavor variants for the base Tavern/Marketplace/Work/Talk-to-Townsfolk action
+// descriptions below, so two Villages (or two Towns) don't read as copy-pasted — keyed off data
+// already computed per-burg (b.biome, b.port, getPopulation, getController vs b.race, and
+// getReputationDiscount's own reputation label) rather than any new field. Picked deterministically
+// per burg (hashSeed, same pattern as the Quest Board's own offer generation) so a given settlement
+// always shows the same line rather than re-rolling on every visit. City/Capital settlements are
+// untouched: every getter below falls straight back to the original generic line for any tier
+// other than village/town.
+function pickLocDescVariant(pool, burgId, salt){
+  return pool[Math.floor(seededRandom(hashSeed(`locdesc_${salt}_${burgId}`)) * pool.length)];
+}
+const TAVERN_DESC_PORT = [
+  "Rest up on salt-fish stew and talk fresh off the fishing boats",
+  "Rest up, hear what the fishing fleet dragged up today, and buy a meal and a drink",
+];
+const TAVERN_DESC_MOUNTAIN = [
+  "Rest up by a fire thick with quarry-dust, and hear the miners grumble",
+  "Rest up, swap tales with the quarrymen, and buy a meal and a drink",
+];
+const TAVERN_DESC_FOREST = [
+  "Rest up on game stew while the woodcutters talk of the deep trees",
+  "Rest up, hear what the loggers are saying, and buy a meal and a drink",
+];
+const TAVERN_DESC_CAPTURED = [
+  "Rest up, though the talk here turns careful whenever the new garrison's mentioned",
+  "Rest up — the ale's the same, but the rumours have gone quiet since the conquest",
+];
+const TAVERN_DESC_QUIET = [
+  "Rest up in a hushed, half-empty tavern — buy a meal and a drink",
+  "Rest up; there's barely enough folk here for gossip, but the drink's honest",
+];
+const TAVERN_DESC_GENERIC = [
+  "Rest up, hear local rumours, and buy a meal and a drink",
+  "Rest up over a crowded table, and buy a meal and a drink",
+];
+function getTavernDesc(b, burgId){
+  if(b.tier !== 'village' && b.tier !== 'town') return "Rest up, hear local rumours, and buy a meal and a drink";
+  let pool;
+  if(b.port) pool = TAVERN_DESC_PORT;
+  else if(b.biome === 'mountains') pool = TAVERN_DESC_MOUNTAIN;
+  else if(b.biome === 'forest') pool = TAVERN_DESC_FOREST;
+  else if(getController(burgId) !== b.race) pool = TAVERN_DESC_CAPTURED;
+  else if(getPopulation(burgId) < (b.tier === 'village' ? 0.4 : 1.5)) pool = TAVERN_DESC_QUIET;
+  else pool = TAVERN_DESC_GENERIC;
+  return pickLocDescVariant(pool, burgId, 'tavern');
+}
+
+const MARKET_DESC_PORT = [
+  "Buy food and supplies, with fresh catch cheap off the docks",
+  "Buy food, supplies, and whatever the fishing boats brought in",
+];
+const MARKET_DESC_MOUNTAIN = [
+  "Buy food and supplies, with mountain ore keeping armour prices down",
+  "Buy food and supplies from stalls stocked by the quarry trade",
+];
+const MARKET_DESC_FOREST = [
+  "Buy food and supplies, with local timber keeping weapon prices down",
+  "Buy food and supplies from stalls stocked by the timber trade",
+];
+const MARKET_DESC_TRUSTED = [
+  "Buy food and supplies — merchants here cut you a fair price",
+  "Buy food and supplies, and get a friendlier price than most travellers",
+];
+const MARKET_DESC_UNFRIENDLY = [
+  "Buy food and supplies, though prices run a little steep for the likes of you",
+  "Buy food and supplies — the stallholders drive a harder bargain here",
+];
+const MARKET_DESC_VILLAGE_GENERIC = [
+  "Buy food and supplies, fresh and cheap this close to the farms",
+  "Buy food and supplies — prices here beat the bigger markets",
+];
+const MARKET_DESC_TOWN_GENERIC = [
+  "Buy food and supplies",
+  "Buy food and supplies from a modest run of market stalls",
+];
+function getMarketDesc(b, burgId){
+  if(b.tier !== 'village' && b.tier !== 'town') return "Buy food and supplies";
+  let pool;
+  if(b.port) pool = MARKET_DESC_PORT;
+  else if(b.biome === 'mountains') pool = MARKET_DESC_MOUNTAIN;
+  else if(b.biome === 'forest') pool = MARKET_DESC_FOREST;
+  else {
+    const rep = reputationLabel(getReputation(getControllerKingdom(burgId)));
+    if(rep === 'Trusted' || rep === 'Friendly') pool = MARKET_DESC_TRUSTED;
+    else if(rep === 'Unfriendly' || rep === 'Hostile') pool = MARKET_DESC_UNFRIENDLY;
+    else pool = b.tier === 'village' ? MARKET_DESC_VILLAGE_GENERIC : MARKET_DESC_TOWN_GENERIC;
+  }
+  return pickLocDescVariant(pool, burgId, 'market');
+}
+
+const WORK_DESC_PORT = [
+  "Load and mend nets down at the docks for a few hours' pay",
+  "Take on odd jobs for a few hours' pay — the docks are always short-handed",
+];
+const WORK_DESC_MOUNTAIN = [
+  "Haul stone for the quarrymen for a few hours' pay",
+  "Take on odd jobs for a few hours' pay — the quarry's always hiring hands",
+];
+const WORK_DESC_FOREST = [
+  "Help the woodcutters haul timber for a few hours' pay",
+  "Take on odd jobs for a few hours' pay — there's always wood to haul",
+];
+const WORK_DESC_CAPTURED = [
+  "Take on odd jobs for a few hours' pay, same as before the banners changed",
+  "Take on odd jobs for a few hours' pay — nobody here asks too many questions",
+];
+const WORK_DESC_VILLAGE_GENERIC = [
+  "Take on odd jobs for a few hours' pay",
+  "Lend a hand around the village for a few hours' pay",
+];
+const WORK_DESC_TOWN_GENERIC = [
+  "Take on odd jobs for a few hours' pay",
+  "Pick up casual work around town for a few hours' pay",
+];
+function getWorkDesc(b, burgId){
+  if(b.tier !== 'village' && b.tier !== 'town') return "Take on odd jobs for a few hours' pay";
+  let pool;
+  if(b.port) pool = WORK_DESC_PORT;
+  else if(b.biome === 'mountains') pool = WORK_DESC_MOUNTAIN;
+  else if(b.biome === 'forest') pool = WORK_DESC_FOREST;
+  else if(getController(burgId) !== b.race) pool = WORK_DESC_CAPTURED;
+  else pool = b.tier === 'village' ? WORK_DESC_VILLAGE_GENERIC : WORK_DESC_TOWN_GENERIC;
+  return pickLocDescVariant(pool, burgId, 'work');
+}
+
+const TALK_DESC_CAPTURED = [
+  "Ask what's happening in the world — carefully, under the new banners",
+  "Ask around, though folk choose their words since the conquest",
+];
+const TALK_DESC_PORT = [
+  "Ask the fishermen and dockhands what's happening in the world",
+  "Ask around the harbor what's happening in the world",
+];
+const TALK_DESC_MOUNTAIN = [
+  "Ask the quarrymen what's happening in the world",
+  "Ask around the mine-mouths what's happening in the world",
+];
+const TALK_DESC_FOREST = [
+  "Ask the woodcutters what's happening in the world",
+  "Ask around the timber camps what's happening in the world",
+];
+const TALK_DESC_QUIET = [
+  "Ask the few folk here what's happening in the world",
+  "Ask around this small a place what's happening in the world",
+];
+const TALK_DESC_GENERIC = [
+  "Ask what's happening in the world",
+  "Ask around the square what's happening in the world",
+];
+function getTalkDesc(b, burgId){
+  if(b.tier !== 'village' && b.tier !== 'town') return "Ask what's happening in the world";
+  let pool;
+  if(getController(burgId) !== b.race) pool = TALK_DESC_CAPTURED;
+  else if(b.port) pool = TALK_DESC_PORT;
+  else if(b.biome === 'mountains') pool = TALK_DESC_MOUNTAIN;
+  else if(b.biome === 'forest') pool = TALK_DESC_FOREST;
+  else if(getPopulation(burgId) < (b.tier === 'village' ? 0.4 : 1.5)) pool = TALK_DESC_QUIET;
+  else pool = TALK_DESC_GENERIC;
+  return pickLocDescVariant(pool, burgId, 'talk');
+}
+
 function showLocationView(burgId){
   stopWaiting();
   const b = graph.burgs[burgId];
@@ -10479,14 +10640,14 @@ function showLocationView(burgId){
   const workedToday = hasWorkedToday(burgId);
   const workBlockedByNight = !workedToday && isNightNow();
   const actions = [
-    { icon:`<path d="M5 3h14l-1 9a6 6 0 0 1-12 0L5 3z"/><path d="M8 21h8"/><path d="M12 15v6"/>`, title:"The Tavern", desc:"Rest up, hear local rumours, and buy a meal and a drink", action:'tavern', category:'services' },
-    { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc:"Buy food and supplies", action:'market', category:'services' },
+    { icon:`<path d="M5 3h14l-1 9a6 6 0 0 1-12 0L5 3z"/><path d="M8 21h8"/><path d="M12 15v6"/>`, title:"The Tavern", desc: getTavernDesc(b, burgId), action:'tavern', category:'services' },
+    { icon:`<path d="M4 8h16l-1.5 12h-13L4 8z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/>`, title:"Marketplace", desc: getMarketDesc(b, burgId), action:'market', category:'services' },
     // Per the project owner, the second gameplay hook on the day/night clock (see rollAmbush
     // above for the first): odd jobs are a daytime thing, so Work is unavailable at night, same
     // disabled-with-explanation treatment the existing once-per-day cooldown already used —
     // workedToday still takes priority in the message if both happen to apply.
-    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : workBlockedByNight ? "Nobody's hiring after dark — come back in daylight" : "Take on odd jobs for a few hours' pay", action:'work', disabled: workedToday || workBlockedByNight, category:'work' },
-    { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc:"Ask what's happening in the world", action:'talk', category:'people' },
+    { icon:`<path d="M14.7 6.3a1 1 0 0 0-1.4 0L11 8.6 15.4 13l2.3-2.3a1 1 0 0 0 0-1.4z"/><path d="M11 8.6 4 15.6V20h4.4L15.4 13"/>`, title:"Work", desc: workedToday ? "Already worked here today — come back tomorrow" : workBlockedByNight ? "Nobody's hiring after dark — come back in daylight" : getWorkDesc(b, burgId), action:'work', disabled: workedToday || workBlockedByNight, category:'work' },
+    { icon:`<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c0-3 2.5-5 5-5s5 2 5 5"/><path d="M11 19c0-3 2.5-5 5-5s5 2 5 5"/>`, title:"Talk to Townsfolk", desc: getTalkDesc(b, burgId), action:'talk', category:'people' },
     { icon:`<path d="M6 3h12v4H6z"/><path d="M9 7v14M9 9h6M9 12h6M9 15h4"/>`, title:"Quest Board", desc:"See what work needs doing", action:'questboard', category:'urgent' },
     { icon:`<path d="M12 2l3 6 6 1-4.5 4 1 6-5.5-3-5.5 3 1-6L3 9l6-1z"/>`, title:"Raid the Village", desc: hasRaidedToday(burgId) ? "You've already raided here today — come back tomorrow" : "Take what you can by force", action:'raid_village', disabled: hasRaidedToday(burgId), category:'work' },
     // Settlement Investment — the Expansion Research idea of the same name, a proactive

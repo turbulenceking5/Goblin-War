@@ -12117,10 +12117,19 @@ function acceptPetition(burgId){
 // strong one. Picks the weakest enemy when more than one applies, same "start with the easiest
 // win" logic Petition for Troops' least-reinforced-ally pick already uses.
 const NEGOTIATE_PEACE_BASE_COST = 150;
+// Reputation gate, per the project owner (context/roadmap.md's "Incite War / Negotiate Peace need
+// more weight"): brokering a truce means the home court has to trust the player enough to let them
+// speak for it diplomatically at all, not just have a legitimate court sitting. -10 is the floor of
+// reputationLabel's own Neutral bucket (-10 to 10) — an ordinary, no-strong-feelings-either-way
+// court will still hear the offer; only a court that's actually Unfriendly or Hostile (< -10) won't.
+// Deliberately the *lower* of the two thresholds here: ending a war is the more sympathetic ask of
+// the two (see Incite War's own, stricter gate below).
+const NEGOTIATE_PEACE_MIN_REPUTATION = -10;
 function generateNegotiatePeaceOffer(burgId){
   const b = graph.burgs[burgId];
   const kingdom = b.state;
   if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  if(getReputation(kingdom) < NEGOTIATE_PEACE_MIN_REPUTATION) return null; // court doesn't trust the player enough to broker this on its behalf
   const enemies = getEnemiesAtWar(kingdom);
   if(!enemies.length) return null;
   const myStrength = getArmyStrength(kingdom);
@@ -12140,11 +12149,19 @@ function buildNegotiatePeaceHTML(burgId){
   const desperateNote = isSupplyExhausted(offer.enemy)
     ? `<div style="font-size:12px; color:#7fbf6a; margin-top:-4px; margin-bottom:10px;">Their supply lines are cut — they'd welcome peace.</div>`
     : '';
+  // War-history transparency (context/factions-and-territory.md's war-history ledger already prices
+  // this in via getWarHistoryPeaceMultiplier — this just surfaces the count itself, so the player
+  // can see *why* a repeat-enemy truce costs more instead of it being an invisible multiplier).
+  const peaceHistoryCount = getWarHistoryCount(offer.kingdom, offer.enemy);
+  const warHistoryNote = peaceHistoryCount > 0
+    ? `<div style="font-size:12px; color:#a9926a; margin-top:-4px; margin-bottom:10px;">This isn't the first time they've come to blows — ${offer.kingdom} and ${offer.enemy} have been to war ${peaceHistoryCount} time${peaceHistoryCount === 1 ? '' : 's'} before. Envoys doubt this truce will hold any better than the last.</div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Negotiate Peace</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at war with ${offer.enemy}. Bribe envoys to broker a truce between them.</div>
       ${desperateNote}
+      ${warHistoryNote}
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; color:#e0a860; font-weight:700;">${offer.cost}g</span>
         <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="negotiate-peace-btn">Negotiate</button>
@@ -12178,10 +12195,18 @@ function acceptNegotiatePeace(burgId){
 // ratio math Negotiate Peace uses to price a truce prices the payout here, just inverted (a
 // stronger target pays better rather than costing more).
 const INCITE_WAR_BASE_GOLD = 120;
+// Reputation gate, per the project owner (context/roadmap.md's "Incite War / Negotiate Peace need
+// more weight") — set stricter than Negotiate Peace's: paying a court's own agitators to go start a
+// war is a far more questionable ask of it than paying envoys to end one, so an ordinary Neutral
+// court shouldn't do it just because it has no strong opinion of the player yet. 11 is one past the
+// top of reputationLabel's Neutral bucket (-10 to 10) — i.e. the court has to actually be Friendly
+// (>10) or better before it'll entertain this.
+const INCITE_WAR_MIN_REPUTATION = 11;
 function generateInciteWarOffer(burgId){
   const b = graph.burgs[burgId];
   const kingdom = b.state;
   if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  if(getReputation(kingdom) < INCITE_WAR_MIN_REPUTATION) return null; // court doesn't trust the player enough to broker this on its behalf
   const candidates = ALL_KINGDOMS.filter(k =>
     k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== ALLIANCE[KINGDOM_RACE[kingdom]] && getRelation(kingdom, k) !== 'war'
     && !isWarCooldownActive(kingdom, k) // a war-exhaustion treaty holding between these two can't be paid around
@@ -12200,10 +12225,18 @@ function buildInciteWarHTML(burgId){
   if(getFealty()) return ''; // swore off stirring conflict anywhere, permanently — see FEALTY_KEY
   const offer = generateInciteWarOffer(burgId);
   if(!offer) return '';
+  // War-history transparency, same precedent as Negotiate Peace above — the ledger already prices
+  // this in via getWarHistoryInciteMultiplier, this just names it so a cheaper-than-expected payout
+  // against an old enemy doesn't read as an unexplained number.
+  const inciteHistoryCount = getWarHistoryCount(offer.kingdom, offer.target);
+  const warHistoryNote = inciteHistoryCount > 0
+    ? `<div style="font-size:12px; color:#a9926a; margin-top:-4px; margin-bottom:10px;">Old grudges run deep — ${offer.kingdom} and ${offer.target} have already gone to war ${inciteHistoryCount} time${inciteHistoryCount === 1 ? '' : 's'} before, which is exactly why the agitators' price is soft.</div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Incite War</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at peace with ${offer.target}. Pay agitators to provoke a war between them.</div>
+      ${warHistoryNote}
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; color:#7fbf6a; font-weight:700;">+${offer.gold}g</span>
         <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="incite-war-btn">Incite</button>

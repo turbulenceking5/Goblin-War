@@ -208,6 +208,22 @@
   #camp-here-btn:active{ transform:scale(.94); }
   #camp-here-btn.hide{ display:none; }
 
+  /* Settlement search — a quick way to jump the camera to any of this world's ~800 settlements
+     without visually scanning/panning/zooming to find it. Stacked a third button-width above
+     #camp-here-btn, same circular fixed-control convention (and never hidden during travel,
+     same as #recenter-btn — jumping away mid-journey just gets overridden on the next travel
+     animation frame, the same way a manual pan/zoom already does, see centerOnLogical's own
+     per-frame call in animateTravel). */
+  #map-search-btn{
+    position:fixed; right:12px; bottom:calc(138px + env(safe-area-inset-bottom)); z-index:26;
+    width:52px; height:52px; border-radius:50%;
+    background:rgba(13,18,32,.88);
+    border:2px solid var(--gold-lt); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:9px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+  }
+  #map-search-btn:active{ transform:scale(.94); }
+
   #wait-controls{
     position:fixed; left:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
     background:rgba(16,20,36,.95); border:1.5px solid var(--gold); border-radius:12px;
@@ -267,6 +283,51 @@
   .travel-btn:active{ transform:scale(.96); }
   #btn-stop-travel{ background:transparent; color:var(--gold-lt); }
   #btn-camp-travel{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; border-color:#7a5715; }
+
+  /* #map-search-btn's own panel — structurally the same centered-card overlay as #whats-new-modal/
+     #world-event-modal (dim backdrop, one card, flex-centered), not a bottom sheet like #info-card,
+     since this needs room for both a text input and a scrollable result list at once. z-index 55:
+     below #location-view's 60 and #combat-view's 70 (this only ever opens from the bare map screen,
+     which both of those already paint over completely, so it never needs to outrank either) and
+     comfortably below #toast's 80. */
+  #search-modal{
+    position:fixed; inset:0; z-index:55; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #search-modal.show{ display:flex; }
+  #search-card{
+    max-width:380px; width:100%; max-height:80vh;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+    display:flex; flex-direction:column; gap:12px;
+  }
+  #search-card-header{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  #search-title{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--gold-lt); margin:0; text-shadow:none; }
+  #search-close{
+    background:transparent; border:none; color:#a9926a; font-size:24px; line-height:1; cursor:pointer; padding:0 4px;
+  }
+  #search-close:active{ color:var(--gold-lt); }
+  #search-input{
+    font-family:'EB Garamond', serif; font-size:15px; color:var(--parchment);
+    background:rgba(0,0,0,.25); border:1.5px solid rgba(209,164,69,.4); border-radius:8px;
+    padding:11px 12px; width:100%; flex:none;
+  }
+  #search-input::placeholder{ color:#7a6b4d; }
+  /* The card itself doesn't scroll (max-height:80vh above) — only the result list does, so the
+     input stays pinned in view no matter how long the (capped) list gets. */
+  #search-results{ overflow-y:auto; flex:1; min-height:0; display:flex; flex-direction:column; gap:6px; }
+  .search-result{
+    display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(209,164,69,.3);
+    border-radius:8px; padding:10px 12px; cursor:pointer;
+  }
+  .search-result:active{ background:rgba(255,255,255,.1); }
+  .search-result-name{ font-size:15px; color:var(--parchment); }
+  .search-result-meta{ font-size:11px; color:#a9926a; font-family:'Cinzel', serif; letter-spacing:.5px; text-transform:uppercase; flex:none; }
+  #search-empty{ font-size:13px; color:#a9926a; font-style:italic; text-align:center; padding:14px 4px; }
 
   #toast{
     position:fixed; top:calc(66px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
@@ -759,6 +820,7 @@
 
   <button id="recenter-btn">FIND<br>ME</button>
   <button id="camp-here-btn">MAKE<br>CAMP</button>
+  <button id="map-search-btn">SEARCH<br>MAP</button>
 
   <div id="wait-controls">
     <button class="wait-btn" id="wait-play-btn" title="Wait">&#9654;</button>
@@ -776,6 +838,18 @@
   </div>
 
   <div id="toast"></div>
+
+  <div id="search-modal">
+    <div id="search-card">
+      <div id="search-card-header">
+        <h2 id="search-title">Find a Settlement</h2>
+        <button id="search-close" aria-label="Close search">&times;</button>
+      </div>
+      <input id="search-input" type="text" placeholder="Type a settlement name…" autocomplete="off" maxlength="40">
+      <div id="search-results"></div>
+      <div id="search-empty" style="display:none;">No settlements match that.</div>
+    </div>
+  </div>
 
   <div id="info-card">
     <div class="handle"></div>
@@ -2163,6 +2237,87 @@ document.getElementById('camp-here-btn').addEventListener('click', ()=>{
   showCampView(null, null, 0);
 });
 
+// ---- Settlement search (#map-search-btn / #search-modal) ----
+// A quick-jump search over this world's ~800 settlements, so finding one doesn't mean visually
+// panning/zooming the whole map. burgSearchIndex (built once, right after graph loads — see
+// buildBurgSearchIndex below) precomputes each burg's lowercased name once rather than re-running
+// toLowerCase() on every entry on every keystroke; MAP_SEARCH_MAX_RESULTS caps how many rows ever
+// get built/rendered, both for UI sanity against that many settlements and so a broad query (or an
+// empty one) doesn't walk the full list further than it needs to once the cap is already hit.
+const MAP_SEARCH_MAX_RESULTS = 20;
+let burgSearchIndex = []; // [{id, name, nameLower, tier}, ...] — see buildBurgSearchIndex()
+function buildBurgSearchIndex(){
+  burgSearchIndex = Object.values(graph.burgs).map(b => ({ id:b.id, name:b.name, nameLower:b.name.toLowerCase(), tier:b.tier }));
+}
+function renderSearchResults(query){
+  const resultsEl = document.getElementById('search-results');
+  const emptyEl = document.getElementById('search-empty');
+  const q = query.trim().toLowerCase();
+  const matches = [];
+  for(const entry of burgSearchIndex){
+    if(!q || entry.nameLower.includes(q)){
+      matches.push(entry);
+      if(matches.length >= MAP_SEARCH_MAX_RESULTS) break; // stop scanning early once the cap's hit
+    }
+  }
+  if(!matches.length){
+    resultsEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  // Same convention as every other burg.name interpolation in this file (e.g. the location-view
+  // "Return to ${b.name}" rows) — settlement names come from this character's own procedural
+  // generator, never from another player or outside input, so no escaping precedent exists here.
+  resultsEl.innerHTML = matches.map(b => `
+    <div class="search-result" data-burg="${b.id}">
+      <span class="search-result-name">${b.name}</span>
+      <span class="search-result-meta">${TIER_LABEL[b.tier] || b.tier}</span>
+    </div>
+  `).join('');
+}
+// One delegated listener on the results container rather than one per row — rows get rebuilt
+// wholesale on every keystroke (cheap at a 20-row cap), so per-row listeners would otherwise need
+// re-attaching every time too.
+document.getElementById('search-results').addEventListener('click', (e)=>{
+  const row = e.target.closest('.search-result');
+  if(!row) return;
+  selectSearchResult(row.dataset.burg);
+});
+function selectSearchResult(burgId){
+  const burg = graph.burgs[burgId];
+  if(!burg) return;
+  closeSearchModal();
+  // Same zoomed-in-but-never-zoomed-out scale #recenter-btn's own handler uses — jumping to a
+  // searched settlement reads consistently with "snap back to where I am."
+  centerOnLogical(burg.x, burg.y, Math.max(view.scale, (viewport.clientWidth)/((STAGE_W/LOGICAL_W)*REGION_W)));
+  // Opens the same #info-card a direct tap on the settlement would — searching for a place and
+  // tapping its result behaves exactly like scrolling to it and tapping it by hand (travel quote,
+  // Travel Here button, and all), rather than leaving the player to tap it a second time once the
+  // camera lands.
+  onMapTap(burgId);
+}
+function openSearchModal(){
+  if(!burgSearchIndex.length) buildBurgSearchIndex(); // defensive — graph should already be loaded by the time this button is reachable
+  document.getElementById('search-modal').classList.add('show');
+  const input = document.getElementById('search-input');
+  input.value = '';
+  renderSearchResults('');
+  input.focus();
+}
+function closeSearchModal(){
+  document.getElementById('search-modal').classList.remove('show');
+  document.getElementById('search-input').blur();
+}
+document.getElementById('map-search-btn').addEventListener('click', openSearchModal);
+document.getElementById('search-close').addEventListener('click', closeSearchModal);
+document.getElementById('search-modal').addEventListener('click', (e)=>{
+  if(e.target.id === 'search-modal') closeSearchModal(); // tap on the dim backdrop itself, not the card
+});
+document.getElementById('search-input').addEventListener('input', (e)=>{
+  renderSearchResults(e.target.value);
+});
+
 const CAL_KEY = "goblinwar_gameDay";
 const HOUR_KEY = "goblinwar_gameHour";
 const DAYS_PER_MONTH = 30, MONTHS_PER_YEAR = 12;
@@ -2433,7 +2588,7 @@ document.getElementById('tutorial-dismiss').addEventListener('click', ()=>{
 // defaults "true" for any pre-existing character, same as TUTORIAL_SEEN_KEY — see
 // freshCharacterData's isNewCharacter param in characters.html), so an existing player is never
 // retroactively interrupted by a tour covering UI they already know. Deliberately scoped to the
-// HUD/toolbar only (the stat pills, the six nav icons, Find Me, Make Camp) — the map itself and
+// HUD/toolbar only (the stat pills, the six nav icons, Find Me, Make Camp, Search the Map) — the map itself and
 // "tap a settlement to travel" are already covered by the welcome modal's own prose.
 const TOOLTIP_TOUR_SEEN_KEY = "goblinwar_tooltipTourSeen";
 const ONBOARDING_STEPS = [
@@ -2441,6 +2596,7 @@ const ONBOARDING_STEPS = [
   { selector:'#nav-icons', title:'Your Toolbar', text:'Inventory, Party, Hero, Skills, Quests, and Settings — everything about your character lives behind these six icons.' },
   { selector:'#recenter-btn', title:'Find Yourself', text:'Lost on the map? This snaps the view straight back to wherever you currently are.' },
   { selector:'#camp-here-btn', title:'Make Camp', text:'Tap this to rest right where you stand — handy mid-journey, or when the road ahead looks too risky to travel further.' },
+  { selector:'#map-search-btn', title:'Search the Map', text:'Can’t find a settlement by eye? Search its name here and jump straight to it.' },
 ];
 let onboardingStepIndex = 0;
 function maybeStartOnboardingTour(){
@@ -12778,6 +12934,7 @@ Promise.all([
   const seed = parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10);
   world = generateWorld(seed);
   graph = world;
+  buildBurgSearchIndex(); // settlement search — see its own comment above, near #map-search-btn's listener
   buildAdjacency();
   buildFactionData();
   buildBurgAdjacency();

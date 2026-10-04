@@ -1318,5 +1318,12 @@
       "Defending the Walls against a Human or Dwarf kingdom's siege no longer shows you fighting Ork Raiders — you now face unbranded renegade troops instead, until real Human/Dwarf soldier art is ready.",
       "Refugees fleeing a war-torn settlement now actually travel real roads to find safety, and lean away from havens that are already bursting at the seams, instead of always piling onto whichever peaceful settlement happens to be nearest as the crow flies."
     ]
+  },
+  {
+    "id": 176,
+    "date": "2026-10-04",
+    "changes": [
+      "A Favor for a Kingdom can now go a third round — once a kingdom trusts you deeply enough, their Quest Board may offer 'A Lasting Alliance' instead, the biggest-paying favor yet."
+    ]
   }
 ]

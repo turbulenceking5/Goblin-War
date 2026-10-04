@@ -175,12 +175,19 @@ road-flavored two-choice vignettes (a shared campfire, a swollen ford, a stray p
 same `{id, title, text, good, bad}` shape as `WORLD_EVENTS`/`SETTLEMENT_EVENTS` and resolved through
 the same `showEventModal` machinery — no new UI.
 
-`beginTravel`'s arrival callback computes `daysCrossed` from the trip's own already-captured
-`startHour`/`t.hours` (identical math to `advanceTime`'s own day-rollover) and, for any trip crossing
-at least one full day, rolls `rollTravelEncounter(daysCrossed)` — one independent trial per day
-crossed at a flat `TRAVEL_ENCOUNTER_CHANCE` (0.12), returning on the first hit so a trip never
-surfaces more than one travel-encounter modal regardless of how many days it spans. A short same-day
-hop never rolls at all. A hit resolves *before* the existing arrival-time ambush/world-event roll, in
+`beginTravel`'s arrival callback computes `daysCrossed` as `Math.floor(t.hours / 24)` — the trip's
+own duration, deliberately *not* `advanceTime`'s day-*rollover* math (`Math.floor((gameHour+hours)/24)`,
+which counts calendar-midnight crossings). Those two aren't the same thing and an earlier version of
+this feature conflated them: a 1-hour hop starting at 23:30 crosses a midnight under the rollover
+formula despite lasting one hour, while a 20-hour trip starting at 01:00 crosses no midnight at all
+despite being nearly a full day of travel — the rollover math answers "did the calendar's `gameDay`
+tick," not "did this trip actually span a full day on the road," which is the question this feature
+needs answered. For any trip spanning at least one full day by its own duration, rolls
+`rollTravelEncounter(daysCrossed)` — one independent trial per day at a flat
+`TRAVEL_ENCOUNTER_CHANCE` (0.12), returning on the first hit so a trip never surfaces more than one
+travel-encounter modal regardless of how many days it spans. A short same-day hop never rolls at
+all, regardless of what hour of day it happens to start. A hit resolves *before* the existing
+arrival-time ambush/world-event roll, in
 sequence — both can fire on the same trip, neither suppresses the other, since they're answering
 different questions ("did something happen on the road" vs. "did something happen on arrival"). Kept
 as a blocking modal (reusing the existing one) rather than a non-blocking toast: there's no real

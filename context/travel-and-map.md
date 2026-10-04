@@ -140,9 +140,71 @@ or devices.
   the night overlay it sits next to. A small `#weather-badge` next to the header clock names the
   current weather in text, hidden entirely on a Clear day so the common case stays uncluttered.
 
+## Seasons
+
+A second deterministic "current condition" factor, same multiplier-folded-into-an-existing-formula
+pattern weather above already set — but unlike weather (random-but-seeded per day), season is a
+pure function of the calendar that's already stored, so it needs **no new persisted state** at all.
+`getCurrentSeason()` buckets the existing `gameDay`/`DAYS_PER_MONTH`/`MONTHS_PER_YEAR` month math into
+one of 4 `SEASON_TYPES` (Spring/Summer/Autumn/Winter, 3 months each; using `refreshCalendarUI`'s own
+1-indexed month numbering, Spring=1-3, Summer=4-6, Autumn=7-9, Winter=10-12, with the year rolling
+over cleanly).
+
+- **`#season-overlay`**, layered *below* `#night-overlay`/`#weather-overlay` (it changes far less
+  often — ~90 days vs. nightly/hourly — so it reads as the base mood both daily layers sit on top
+  of) — same `position:absolute; inset:0` opacity/color-transition technique, a subtle per-season
+  tint (spring soft green, summer warm gold, autumn orange/amber, winter pale cold blue), wired into
+  `refreshCalendarUI()` alongside `updateNightOverlay`/`updateWeatherOverlay`. A `#season-badge` next
+  to `#clock-badge`/`#weather-badge` always shows the current season's name — unlike weather's badge,
+  there's no neutral/default season to hide on.
+- **Two Winter-only gameplay hooks**, folded in exactly where weather's own `travelMult`/`ambushMult`
+  already fold in: `travelMult: 1.15` in `computeTravel`/`computeTravelToPoint` (icy roads, same
+  magnitude as weather's rain) and `ambushMult: 1.1` in `rollAmbush` and the separate overnight-camp
+  ambush roll (milder than weather's fog/storm, since it's a secondary factor layered on top of the
+  already-existing night/weather/perk/blessing scaling). Spring/Summer/Autumn carry no mechanical
+  effect, same as Clear weather — this is deliberately not as elaborate as the ambush system's other
+  factors, just the one real hook per the project's "small, real hooks, not a parallel simulation"
+  precedent.
+
+## On-the-road travel encounters
+
+A second, independent roll from the existing arrival-time ambush/world-event roll (see "Travel
+animation" above), filling what used to be a real gap: a long multi-day journey was otherwise
+mechanically silent except for that one roll at the very end. `TRAVEL_ENCOUNTERS` is a small table of
+road-flavored two-choice vignettes (a shared campfire, a swollen ford, a stray pack-mule, and others),
+same `{id, title, text, good, bad}` shape as `WORLD_EVENTS`/`SETTLEMENT_EVENTS` and resolved through
+the same `showEventModal` machinery — no new UI.
+
+`beginTravel`'s arrival callback computes `daysCrossed` from the trip's own already-captured
+`startHour`/`t.hours` (identical math to `advanceTime`'s own day-rollover) and, for any trip crossing
+at least one full day, rolls `rollTravelEncounter(daysCrossed)` — one independent trial per day
+crossed at a flat `TRAVEL_ENCOUNTER_CHANCE` (0.12), returning on the first hit so a trip never
+surfaces more than one travel-encounter modal regardless of how many days it spans. A short same-day
+hop never rolls at all. A hit resolves *before* the existing arrival-time ambush/world-event roll, in
+sequence — both can fire on the same trip, neither suppresses the other, since they're answering
+different questions ("did something happen on the road" vs. "did something happen on arrival"). Kept
+as a blocking modal (reusing the existing one) rather than a non-blocking toast: there's no real
+per-day hook inside `animateTravel`'s frame loop to fire from mid-animation (Hunger/Thirst/the clock
+are only ever actually applied once, at `onDone`, same as always — see "Travel animation" above), and
+since this fires at most once per trip rather than once per day, the "a modal every day" repetitiveness
+concern doesn't actually apply here.
+
+Scoped to `beginTravel` (plain settlement travel) only, not `beginTravelToBattle`/`beginTravelToLandmark`
+— those share the same animation/arrival shape and could get the identical wiring later if wanted, but
+weren't extended here to keep the change narrow.
+
 ## Tap-to-select and the info card
 
 Every settlement gets an invisible circular `<circle class="hitzone">` sized by tier (`HIT_R`), built once in `buildHitzones()`. Tapping one calls `onMapTap(burgId)`, which populates and opens `#info-card` with one of two states: "you are here" (already at that burg), or a travel quote (miles/`formatDuration(hours)`/Hunger & Thirst cost, plus a route preview drawn along the same polyline logic as the travel animation) with the Travel button always enabled, labeled `Travel Here (Nh)` — there's no affordability gate to block it, per [player-state.md](player-state.md)'s Hunger & Thirst section.
+
+**Searching for a settlement by name.** With ~800 settlements on the map, finding one by eye alone
+doesn't scale. `#map-search-btn` (stacked above `#camp-here-btn`/`#recenter-btn`, right side, never
+hidden during travel — same reasoning as `#recenter-btn`) opens `#search-modal`: a text input over a
+case-insensitive substring filter against `buildBurgSearchIndex()`'s precomputed `{id, name,
+nameLower, tier}` index (built once at world load, not per keystroke), capped at 20 results. Picking a
+result calls `centerOnLogical(burg.x, burg.y, …)` (the same zoom-in scale `#recenter-btn`'s own handler
+uses) and then `onMapTap(burgId)`, so the travel quote opens automatically — identical to scrolling
+there and tapping it by hand, just without the scrolling.
 
 ## Roads, settlement dots, labels, and city icons
 
@@ -178,6 +240,8 @@ Every settlement gets an invisible circular `<circle class="hitzone">` sized by 
   Roads and trails render *identically* now — two earlier passes tried keeping trails visually distinct as "minor paths" (first a thin dashed single-tone stroke, then just a more visible version of the same), but per the project owner both read as "this settlement isn't really connected" even where a trail plainly did connect it (confirmed by inspecting the data: only 6 of 796 settlements have no road/trail edge at all — those are sea-only or fully isolated; everything else genuinely has a path). Every real connection gets the full road treatment now, no separate `.road-trail` styling left. `sea` edges are still not drawn at all — a line across open water mostly restates what the water itself already implies, unlike a road with no other visual cue.
 - **`buildLabels()`** draws one `<text class="map-label tier-{tier}">` per burg (`LABEL_FONT_SIZE`/`LABEL_OFFSET_Y`, offset *below* the point), for all 796 settlements, always — an earlier pass scaled Capital labels up to a much larger size and hid Town/Village labels entirely below a zoom threshold, which per the project owner read as inconsistent (a few huge names, most just missing) rather than genuinely decluttered. Sizes stay close together across every tier so the map remains legible with literally every name showing at once — declutter comes from the uniform text sizing itself, not from selectively hiding settlements — but have been bumped up three times now (most recently to `village:8, town:9, city:11, capital:14`, from an original `3`-`4.5`), each time per the project owner finding the previous size still too hard to read. `LABEL_OFFSET_Y` is no longer just scaled up alongside the font — since the settlement-icon size bump below (`buildCityIcons()`), it's derived directly from each tier's actual icon half-height (`SETTLEMENT_ICON_W * CITY_ICON_ASPECT / 2`) plus a flat padding, specifically so a label can't end up sitting inside its own icon the way it briefly did right after that icon bump landed without this offset being revisited alongside it — see that function's own comment for the exact numbers. `.map-label`'s stroke-width was bumped too (`1.1px`, from `.75px`) to stay legible at the larger text size.
 
+  **Collision avoidance — done.** Dense settlement clusters used to show fully overlapping names, the one gap this file used to call out explicitly. `computeLabelNudges()` (right above `buildLabels()`) runs once at load (cached in `labelNudgeCache`, reused by the weekly-tick recolor so it never re-runs needlessly) and resolves overlapping label bounding boxes with a small X-axis-only offset per settlement — deliberately *not* a per-frame screen-space pass like `positionKingdomLabels()` below, since settlement labels live inside the camera-scaled `#overlay` SVG with a logical-unit font size: because the whole `#overlay` scales uniformly, whether two labels' boxes overlap is entirely decided in logical space and holds at every zoom level forever, so a one-shot build-time pass is correct with nothing to ever re-run on pan/zoom. Text width is estimated from each name's character count rather than measured via `getBBox()`/`getComputedTextLength()` (800 synchronous DOM layouts would be real cost for no benefit), and the separation pass itself buckets settlements into a spatial hash so only nearby labels are ever compared pairwise — comparable in cost to `buildBorderMarkers()`'s own one-time grid trace, not a per-frame expense. X-only by design: the Y offset is untouched, so `LABEL_OFFSET_Y`'s icon-clearance guarantee (the "fixed alongside the second [icon] bump" note just below) can never be undone by a collision nudge.
+
   **Colored by controlling kingdom — done.** Per the project owner, each settlement's own name now renders in its controlling kingdom's color (`kingdomColor(getControllerKingdom(id))`, set via `t.style.fill`) instead of one flat gold for every label. `kingdomColor()` (right above `buildLabels()`) assigns one stable HSL hue per kingdom, evenly spaced around the wheel by that kingdom's index in `ALL_KINGDOMS`, fixed saturation/lightness for a readable pastel regardless of hue — legibility against the busy terrain comes from `.map-label`'s existing dark stroke outline (the same halo trick as everywhere else on this map), not from the hue itself, so no `buildBorderMarkers()`-style visibility fix was needed here. One real trap found and fixed while building this: `.map-label`'s CSS used to declare `fill:var(--gold-lt)` directly, and a CSS class rule beats a plain SVG `fill` *attribute* regardless of selector specificity — confirmed empirically (an isolated test: a `fill="red"` attribute rendered gold under a bare `.cls{fill:gold}` rule) before trusting the fix. Setting `.style.fill` (inline style, which always wins) instead of `.setAttribute('fill', …)`, and dropping the now-redundant CSS declaration, was the actual fix — the first version used `.setAttribute`, which the CSS class silently overrode back to gold, caught in this session's own pre-ship render check rather than shipped broken like the border line's first two rounds were.
 
   **Kingdom territory-name labels — done.** Per the project owner, a kingdom's own name now floats over its territory when the map is zoomed out, the way a real political map labels a country rather than only its cities. `buildKingdomTerritoryLabels()`/`positionKingdomLabels()` (index.html, right after `buildLabels()`) place one label per kingdom that currently controls at least one settlement, at the population-weighted centroid of everything it holds (`getControllerKingdom`, not original `b.state`) — weighted so the label lands near a kingdom's real population center (its capital and major cities) rather than getting dragged toward a cluster of minor villages. Colored via the same `kingdomColor()` as the settlement labels, so the two visually tie together.
@@ -191,7 +255,7 @@ Every settlement gets an invisible circular `<circle class="hitzone">` sized by 
 
   **A real bug from the first size bump, fixed alongside the second.** The 4x icon pass only touched `SETTLEMENT_ICON_W`/`SETTLEMENT_ICON_CLEARANCE` — `buildLabels()`'s own `LABEL_OFFSET_Y` (how far below the point a settlement's name sits) was never revisited alongside it, so a tier's now much-taller icon ended up tall enough to cover its own label at the old, unchanged offset (the project owner's report: "city/town icons are covering the names of places"). `LABEL_OFFSET_Y` is now derived directly from each tier's actual icon half-height (`SETTLEMENT_ICON_W[tier] * CITY_ICON_ASPECT / 2`) plus a flat padding rather than an independently-tuned small number, so the label is guaranteed to clear the icon by construction — retuning one of the two again means revisiting the other, which is now called out directly in both constants' own comments rather than left to be rediscovered the same way.
 
-  **A placement-quality audit found a real, if latent, gap in `SETTLEMENT_ICON_CLEARANCE` itself.** The clearance check (`buildCityIcons()`'s `tooClose`) is keyed to the burg being *drawn*, not the sum of both tiers' own icon half-widths — so capital's own clearance (36) is actually *smaller* than capital's own icon half-width (52), leaving it unable to protect even two same-tier capitals from true overlap in principle. In practice this hasn't produced visible overlap, because the generator's own minimum-spacing floor at world-generation time (`9 * RF_GRID_SCALE`, see [data-files.md](data-files.md)'s settlement-placement writeup) converts to roughly 165 logical units between any two ordinary settlements — comfortably clear of the ~70-104 units real overlap would need at any tier pairing, confirmed empirically (zero overlaps generating 15+ worlds, worst margin ~45 logical units) rather than just by this math. The one place that margin ran genuinely thin was a dwarf hold's own tighter intra-range spacing, fixed by bumping it from 5x to 6x `RF_GRID_SCALE` in that same pass. `SETTLEMENT_ICON_CLEARANCE` itself is left as-is — a known, currently-dormant gap rather than a live bug, worth revisiting if this generator's spacing floor is ever loosened. Labels still have no collision avoidance at all (see `buildLabels()` below) — that part of the original audit's finding stands unchanged.
+  **A placement-quality audit found a real, if latent, gap in `SETTLEMENT_ICON_CLEARANCE` itself.** The clearance check (`buildCityIcons()`'s `tooClose`) is keyed to the burg being *drawn*, not the sum of both tiers' own icon half-widths — so capital's own clearance (36) is actually *smaller* than capital's own icon half-width (52), leaving it unable to protect even two same-tier capitals from true overlap in principle. In practice this hasn't produced visible overlap, because the generator's own minimum-spacing floor at world-generation time (`9 * RF_GRID_SCALE`, see [data-files.md](data-files.md)'s settlement-placement writeup) converts to roughly 165 logical units between any two ordinary settlements — comfortably clear of the ~70-104 units real overlap would need at any tier pairing, confirmed empirically (zero overlaps generating 15+ worlds, worst margin ~45 logical units) rather than just by this math. The one place that margin ran genuinely thin was a dwarf hold's own tighter intra-range spacing, fixed by bumping it from 5x to 6x `RF_GRID_SCALE` in that same pass. `SETTLEMENT_ICON_CLEARANCE` itself is left as-is — a known, currently-dormant gap rather than a live bug, worth revisiting if this generator's spacing floor is ever loosened. Labels now do have collision avoidance (see `buildLabels()`'s own `computeLabelNudges()` note just above) — that part of the original audit's finding is resolved.
 
   **Originally City/Capital only** — Village/Town instead drew as plain filled-circle SVG dots (`buildSettlementDots()`, `DOT_R`, its own `#settlement-dots` group), since no real icon art existed for those two tiers and generating dedicated art for them wasn't in scope at the time. Extended to give every tier a real icon per the project owner, reusing this same `Cities.png` at a smaller scale rather than commissioning two more pieces of art (worth revisiting with distinct per-tier art later if that's ever wanted) — `buildSettlementDots()` and its CSS/SVG group were deleted outright once `buildCityIcons()` covered every tier, since there was nothing left for them to draw. This is also why clearance became a per-tier map instead of one fixed value (`CITY_ICON_MIN_CLEARANCE`, formerly `12` then `7`, City/Capital only): Village/Town are far more numerous than City/Capital in a real settlement mix, so reusing the same clearance for every tier would have skipped most small-tier icons in any normal-density area — smaller icons get a smaller clearance to match. (A large fixed offset was also, separately, why so many icons went missing entirely before `CITY_ICON_OFFSET_Y` reached `0` — the bigger the offset, the more often the clearance check false-triggered in dense clusters; Bary's own icon was one of the ones silently disappearing before that got fixed.)
 

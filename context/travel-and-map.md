@@ -230,11 +230,15 @@ mirror `onBattleMarkerTap`/`beginTravelToBattle` almost line for line.
   progress (`goblinwar_landmarksClaimed`, an array of landmark ids) — positions/types are cheap to
   recompute every load, same "don't persist what you can regenerate" precedent the world-seed
   system itself already sets.
-- **Two types**, `LANDMARK_TYPES`: Old Ruins and Abandoned Campsite, each with its own flavor line
-  and reward table (`LANDMARK_REWARDS`) — Ruins pay gold+XP, a Campsite pays a foraged item (Food or
-  a Healing Potion, via the same `addItem` the Marketplace/loot system already use) plus XP.
-  One-time only: arriving safely calls `grantLandmarkReward`, which marks the landmark claimed
-  (`claimLandmark`) before anything else, so it can't be farmed twice.
+- **Four types**, `LANDMARK_TYPES`: Old Ruins, Abandoned Campsite, Hidden Cache, and Old Watchtower,
+  each with its own flavor line and reward table (`LANDMARK_REWARDS`) — Ruins pay gold+XP, a
+  Campsite pays a foraged item (Food or a Healing Potion, via the same `addItem` the Marketplace/
+  loot system already use) plus XP, a Cache pays pure gold (weighted toward a bigger payout than
+  Ruins' own gold roll, since finding one carries no ongoing risk beyond the arrival roll every
+  landmark type already shares), and a Watchtower pays pure XP (no lore/map-reveal perk — this
+  codebase has no fog-of-war/map-reveal system to hook into, so it stays reward-only like every
+  other type). One-time only: arriving safely calls `grantLandmarkReward`, which marks the landmark
+  claimed (`claimLandmark`) before anything else, so it can't be farmed twice.
 - **Reaching one plays out exactly like reaching a settlement or a battle**: `onLandmarkMarkerTap`
   shows the same `#info-card` quote/Travel-Here flow, and `beginTravelToLandmark` rolls the same
   ambush/world-event checks on arrival any other trip does — a landmark is not automatically safe to
@@ -248,5 +252,19 @@ mirror `onBattleMarkerTap`/`beginTravelToBattle` almost line for line.
 - **The marker disappears once claimed.** `buildLandmarkMarkers()` (same rebuild-from-scratch
   convention `buildBattleMarkers`/`buildArmyMarkers` already use) only draws a marker for an
   unclaimed landmark, and is called again right after a successful claim — placeholder glyph shapes
-  (a broken column for Ruins, a small flame for a Campsite) pending any real art, same "ship the
-  mechanic, swap in real art later" precedent the rest of this codebase already sets.
+  (`LANDMARK_GLYPHS`: a broken column for Ruins, a small flame for a Campsite, a small chest for a
+  Cache, a crumbling turret for a Watchtower) pending any real art, same "ship the mechanic, swap in
+  real art later" precedent the rest of this codebase already sets.
+
+## Map legend
+
+A small, dismissible reference panel for what the map's various markers mean — settlement tiers
+(the `buildCityIcons()` coin icon, shown at four sizes), moving army markers (`buildArmyMarkers`,
+Good/Bad alliance art), field-battle markers (`buildBattleMarkers`), and the four landmark types
+above (`LANDMARK_GLYPHS`). `#legend-btn` (bottom-left, stacked above `#wait-controls`, same circular
+small-button convention `#recenter-btn`/`#camp-here-btn` already use on the opposite corner) toggles
+`#legend-panel`'s `.show` class; the panel itself reuses the exact same marker art/icon hrefs the
+live map draws (`CITY_ICON_HREF`, `ARMY_ICON_POOLS`, `BATTLE_MARKER_ICONS`, `LANDMARK_GLYPHS`) rather
+than redrawing separate swatches, so it can never visually drift from what's actually on the map.
+Pure reference UI — no state, nothing persisted, closes on its own × button or a tap on the
+backdrop.

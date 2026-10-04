@@ -9686,7 +9686,7 @@ function questTitle(q){
   if(q.type === 'train_villagers') return 'Train the Villagers';
   if(q.type === 'ask_for_news') return 'Ask Around for News';
   if(q.type === 'bounty_variant') return `Bounty: ${q.targetVariant}`;
-  if(q.type === 'kingdom_favor') return `A Favor for ${q.targetKingdom}`;
+  if(q.type === 'kingdom_favor') return q.tier >= KINGDOM_FAVOR_MAX_TIER ? `A Lasting Alliance with ${q.targetKingdom}` : `A Favor for ${q.targetKingdom}`;
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
@@ -9709,7 +9709,9 @@ function questDesc(q){
   if(q.type === 'train_villagers') return `${q.giverName} wants the local militia drilled — a day's Work here in town will see to it.`;
   if(q.type === 'ask_for_news') return `${q.giverName} wants to know what's being said around town.`;
   if(q.type === 'bounty_variant') return `A bounty's been posted on ${q.targetVariant}, a notorious threat last seen prowling this region. Bring proof of the kill.`;
-  if(q.type === 'kingdom_favor') return `${q.giverName} asks you to prove your continued goodwill toward ${q.targetKingdom} by driving off the goblin and ork raiders threatening the region.`;
+  if(q.type === 'kingdom_favor') return q.tier >= KINGDOM_FAVOR_MAX_TIER
+    ? `${q.giverName} says this is the last thing ${q.targetKingdom} will ever need to ask of you — stand with them once more against the goblin and ork raiders threatening the region, and your two peoples' bond is sealed for good.`
+    : `${q.giverName} asks you to prove your continued goodwill toward ${q.targetKingdom} by driving off the goblin and ork raiders threatening the region.`;
   if(q.type === 'kill_bandits') return `${q.giverName} asked you to see to the bandits plaguing the roads.`;
   if(q.type === 'kill_raiders') return q.targetKingdom
     ? `${q.giverName} asked you to drive off ${q.targetKingdom}'s raiders threatening the region.`
@@ -9771,7 +9773,12 @@ function findVariantSpec(name){
 // goblinwar_quests array, this one needed the real character-snapshot triplicate (see
 // context/characters.md).
 const KINGDOM_FAVOR_KEY = "goblinwar_kingdomFavorTier";
-const KINGDOM_FAVOR_MAX_TIER = 2;
+const KINGDOM_FAVOR_MAX_TIER = 3;
+// The capstone tier (2 -> 3) has no higher reputationLabel bucket to reuse — "Trusted" is already
+// the top one, capped at 100 — so it's gated on a raw reputation number within that bucket instead
+// of a new label. 80 is a first-pass number, same "not verified against real play" caveat as every
+// other tuning constant in this game.
+const KINGDOM_FAVOR_TIER3_REP = 80;
 function getKingdomFavorTier(kingdom){
   try{ return (JSON.parse(localStorage.getItem(KINGDOM_FAVOR_KEY)) || {})[kingdom] || 0; }catch(e){ return 0; }
 }
@@ -9781,12 +9788,17 @@ function recordKingdomFavorCompleted(kingdom){
   map[kingdom] = Math.min(KINGDOM_FAVOR_MAX_TIER, getKingdomFavorTier(kingdom) + 1);
   localStorage.setItem(KINGDOM_FAVOR_KEY, JSON.stringify(map));
 }
-// Tier 1 unlocks once Friendly, the harder/better-paying tier 2 only once Trusted — reusing
-// reputationLabel's own existing boundaries rather than inventing new thresholds.
+// Tier 1 unlocks once Friendly, tier 2 once Trusted (reusing reputationLabel's own existing
+// boundaries rather than inventing new thresholds), and the capstone tier 3 only once reputation
+// is deep into Trusted territory (KINGDOM_FAVOR_TIER3_REP, a raw number since there's no bucket
+// above Trusted to reuse).
 function isKingdomFavorEligible(kingdom){
   if(!kingdom || getKingdomFavorTier(kingdom) >= KINGDOM_FAVOR_MAX_TIER) return false;
-  const label = reputationLabel(getReputation(kingdom));
-  return getKingdomFavorTier(kingdom) === 0 ? (label === 'Friendly' || label === 'Trusted') : label === 'Trusted';
+  const rep = getReputation(kingdom);
+  const tier = getKingdomFavorTier(kingdom);
+  if(tier === 0) { const label = reputationLabel(rep); return label === 'Friendly' || label === 'Trusted'; }
+  if(tier === 1) return reputationLabel(rep) === 'Trusted';
+  return rep >= KINGDOM_FAVOR_TIER3_REP;
 }
 
 // One weighted roll per Board slot decides which quest type it is, rather than the old fixed

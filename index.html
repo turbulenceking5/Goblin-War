@@ -186,6 +186,15 @@
   }
   #weather-overlay.show{ opacity:1; }
   #weather-badge{ font-size:10px; color:#a9926a; margin-left:4px; }
+  /* The ambient backdrop both night and weather wash sit on top of — the lowest-frequency of the
+     three (changes only ~90 days apart, see getCurrentSeason), so it layers beneath both and
+     reads as a persistent season-long mood rather than tonight's or today's conditions. */
+  #season-overlay{
+    position:absolute; inset:0; pointer-events:none; z-index:12;
+    opacity:0; transition:opacity 1.2s ease, background-color 1.2s ease;
+  }
+  #season-overlay.show{ opacity:1; }
+  #season-badge{ font-size:10px; color:#a9926a; margin-left:4px; }
 
   #recenter-btn{
     position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
@@ -685,6 +694,7 @@
         <b id="clock-time">12:00 PM</b>
       </span>
       <span id="weather-badge"></span>
+      <span id="season-badge"></span>
     </div>
   </header>
 
@@ -752,6 +762,7 @@
       </svg>
     </div>
     <div id="kingdom-labels-layer"></div>
+    <div id="season-overlay"></div>
     <div id="night-overlay"></div>
     <div id="weather-overlay"></div>
     <div id="ui-vignette"></div>
@@ -2225,6 +2236,30 @@ function updateWeatherOverlay(){
   badge.textContent = w.id === 'clear' ? '' : w.label;
   badge.style.display = w.id === 'clear' ? 'none' : '';
 }
+// Seasons — same "small current-condition factor folded into a couple of existing formulas"
+// pattern as weather above, but needs zero new persisted state: unlike weather (random-but-seeded
+// per gameDay), a season is a pure function of the calendar that's already stored. 3 months per
+// season, in the same order refreshCalendarUI's own 1-indexed `month` already counts them, so
+// Spring is months 1-3, Summer 4-6, Autumn 7-9, Winter 10-12.
+const SEASON_TYPES = [
+  { id:'spring', label:'Spring', tint:'rgba(130,190,110,.10)', travelMult:1,    ambushMult:1 },
+  { id:'summer', label:'Summer', tint:'rgba(235,185,90,.08)',  travelMult:1,    ambushMult:1 },
+  { id:'autumn', label:'Autumn', tint:'rgba(205,120,45,.14)',  travelMult:1,    ambushMult:1 },
+  { id:'winter', label:'Winter', tint:'rgba(180,205,230,.16)', travelMult:1.15, ambushMult:1.1 }, // icy roads slow travel; harder, more desperate roads
+];
+function getCurrentSeason(){
+  const monthIdx = Math.floor(gameDay / DAYS_PER_MONTH) % MONTHS_PER_YEAR;
+  return SEASON_TYPES[Math.floor(monthIdx / 3)];
+}
+function updateSeasonOverlay(){
+  const el = document.getElementById('season-overlay');
+  const badge = document.getElementById('season-badge');
+  if(!el || !badge) return;
+  const s = getCurrentSeason();
+  el.style.backgroundColor = s.tint;
+  el.classList.add('show');
+  badge.textContent = s.label;
+}
 // Same threshold the map tint and clock icon already use — one shared definition of "is it
 // night right now" for anything gameplay-side that wants to react to it (see doWork below).
 function isNightNow(){ return nightFactor(gameHour) >= 0.5; }
@@ -2249,6 +2284,7 @@ function refreshCalendarUI(){
   document.getElementById('clock-time').textContent = timeStr(gameHour);
   updateNightOverlay(gameHour);
   updateWeatherOverlay();
+  updateSeasonOverlay();
 }
 // The single source of truth for time passing now — advances the real clock by any number of
 // hours (not just whole days the way the old advanceDays did), rolling into a new gameDay only
@@ -6523,7 +6559,7 @@ function rollAmbush(hours, startHour, extraMult){
   const days = hours/HOURS_PER_DAY;
   const nightFrac = startHour === undefined ? 0 : nightFractionOfTrip(startHour, hours);
   const nightMult = 1 + nightFrac * (NIGHT_AMBUSH_TRAVEL_MULT - 1);
-  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * getCurrentWeather().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * getCurrentWeather().ambushMult * getCurrentSeason().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
 
@@ -6862,7 +6898,7 @@ function computeTravel(toId){
   const r = routeBetween(getCurrentCell(), getCurrentXY(), toBurg);
   const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
   const baseHours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
-  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult)); // lightweight weather — muddy roads in rain/storm
+  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult * getCurrentSeason().travelMult)); // lightweight weather (muddy roads) and season (icy winter roads)
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
@@ -6911,7 +6947,7 @@ function computeTravelToPoint(x, y, cell){
   const r = routeBetween(getCurrentCell(), getCurrentXY(), {x, y, cell});
   const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
   const baseHours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
-  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult)); // lightweight weather — muddy roads in rain/storm
+  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult * getCurrentSeason().travelMult)); // lightweight weather (muddy roads) and season (icy winter roads)
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
@@ -8678,7 +8714,7 @@ function showCampView(destId, destName, partialHours){
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
     }
-    if(Math.random() < NIGHT_AMBUSH_CHANCE * getCurrentWeather().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
+    if(Math.random() < NIGHT_AMBUSH_CHANCE * getCurrentWeather().ambushMult * getCurrentSeason().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
       triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();

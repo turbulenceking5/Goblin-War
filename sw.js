@@ -18,7 +18,7 @@
 // CACHE_NAME is bumped alongside version.json's changelogId (see CLAUDE.md's "Shipping a change?"
 // convention) so an update that changes cached page content also starts a clean cache rather than
 // serving a mix of old and new same-named responses.
-const CACHE_NAME = 'goblinwar-v168';
+const CACHE_NAME = 'goblinwar-v173';
 
 self.addEventListener('install', (event) => {
   // Takes over immediately rather than waiting for every open tab to close — the fallback-only

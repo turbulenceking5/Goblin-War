@@ -186,6 +186,15 @@
   }
   #weather-overlay.show{ opacity:1; }
   #weather-badge{ font-size:10px; color:#a9926a; margin-left:4px; }
+  /* The ambient backdrop both night and weather wash sit on top of — the lowest-frequency of the
+     three (changes only ~90 days apart, see getCurrentSeason), so it layers beneath both and
+     reads as a persistent season-long mood rather than tonight's or today's conditions. */
+  #season-overlay{
+    position:absolute; inset:0; pointer-events:none; z-index:12;
+    opacity:0; transition:opacity 1.2s ease, background-color 1.2s ease;
+  }
+  #season-overlay.show{ opacity:1; }
+  #season-badge{ font-size:10px; color:#a9926a; margin-left:4px; }
 
   #recenter-btn{
     position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
@@ -208,6 +217,22 @@
   #camp-here-btn:active{ transform:scale(.94); }
   #camp-here-btn.hide{ display:none; }
 
+  /* Settlement search — a quick way to jump the camera to any of this world's ~800 settlements
+     without visually scanning/panning/zooming to find it. Stacked a third button-width above
+     #camp-here-btn, same circular fixed-control convention (and never hidden during travel,
+     same as #recenter-btn — jumping away mid-journey just gets overridden on the next travel
+     animation frame, the same way a manual pan/zoom already does, see centerOnLogical's own
+     per-frame call in animateTravel). */
+  #map-search-btn{
+    position:fixed; right:12px; bottom:calc(138px + env(safe-area-inset-bottom)); z-index:26;
+    width:52px; height:52px; border-radius:50%;
+    background:rgba(13,18,32,.88);
+    border:2px solid var(--gold-lt); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:9px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+  }
+  #map-search-btn:active{ transform:scale(.94); }
+
   #wait-controls{
     position:fixed; left:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
     background:rgba(16,20,36,.95); border:1.5px solid var(--gold); border-radius:12px;
@@ -227,6 +252,54 @@
     font-family:'Cinzel', serif; font-size:9.5px; letter-spacing:.3px; color:var(--parchment);
     min-width:74px; text-align:center; line-height:1.25;
   }
+
+  /* Map legend — a small, dismissible reference panel for what the map's markers mean. The
+     toggle button matches #recenter-btn's own circular size/style convention, mirrored onto the
+     left edge and stacked above #wait-controls the same way #camp-here-btn stacks above
+     #recenter-btn on the right (76px clears #wait-controls' own ~50px height with room to spare). */
+  #legend-btn{
+    position:fixed; left:12px; bottom:calc(76px + env(safe-area-inset-bottom)); z-index:26;
+    width:52px; height:52px; border-radius:50%;
+    background:rgba(13,18,32,.88);
+    border:2px solid var(--gold-lt); color:var(--gold-lt); font-family:'Cinzel', serif; font-weight:700; font-size:9px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.1;
+  }
+  #legend-btn:active{ transform:scale(.94); }
+  /* A transparent tap-to-dismiss layer rather than a darkened backdrop — this is a reference
+     aid meant to sit lightly over the map, not a modal that needs to demand attention. Sits just
+     below the panel itself but still well under #toast's 80 (see root CLAUDE.md's z-index-
+     layering convention) and above the ordinary map chrome (26). */
+  #legend-backdrop{ position:fixed; inset:0; z-index:39; display:none; }
+  #legend-backdrop.show{ display:block; }
+  #legend-panel{
+    position:fixed; left:12px; bottom:calc(136px + env(safe-area-inset-bottom)); z-index:40;
+    width:240px; max-width:calc(100vw - 24px); max-height:60vh; overflow-y:auto;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:1.5px solid var(--gold); border-radius:12px;
+    padding:12px 14px; box-shadow:0 6px 18px rgba(0,0,0,.5);
+    display:none;
+  }
+  #legend-panel.show{ display:block; }
+  #legend-panel-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  #legend-panel-header h2{ font-family:'Cinzel Decorative', serif; font-size:13px; color:var(--gold-lt); margin:0; }
+  #legend-close-btn{
+    background:transparent; border:none; color:var(--parchment-shadow); font-family:'Cinzel', serif;
+    font-size:17px; line-height:1; padding:2px 6px; cursor:pointer;
+  }
+  #legend-close-btn:active{ color:var(--gold-lt); }
+  .legend-row{
+    display:flex; align-items:center; gap:10px; padding:6px 0;
+    border-top:1px solid rgba(209,164,69,.18);
+  }
+  .legend-row:first-of-type{ border-top:none; }
+  /* min-width (not a fixed width) so every row's icon column lines up by default, but a wider
+     swatch — the Settlements row shows all four tier sizes side by side — grows instead of
+     clipping into the label text next to it. */
+  .legend-swatch{ flex:none; min-width:30px; display:flex; align-items:center; justify-content:center; gap:3px; }
+  .legend-swatch img, .legend-swatch svg{ display:block; }
+  .legend-label{ font-family:'Cinzel', serif; font-size:10px; letter-spacing:.2px; color:var(--parchment); line-height:1.3; }
+  .legend-label b{ color:var(--gold-lt); font-weight:700; }
 
   #info-card{
     position:fixed; left:0; right:0; bottom:0; z-index:30;
@@ -267,6 +340,51 @@
   .travel-btn:active{ transform:scale(.96); }
   #btn-stop-travel{ background:transparent; color:var(--gold-lt); }
   #btn-camp-travel{ background:linear-gradient(180deg, var(--gold-lt), var(--gold)); color:#241705; font-weight:700; border-color:#7a5715; }
+
+  /* #map-search-btn's own panel — structurally the same centered-card overlay as #whats-new-modal/
+     #world-event-modal (dim backdrop, one card, flex-centered), not a bottom sheet like #info-card,
+     since this needs room for both a text input and a scrollable result list at once. z-index 55:
+     below #location-view's 60 and #combat-view's 70 (this only ever opens from the bare map screen,
+     which both of those already paint over completely, so it never needs to outrank either) and
+     comfortably below #toast's 80. */
+  #search-modal{
+    position:fixed; inset:0; z-index:55; display:none;
+    background:rgba(8,10,18,.75);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #search-modal.show{ display:flex; }
+  #search-card{
+    max-width:380px; width:100%; max-height:80vh;
+    background:linear-gradient(180deg,#1c2238 0%, #0d1220 100%);
+    border:2px solid var(--gold); border-radius:14px;
+    padding:20px 20px calc(20px + env(safe-area-inset-bottom));
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+    display:flex; flex-direction:column; gap:12px;
+  }
+  #search-card-header{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  #search-title{ font-family:'Cinzel Decorative', serif; font-size:18px; color:var(--gold-lt); margin:0; text-shadow:none; }
+  #search-close{
+    background:transparent; border:none; color:#a9926a; font-size:24px; line-height:1; cursor:pointer; padding:0 4px;
+  }
+  #search-close:active{ color:var(--gold-lt); }
+  #search-input{
+    font-family:'EB Garamond', serif; font-size:15px; color:var(--parchment);
+    background:rgba(0,0,0,.25); border:1.5px solid rgba(209,164,69,.4); border-radius:8px;
+    padding:11px 12px; width:100%; flex:none;
+  }
+  #search-input::placeholder{ color:#7a6b4d; }
+  /* The card itself doesn't scroll (max-height:80vh above) — only the result list does, so the
+     input stays pinned in view no matter how long the (capped) list gets. */
+  #search-results{ overflow-y:auto; flex:1; min-height:0; display:flex; flex-direction:column; gap:6px; }
+  .search-result{
+    display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(209,164,69,.3);
+    border-radius:8px; padding:10px 12px; cursor:pointer;
+  }
+  .search-result:active{ background:rgba(255,255,255,.1); }
+  .search-result-name{ font-size:15px; color:var(--parchment); }
+  .search-result-meta{ font-size:11px; color:#a9926a; font-family:'Cinzel', serif; letter-spacing:.5px; text-transform:uppercase; flex:none; }
+  #search-empty{ font-size:13px; color:#a9926a; font-style:italic; text-align:center; padding:14px 4px; }
 
   #toast{
     position:fixed; top:calc(66px + env(safe-area-inset-top)); left:50%; transform:translate(-50%,-14px);
@@ -685,6 +803,7 @@
         <b id="clock-time">12:00 PM</b>
       </span>
       <span id="weather-badge"></span>
+      <span id="season-badge"></span>
     </div>
   </header>
 
@@ -752,6 +871,7 @@
       </svg>
     </div>
     <div id="kingdom-labels-layer"></div>
+    <div id="season-overlay"></div>
     <div id="night-overlay"></div>
     <div id="weather-overlay"></div>
     <div id="ui-vignette"></div>
@@ -759,12 +879,23 @@
 
   <button id="recenter-btn">FIND<br>ME</button>
   <button id="camp-here-btn">MAKE<br>CAMP</button>
+  <button id="map-search-btn">SEARCH<br>MAP</button>
 
   <div id="wait-controls">
     <button class="wait-btn" id="wait-play-btn" title="Wait">&#9654;</button>
     <button class="wait-btn" id="wait-pause-btn" title="Pause" disabled>&#10074;&#10074;</button>
     <button class="wait-btn" id="wait-speed-btn" title="3&times; Speed">3&times;</button>
     <div id="wait-status">Wait here</div>
+  </div>
+
+  <button id="legend-btn" title="Map Legend">MAP<br>KEY</button>
+  <div id="legend-backdrop"></div>
+  <div id="legend-panel">
+    <div id="legend-panel-header">
+      <h2>Map Legend</h2>
+      <button id="legend-close-btn" aria-label="Close">&times;</button>
+    </div>
+    <div id="legend-rows"></div>
   </div>
 
   <div id="travel-controls">
@@ -776,6 +907,18 @@
   </div>
 
   <div id="toast"></div>
+
+  <div id="search-modal">
+    <div id="search-card">
+      <div id="search-card-header">
+        <h2 id="search-title">Find a Settlement</h2>
+        <button id="search-close" aria-label="Close search">&times;</button>
+      </div>
+      <input id="search-input" type="text" placeholder="Type a settlement name…" autocomplete="off" maxlength="40">
+      <div id="search-results"></div>
+      <div id="search-empty" style="display:none;">No settlements match that.</div>
+    </div>
+  </div>
 
   <div id="info-card">
     <div class="handle"></div>
@@ -2141,6 +2284,12 @@ viewport.addEventListener('wheel', (e)=>{
 }, {passive:false});
 
 function handleTap(clientX, clientY){
+  // A tap on the map (marker or otherwise) dismisses the legend panel if it's open — it's a
+  // reference overlay, not meant to sit on top of #info-card once the player's actually acting on
+  // the map again. closeLegendPanel is a hoisted function declaration (defined further down,
+  // alongside the rest of the Map Legend code), so calling it here ahead of its own definition is
+  // safe.
+  closeLegendPanel();
   const el = document.elementFromPoint(clientX, clientY);
   if(el && el.dataset && el.dataset.battle){
     onBattleMarkerTap(el.dataset.battle);
@@ -2161,6 +2310,87 @@ document.getElementById('recenter-btn').addEventListener('click', ()=>{
 document.getElementById('camp-here-btn').addEventListener('click', ()=>{
   closeCard();
   showCampView(null, null, 0);
+});
+
+// ---- Settlement search (#map-search-btn / #search-modal) ----
+// A quick-jump search over this world's ~800 settlements, so finding one doesn't mean visually
+// panning/zooming the whole map. burgSearchIndex (built once, right after graph loads — see
+// buildBurgSearchIndex below) precomputes each burg's lowercased name once rather than re-running
+// toLowerCase() on every entry on every keystroke; MAP_SEARCH_MAX_RESULTS caps how many rows ever
+// get built/rendered, both for UI sanity against that many settlements and so a broad query (or an
+// empty one) doesn't walk the full list further than it needs to once the cap is already hit.
+const MAP_SEARCH_MAX_RESULTS = 20;
+let burgSearchIndex = []; // [{id, name, nameLower, tier}, ...] — see buildBurgSearchIndex()
+function buildBurgSearchIndex(){
+  burgSearchIndex = Object.values(graph.burgs).map(b => ({ id:b.id, name:b.name, nameLower:b.name.toLowerCase(), tier:b.tier }));
+}
+function renderSearchResults(query){
+  const resultsEl = document.getElementById('search-results');
+  const emptyEl = document.getElementById('search-empty');
+  const q = query.trim().toLowerCase();
+  const matches = [];
+  for(const entry of burgSearchIndex){
+    if(!q || entry.nameLower.includes(q)){
+      matches.push(entry);
+      if(matches.length >= MAP_SEARCH_MAX_RESULTS) break; // stop scanning early once the cap's hit
+    }
+  }
+  if(!matches.length){
+    resultsEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  // Same convention as every other burg.name interpolation in this file (e.g. the location-view
+  // "Return to ${b.name}" rows) — settlement names come from this character's own procedural
+  // generator, never from another player or outside input, so no escaping precedent exists here.
+  resultsEl.innerHTML = matches.map(b => `
+    <div class="search-result" data-burg="${b.id}">
+      <span class="search-result-name">${b.name}</span>
+      <span class="search-result-meta">${TIER_LABEL[b.tier] || b.tier}</span>
+    </div>
+  `).join('');
+}
+// One delegated listener on the results container rather than one per row — rows get rebuilt
+// wholesale on every keystroke (cheap at a 20-row cap), so per-row listeners would otherwise need
+// re-attaching every time too.
+document.getElementById('search-results').addEventListener('click', (e)=>{
+  const row = e.target.closest('.search-result');
+  if(!row) return;
+  selectSearchResult(row.dataset.burg);
+});
+function selectSearchResult(burgId){
+  const burg = graph.burgs[burgId];
+  if(!burg) return;
+  closeSearchModal();
+  // Same zoomed-in-but-never-zoomed-out scale #recenter-btn's own handler uses — jumping to a
+  // searched settlement reads consistently with "snap back to where I am."
+  centerOnLogical(burg.x, burg.y, Math.max(view.scale, (viewport.clientWidth)/((STAGE_W/LOGICAL_W)*REGION_W)));
+  // Opens the same #info-card a direct tap on the settlement would — searching for a place and
+  // tapping its result behaves exactly like scrolling to it and tapping it by hand (travel quote,
+  // Travel Here button, and all), rather than leaving the player to tap it a second time once the
+  // camera lands.
+  onMapTap(burgId);
+}
+function openSearchModal(){
+  if(!burgSearchIndex.length) buildBurgSearchIndex(); // defensive — graph should already be loaded by the time this button is reachable
+  document.getElementById('search-modal').classList.add('show');
+  const input = document.getElementById('search-input');
+  input.value = '';
+  renderSearchResults('');
+  input.focus();
+}
+function closeSearchModal(){
+  document.getElementById('search-modal').classList.remove('show');
+  document.getElementById('search-input').blur();
+}
+document.getElementById('map-search-btn').addEventListener('click', openSearchModal);
+document.getElementById('search-close').addEventListener('click', closeSearchModal);
+document.getElementById('search-modal').addEventListener('click', (e)=>{
+  if(e.target.id === 'search-modal') closeSearchModal(); // tap on the dim backdrop itself, not the card
+});
+document.getElementById('search-input').addEventListener('input', (e)=>{
+  renderSearchResults(e.target.value);
 });
 
 const CAL_KEY = "goblinwar_gameDay";
@@ -2225,6 +2455,30 @@ function updateWeatherOverlay(){
   badge.textContent = w.id === 'clear' ? '' : w.label;
   badge.style.display = w.id === 'clear' ? 'none' : '';
 }
+// Seasons — same "small current-condition factor folded into a couple of existing formulas"
+// pattern as weather above, but needs zero new persisted state: unlike weather (random-but-seeded
+// per gameDay), a season is a pure function of the calendar that's already stored. 3 months per
+// season, in the same order refreshCalendarUI's own 1-indexed `month` already counts them, so
+// Spring is months 1-3, Summer 4-6, Autumn 7-9, Winter 10-12.
+const SEASON_TYPES = [
+  { id:'spring', label:'Spring', tint:'rgba(130,190,110,.10)', travelMult:1,    ambushMult:1 },
+  { id:'summer', label:'Summer', tint:'rgba(235,185,90,.08)',  travelMult:1,    ambushMult:1 },
+  { id:'autumn', label:'Autumn', tint:'rgba(205,120,45,.14)',  travelMult:1,    ambushMult:1 },
+  { id:'winter', label:'Winter', tint:'rgba(180,205,230,.16)', travelMult:1.15, ambushMult:1.1 }, // icy roads slow travel; harder, more desperate roads
+];
+function getCurrentSeason(){
+  const monthIdx = Math.floor(gameDay / DAYS_PER_MONTH) % MONTHS_PER_YEAR;
+  return SEASON_TYPES[Math.floor(monthIdx / 3)];
+}
+function updateSeasonOverlay(){
+  const el = document.getElementById('season-overlay');
+  const badge = document.getElementById('season-badge');
+  if(!el || !badge) return;
+  const s = getCurrentSeason();
+  el.style.backgroundColor = s.tint;
+  el.classList.add('show');
+  badge.textContent = s.label;
+}
 // Same threshold the map tint and clock icon already use — one shared definition of "is it
 // night right now" for anything gameplay-side that wants to react to it (see doWork below).
 function isNightNow(){ return nightFactor(gameHour) >= 0.5; }
@@ -2249,6 +2503,7 @@ function refreshCalendarUI(){
   document.getElementById('clock-time').textContent = timeStr(gameHour);
   updateNightOverlay(gameHour);
   updateWeatherOverlay();
+  updateSeasonOverlay();
 }
 // The single source of truth for time passing now — advances the real clock by any number of
 // hours (not just whole days the way the old advanceDays did), rolling into a new gameDay only
@@ -2433,7 +2688,7 @@ document.getElementById('tutorial-dismiss').addEventListener('click', ()=>{
 // defaults "true" for any pre-existing character, same as TUTORIAL_SEEN_KEY — see
 // freshCharacterData's isNewCharacter param in characters.html), so an existing player is never
 // retroactively interrupted by a tour covering UI they already know. Deliberately scoped to the
-// HUD/toolbar only (the stat pills, the six nav icons, Find Me, Make Camp) — the map itself and
+// HUD/toolbar only (the stat pills, the six nav icons, Find Me, Make Camp, Search the Map) — the map itself and
 // "tap a settlement to travel" are already covered by the welcome modal's own prose.
 const TOOLTIP_TOUR_SEEN_KEY = "goblinwar_tooltipTourSeen";
 const ONBOARDING_STEPS = [
@@ -2441,6 +2696,8 @@ const ONBOARDING_STEPS = [
   { selector:'#nav-icons', title:'Your Toolbar', text:'Inventory, Party, Hero, Skills, Quests, and Settings — everything about your character lives behind these six icons.' },
   { selector:'#recenter-btn', title:'Find Yourself', text:'Lost on the map? This snaps the view straight back to wherever you currently are.' },
   { selector:'#camp-here-btn', title:'Make Camp', text:'Tap this to rest right where you stand — handy mid-journey, or when the road ahead looks too risky to travel further.' },
+  { selector:'#map-search-btn', title:'Search the Map', text:'Can’t find a settlement by eye? Search its name here and jump straight to it.' },
+  { selector:'#legend-btn', title:'Map Key', text:'Not sure what a marker means? This lays out every icon on the map — settlements, armies, battles, and landmarks.' },
 ];
 let onboardingStepIndex = 0;
 function maybeStartOnboardingTour(){
@@ -6523,7 +6780,7 @@ function rollAmbush(hours, startHour, extraMult){
   const days = hours/HOURS_PER_DAY;
   const nightFrac = startHour === undefined ? 0 : nightFractionOfTrip(startHour, hours);
   const nightMult = 1 + nightFrac * (NIGHT_AMBUSH_TRAVEL_MULT - 1);
-  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * getCurrentWeather().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
+  const chancePerDay = AMBUSH_CHANCE_PER_DAY * nightMult * getCurrentWeather().ambushMult * getCurrentSeason().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1) * (extraMult || 1);
   return Math.random() < 1 - Math.pow(1-chancePerDay, days);
 }
 
@@ -6618,6 +6875,56 @@ function clearPendingSettlementEvent(burgId){
   if(state[burgId]) state[burgId].eventId = null;
   localStorage.setItem(SETTLEMENT_EVENT_KEY, JSON.stringify(state));
 }
+// On-the-road counterpart to WORLD_EVENTS/SETTLEMENT_EVENTS above — same {id, title, text, good,
+// bad} shape and the same showEventModal/resolveWorldEvent resolution path, but rolled for days
+// genuinely *crossed mid-journey* (see rollTravelEncounter/beginTravel), not for the arrival itself
+// (that's still WORLD_EVENTS' job) and not for a settlement the player is standing in (that's
+// SETTLEMENT_EVENTS'). Framed around the days-deep stretch of the journey itself — a shared fire,
+// a crossing, a dry spell — deliberately distinct from WORLD_EVENTS' own "just outside town"
+// rural framing (milestone/cart/crossroads/farmstead/treeline) and SETTLEMENT_EVENTS' in-town one.
+const TRAVEL_ENCOUNTERS = [
+  { id:'road_night_fire', title:"A Fire Down the Road",
+    text:"Somewhere in the days since you last saw a proper roof, you spot the orange flicker of someone else's campfire a short way off the path.",
+    good:{ label:"Share the fire", gold:0, loyalty:8, xp:6, resultText:"A stranger's stew and an hour of trading stories makes the road feel shorter. You part ways come morning, a little richer for the company." },
+    bad:{ label:"Keep to your own fire", gold:0, loyalty:-4, xp:0, resultText:"You give the light a wide berth and bed down alone again. Safer, maybe. Lonelier, certainly." } },
+  { id:'swollen_ford', title:"A Swollen Ford",
+    text:"Days of travel have brought you to a river crossing running higher and faster than the road markers promised — a local waits at the bank offering to guide you through for a price.",
+    good:{ label:"Pay the guide", gold:-10, loyalty:0, xp:5, resultText:"He knows the footing better than you ever would have guessed, and you're across dry before you know it." },
+    bad:{ label:"Find your own way across", gold:0, loyalty:0, xp:3, staminaCost:15, resultText:"You make it across on your own, soaked to the bone and aching for it, but you keep your coin." } },
+  { id:'stray_packmule', title:"A Stray Pack-Mule",
+    text:"A loaded pack-mule trots alongside the road with no owner in sight, saddlebags swinging and clearly not wild stock.",
+    good:{ label:"Track down its owner", gold:0, loyalty:10, xp:8, resultText:"A mile on you find the drover, frantic and grateful, searching the ditches for exactly this animal." },
+    bad:{ label:"Keep whatever's in the saddlebags", gold:12, loyalty:-10, xp:0, resultText:"Whoever lost that mule is someone else's problem now. The coin in the saddlebag spends just the same." } },
+  { id:'distant_watchfires', title:"Watchfires on the Ridge",
+    text:"Deep into a long stretch of road, you notice watchfires burning along a ridge well off the path — soldiers, by the look of the spacing, keeping an eye on something you can't see.",
+    good:{ label:"Go see what they're watching for", gold:5, loyalty:4, xp:10, staminaCost:10, resultText:"A tense climb later, a sergeant waves you off with a warning — and a coin for not making trouble — rather than chase you off empty-handed." },
+    bad:{ label:"Not your business tonight", gold:0, loyalty:0, xp:0, resultText:"Whatever they're watching for, it's none of your concern tonight. You keep walking." } },
+  { id:'roadside_shrine', title:"A Roadside Shrine",
+    text:"Days into the journey, the road passes a small weathered shrine, its offering bowl holding nothing but a few wilted flowers and a handful of coppers.",
+    good:{ label:"Leave an offering", gold:-5, loyalty:5, xp:4, resultText:"You add what you can spare to the bowl. Whether anyone's listening or not, it feels like good luck for the road ahead." },
+    bad:{ label:"Take the coppers", gold:4, loyalty:-5, xp:0, resultText:"A few coppers are a few coppers. You pocket them and don't look back at the shrine." } },
+  { id:'dry_stretch', title:"A Dry Stretch of Road",
+    text:"An unexpectedly dry stretch of the journey has left your waterskin lighter than you'd like, with no well or stream in sight for miles yet.",
+    good:{ label:"Ration carefully", gold:0, loyalty:0, xp:4, thirstCost:4, resultText:"You go a little thirstier than you'd like, but you make it to the next water source with something left in the skin." },
+    bad:{ label:"Drink your fill now", gold:0, loyalty:0, xp:0, resultText:"You drink deep while you still can. The skin's bone dry well before the next stream — tomorrow's problem, not today's." } },
+];
+// Flat per-day chance, deliberately simpler than rollAmbush's own night/weather/perk-scaled math —
+// this system doesn't need that elaborateness, just a low independent chance per full in-game day
+// actually crossed mid-journey (rollTravelEncounter below), not per hour or per mile.
+const TRAVEL_ENCOUNTER_CHANCE = 0.12;
+// Independent Bernoulli trial per day crossed, same chance each day, but surfaces as at most one
+// hit for the whole trip (returns on the first one) — a long multi-day trip is meaningfully more
+// likely to have *something* happen on it than a 1-day hop, without ever stacking multiple
+// encounter modals back to back for the same journey. `days` is always a whole number >= 1 here
+// (see beginTravel — callers never invoke this for a same-day hop at all).
+function rollTravelEncounter(days){
+  for(let i=0;i<days;i++){ if(Math.random() < TRAVEL_ENCOUNTER_CHANCE) return true; }
+  return false;
+}
+function triggerTravelEncounter(onEnd){
+  const event = TRAVEL_ENCOUNTERS[Math.floor(Math.random()*TRAVEL_ENCOUNTERS.length)];
+  showEventModal(event, onEnd, null);
+}
 function rollWorldEvent(){ return Math.random() < WORLD_EVENT_CHANCE; }
 // {event, onEnd, burgId} while #world-event-modal is open — burgId is set only for a
 // settlement-anchored event (see triggerSettlementEvent/showEventModal below), same "add a field
@@ -6651,7 +6958,10 @@ function triggerSettlementEvent(burgId){
 }
 // gold can go either direction (clamped at 0, same floor every gold spend in the game already
 // uses); healthCost/staminaCost are optional stakes on the riskier "good" choices, floored at 1/0
-// respectively so helping someone can never itself be fatal.
+// respectively so helping someone can never itself be fatal. hungerCost/thirstCost (TRAVEL_ENCOUNTERS
+// only so far, but generic here same as the others) feed straight into addHunger/addThirst using
+// their own existing clamp-and-overflow handling — never a new persisted key, same meters travel
+// arrival already drains.
 function resolveWorldEvent(choiceKey){
   if(!activeWorldEvent) return;
   const { event, onEnd, burgId } = activeWorldEvent;
@@ -6662,6 +6972,8 @@ function resolveWorldEvent(choiceKey){
   if(choice.gold) setGold(Math.max(0, playerGold + choice.gold));
   if(choice.healthCost) setHealth(Math.max(1, playerHealth - choice.healthCost));
   if(choice.staminaCost) setStamina(Math.max(0, playerStamina - choice.staminaCost));
+  if(choice.hungerCost) addHunger(choice.hungerCost);
+  if(choice.thirstCost) addThirst(choice.thirstCost);
   const leveledUp = choice.xp ? addXp(choice.xp) : false;
   const loyaltyNote = adjustPartyLoyalty(choice.loyalty);
   showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote);
@@ -6862,7 +7174,7 @@ function computeTravel(toId){
   const r = routeBetween(getCurrentCell(), getCurrentXY(), toBurg);
   const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
   const baseHours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
-  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult)); // lightweight weather — muddy roads in rain/storm
+  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult * getCurrentSeason().travelMult)); // lightweight weather (muddy roads) and season (icy winter roads)
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
@@ -6911,7 +7223,7 @@ function computeTravelToPoint(x, y, cell){
   const r = routeBetween(getCurrentCell(), getCurrentXY(), {x, y, cell});
   const mounted = r.viaRoad && !r.bySea && !!getItem('Horse');
   const baseHours = mounted ? Math.max(1, Math.ceil(r.hours / HORSE_PACE_MULT)) : r.hours;
-  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult)); // lightweight weather — muddy roads in rain/storm
+  const hours = Math.max(1, Math.ceil(baseHours * getCurrentWeather().travelMult * getCurrentSeason().travelMult)); // lightweight weather (muddy roads) and season (icy winter roads)
   const ferryCost = r.seaMiles > 0 ? Math.max(FERRY_MIN_FARE, Math.round(r.seaMiles * FERRY_GOLD_PER_MILE)) : 0;
   return { ...r, hours, mounted, ferryCost, hungerGain: hoursToHungerGain(hours), thirstGain: hoursToThirstGain(hours) };
 }
@@ -7287,15 +7599,118 @@ function kingdomColor(kingdom){
   return color;
 }
 
+// ---- Settlement label collision avoidance — build-time, one-shot, pure logical-space nudge ----
+// Known gap this closes (see travel-and-map.md's buildCityIcons() writeup, "Labels still have no
+// collision avoidance at all"): dense settlement clusters make names overlap and become unreadable.
+// buildKingdomTerritoryLabels()/positionKingdomLabels() just above already run a real
+// force-relaxation separation pass, but that one has to re-run on every pan/zoom tick because
+// #kingdom-labels-layer lives in screen space with a FIXED PIXEL font size (see that function's own
+// comment) — at ~800 settlement labels (vs ~15-24 kingdom labels) doing the same thing every frame
+// would be a real perf concern.
+//
+// Settlement labels don't have that problem. They're real SVG <text> elements inside the scaled
+// #overlay, with font-size set directly in LOGICAL units (LABEL_FONT_SIZE) — the same coordinate
+// space b.x/b.y already live in. Because #overlay is scaled by one uniform view.scale transform,
+// whether two labels' rendered boxes overlap on screen is entirely determined by whether their boxes
+// overlap in LOGICAL space, and a uniform scale can't change that (it can't make two things that
+// don't overlap start overlapping, or vice versa, since it scales every distance by the same
+// factor). So a one-shot pass computed in logical space at build time is correct at every zoom level
+// forever — there's nothing to re-run on pan/zoom, unlike the kingdom labels' fixed-screen-px sizing,
+// which genuinely does need re-layout as the viewport's own CSS size changes.
+//
+// Labels also never need to move again after this: a settlement's name (content) and b.x/b.y (base
+// position) never change post-load — only a label's COLOR depends on current territorial control
+// (kingdomColor(getControllerKingdom(id))), which does change at the weekly tick. buildLabels()
+// still reruns then to pick that color up, but the expensive nudge pass itself is cached
+// (labelNudgeCache below, computed once per page load) — a weekly-tick rebuild is just ~800 cheap
+// attribute writes reusing the cached offsets, not a second full collision pass.
+//
+// Nudges are applied along the X axis only, never Y. Y is reserved entirely for LABEL_OFFSET_Y's own
+// job of clearing a label of its own settlement's icon (see that constant's comment) — nudging Y
+// here too could undo that guarantee for whichever label got pushed toward its icon. Resolving an
+// AABB overlap only ever requires separating along ONE axis (if two boxes don't overlap on X, they
+// don't overlap at all, regardless of Y), so X-only pushes are sufficient to clear every detected
+// overlap while leaving every label's icon-clearance guarantee completely untouched.
+//
+// Text width isn't measured against the real DOM (getBBox()/getComputedTextLength() on ~800
+// elements would force that many synchronous layout passes just to build the map) — it's estimated
+// from character count * font-size * LABEL_CHAR_WIDTH_RATIO, a cheap heuristic tuned by eye against
+// Cinzel's own average glyph advance. Good enough to catch real overlaps in dense clusters, not a
+// pixel-perfect layout — the same "good enough, not true bin-packing" spirit
+// positionKingdomLabels() already documents for its own pass.
+//
+// ~800 settlements is the one real difference from the kingdom pass (~24) that matters for cost:
+// even a naive O(n^2) pairwise check over 800 points measures well under 100ms (comparable to
+// buildBorderMarkers()'s own one-time ~130ms grid trace at load) — but the spatial-hash bucketing
+// below avoids the full O(n^2) anyway, by only ever comparing a label against others in its own or
+// an adjacent grid cell.
+const LABEL_CHAR_WIDTH_RATIO = 0.56; // Cinzel serif's rough average glyph advance, as a fraction of font-size
+const LABEL_HALF_HEIGHT_RATIO = 0.55; // rough half cap-to-descender height, as a fraction of font-size
+const LABEL_PAD = 2; // logical units of breathing room added to every side of a label's estimated box
+const LABEL_SEPARATION_PASSES = 5; // same order as positionKingdomLabels()'s own 6 — converges well past any overlap found in testing against a realistic settlement spacing floor
+const LABEL_GRID_CELL = 200; // logical units — comfortably bigger than any single label's own half-width/half-height, so two labels in non-adjacent cells can never actually overlap
+let labelNudgeCache = null; // burgId -> x-offset in logical units; computed once per page load (world/positions never change after that)
+function computeLabelNudges(){
+  const entries = [];
+  let i = 0;
+  for(const id in graph.burgs){
+    const b = graph.burgs[id];
+    const fontSize = LABEL_FONT_SIZE[b.tier] || 4;
+    const name = b.name || '';
+    entries.push({
+      id,
+      x: b.x, y: b.y + (LABEL_OFFSET_Y[b.tier] || 11),
+      hw: Math.max(fontSize, name.length * fontSize * LABEL_CHAR_WIDTH_RATIO) / 2 + LABEL_PAD,
+      hh: fontSize * LABEL_HALF_HEIGHT_RATIO + LABEL_PAD,
+      dx: 0, idx: i++
+    });
+  }
+  for(let pass=0; pass<LABEL_SEPARATION_PASSES; pass++){
+    // Spatial hash, rebuilt fresh each pass from the entries' current (nudged) x — only labels
+    // sharing or neighboring a bucket can possibly overlap, given LABEL_GRID_CELL's size guarantee.
+    const buckets = new Map();
+    for(const e of entries){
+      const cx = Math.floor((e.x + e.dx) / LABEL_GRID_CELL), cy = Math.floor(e.y / LABEL_GRID_CELL);
+      const key = cx + ',' + cy;
+      let list = buckets.get(key);
+      if(!list){ list = []; buckets.set(key, list); }
+      list.push(e);
+    }
+    for(const e of entries){
+      const cx = Math.floor((e.x + e.dx) / LABEL_GRID_CELL), cy = Math.floor(e.y / LABEL_GRID_CELL);
+      for(let ncx = cx-1; ncx <= cx+1; ncx++){
+        for(let ncy = cy-1; ncy <= cy+1; ncy++){
+          const list = buckets.get(ncx + ',' + ncy);
+          if(!list) continue;
+          for(const other of list){
+            if(other.idx <= e.idx) continue; // each unordered pair resolved exactly once
+            const ax = e.x + e.dx, bx = other.x + other.dx;
+            const dx = bx - ax, dy = other.y - e.y;
+            const ox = (e.hw + other.hw) - Math.abs(dx);
+            const oy = (e.hh + other.hh) - Math.abs(dy);
+            if(ox <= 0 || oy <= 0) continue; // boxes don't actually overlap — nothing to resolve
+            const push = (ox/2) * (dx < 0 ? -1 : 1); // dx===0 ties toward the positive branch, same convention positionKingdomLabels() uses
+            e.dx -= push; other.dx += push;
+          }
+        }
+      }
+    }
+  }
+  const cache = {};
+  entries.forEach(e=>{ cache[e.id] = e.dx; });
+  return cache;
+}
+
 function buildLabels(){
   const g = document.getElementById('labels');
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
+  if(!labelNudgeCache) labelNudgeCache = computeLabelNudges();
   for(const id in graph.burgs){
     const b = graph.burgs[id];
     const t = document.createElementNS(ns, "text");
     t.setAttribute("class", `map-label tier-${b.tier}`);
-    t.setAttribute("x", b.x);
+    t.setAttribute("x", b.x + (labelNudgeCache[id] || 0));
     t.setAttribute("y", b.y + (LABEL_OFFSET_Y[b.tier] || 11));
     t.setAttribute("font-size", LABEL_FONT_SIZE[b.tier] || 4);
     t.setAttribute("font-weight", b.tier === 'capital' ? '700' : '500');
@@ -8192,14 +8607,37 @@ function beginTravel(destId, viaShortcut){
     // over to whenever the player next actually completes a road trip.
     if(escorted) localStorage.setItem(CARAVAN_ESCORT_KEY, 'false');
     const ambushMult = (viaShortcut ? SHORTCUT_AMBUSH_MULT : 1) * (escorted ? CARAVAN_ESCORT_AMBUSH_MULT : 1);
-    if(rollAmbush(t.hours, startHour, ambushMult)){
-      triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
-    } else if(rollWorldEvent()){
-      triggerWorldEvent(()=> showLocationView(currentBurg));
-    } else if(escorted){
-      showCaravanArrivalDialogue(currentBurg);
+    // Resolves the existing arrival-time interruption exactly as before — unchanged, and still at
+    // most one of ambush/world-event/escort-dialogue per arrival. Pulled into its own closure so
+    // the new travel-encounter roll just below can run first and chain into it afterward, rather
+    // than being folded into this same else-if chain as one more alternative — that would make the
+    // travel encounter *compete with* the arrival roll (one or the other, never both), when the
+    // whole point is that they're independent and can both fire on the same trip.
+    const resolveArrival = () => {
+      if(rollAmbush(t.hours, startHour, ambushMult)){
+        triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
+      } else if(rollWorldEvent()){
+        triggerWorldEvent(()=> showLocationView(currentBurg));
+      } else if(escorted){
+        showCaravanArrivalDialogue(currentBurg);
+      } else {
+        showLocationView(currentBurg);
+      }
+    };
+    // On-the-road encounters — independent of (not instead of) the arrival roll just above. Only
+    // ever considered for a trip that actually crossed at least one full in-game day mid-journey
+    // (same day-rollover math advanceTime itself just used a few lines up, computed here from the
+    // untouched startHour so it reads identically regardless of code order) — a short same-day hop
+    // between neighboring settlements never has a `daysCrossed` to roll against at all, so it can
+    // never fire for one. Resolved first, since it's conceptually something that happened earlier
+    // in the journey, not at the destination's doorstep — its own onEnd just hands off into the
+    // unchanged resolveArrival above, so a trip can get both a travel encounter *and* an arrival
+    // ambush/world-event in sequence; it never suppresses or replaces that roll.
+    const daysCrossed = Math.floor((startHour + t.hours) / 24);
+    if(daysCrossed >= 1 && rollTravelEncounter(daysCrossed)){
+      triggerTravelEncounter(resolveArrival);
     } else {
-      showLocationView(currentBurg);
+      resolveArrival();
     }
   }, (info)=>{
     if(!activeTravel) return;
@@ -8273,6 +8711,8 @@ function beginTravelToBattle(battleId){
 const LANDMARK_TYPES = [
   { type:'ruins', name:"Old Ruins", flavor:"Weathered stonework pokes up through the undergrowth — something stood here once." },
   { type:'campsite', name:"Abandoned Campsite", flavor:"A cold fire ring and a half-collapsed lean-to — whoever camped here left in a hurry." },
+  { type:'cache', name:"Hidden Cache", flavor:"A battered strongbox, half-buried under a root — forced open long ago, but whoever did it didn't take everything." },
+  { type:'watchtower', name:"Old Watchtower", flavor:"A crumbling stone tower, its stair long since given way — whatever watch it once kept ended badly." },
 ];
 const LANDMARK_COUNT = 10;
 const LANDMARK_OFFSET_MIN = 25, LANDMARK_OFFSET_MAX = 70; // logical units off the nearest road
@@ -8317,10 +8757,18 @@ function claimLandmark(id){
 const LANDMARK_REWARDS = {
   ruins: { gold:[15,35], xp:[10,20] },
   campsite: { itemNames:['Food', 'Healing Potion'], xp:[6,14] },
+  // Pure gold, no XP — weighted toward a bigger payout than Ruins since finding one carries no
+  // ongoing risk beyond the arrival roll every landmark already shares (no digging, no fight).
+  cache: { gold:[30,60] },
+  // Pure XP, no gold/item — the "climb up, take in the view, come back down" reward a lore/flavor
+  // perk (e.g. revealing nearby map) would've needed a fog-of-war/map-reveal system this codebase
+  // doesn't have; kept reward-only like every other landmark type instead.
+  watchtower: { xp:[20,35] },
 };
-// One-time reward, granted on a safe arrival (see beginTravelToLandmark) — gold+XP for Ruins,
-// a foraged item+XP for a Campsite. Marks the landmark claimed either way so it can't be farmed
-// twice and its marker disappears on the next buildLandmarkMarkers() rebuild.
+// One-time reward, granted on a safe arrival (see beginTravelToLandmark) — gold+XP for Ruins, a
+// foraged item+XP for a Campsite, pure gold for a Cache, pure XP for a Watchtower. Marks the
+// landmark claimed either way so it can't be farmed twice and its marker disappears on the next
+// buildLandmarkMarkers() rebuild.
 function grantLandmarkReward(landmark){
   claimLandmark(landmark.id);
   let msg = landmark.flavor;
@@ -8331,7 +8779,7 @@ function grantLandmarkReward(landmark){
     const leveledUp = addXp(xp);
     msg += ` You pick through the rubble and come away with ${gold}g in old coin and trinkets. (+${xp} XP)`;
     if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
-  } else {
+  } else if(landmark.type === 'campsite'){
     const names = LANDMARK_REWARDS.campsite.itemNames;
     const name = names[Math.floor(Math.random() * names.length)];
     const mi = MARKET_ITEMS.find(m => m.name === name);
@@ -8339,6 +8787,15 @@ function grantLandmarkReward(landmark){
     if(mi && addItem(mi.name, 1, mi.weight, mi.price)) msg += ` You find a bit of ${mi.name} left behind.`;
     const leveledUp = addXp(xp);
     msg += ` (+${xp} XP)`;
+    if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
+  } else if(landmark.type === 'cache'){
+    const gold = randRange(LANDMARK_REWARDS.cache.gold);
+    setGold(playerGold + gold);
+    msg += ` You force open the strongbox and come away with ${gold}g.`;
+  } else if(landmark.type === 'watchtower'){
+    const xp = randRange(LANDMARK_REWARDS.watchtower.xp);
+    const leveledUp = addXp(xp);
+    msg += ` You pick your way up what's left of the stair and take in the lay of the land. (+${xp} XP)`;
     if(leveledUp) msg += ` Level up! You are now level ${playerLevel}.`;
   }
   showToast(msg);
@@ -8436,10 +8893,36 @@ function beginTravelToLandmark(landmarkId){
 }
 // Small marker per unclaimed landmark — same "invisible hitzone circle + separate visual" split
 // battle markers use (buildBattleMarkers), placeholder shapes for now (ruins: a small broken-
-// column glyph; campsite: a small flame glyph) pending any real art, same "ship the mechanic,
-// swap in real art later" precedent the rest of this codebase already sets. Rebuilt on load and
+// column glyph; campsite: a small flame glyph; cache: a small chest glyph; watchtower: a small
+// crumbling-turret glyph) pending any real art, same "ship the mechanic, swap in real art later"
+// precedent the rest of this codebase already sets. `LANDMARK_GLYPHS` below is also what the map
+// legend panel's own landmark rows draw from (see populateLegendPanel), so both read from the
+// exact same shape per type. Rebuilt on load and
 // again right after a landmark is claimed (see beginTravelToLandmark), so a claimed landmark's
 // marker disappears for good.
+const LANDMARK_GLYPHS = {
+  ruins: {
+    d:(x,y)=> `M${x-5},${y+6} L${x-5},${y-6} M${x},${y+6} L${x},${y-8} M${x+5},${y+6} L${x+5},${y-4}`,
+    fill:"none",
+  },
+  campsite: {
+    d:(x,y)=> `M${x},${y+6} L${x-4},${y-2} Q${x},${y-10} ${x+4},${y-2} Z`,
+    fill:"#d9a15a",
+  },
+  cache: {
+    // A small chest/strongbox: a body rectangle with a curved lid on top.
+    d:(x,y)=> `M${x-6},${y+6} L${x-6},${y-3} L${x+6},${y-3} L${x+6},${y+6} Z M${x-6},${y-3} Q${x},${y-9} ${x+6},${y-3} Z`,
+    fill:"#8a6b42",
+  },
+  watchtower: {
+    // A crumbling tower silhouette — one open (unclosed) polyline, same "broken structure"
+    // unfilled-line language as Ruins' columns: a tall left wall stepping up to one remaining
+    // merlon, then an uneven, lower-cut right wall where the top has collapsed away, with no
+    // closing segment across the top (the tower's roof is simply gone).
+    d:(x,y)=> `M${x-5},${y+6} L${x-5},${y-7} L${x-2},${y-7} L${x-2},${y-10} L${x+1},${y-10} L${x+1},${y-4} L${x+4},${y-4} L${x+4},${y+6}`,
+    fill:"none",
+  },
+};
 function buildLandmarkMarkers(){
   const g = document.getElementById('landmark-markers');
   if(!g) return;
@@ -8454,18 +8937,85 @@ function buildLandmarkMarkers(){
     hit.setAttribute("r", 16);
     hit.dataset.landmark = landmark.id;
     g.appendChild(hit);
+    const glyph = LANDMARK_GLYPHS[landmark.type] || LANDMARK_GLYPHS.ruins;
     const mark = document.createElementNS(ns, "path");
-    mark.setAttribute("d", landmark.type === 'ruins'
-      ? `M${landmark.x-5},${landmark.y+6} L${landmark.x-5},${landmark.y-6} M${landmark.x},${landmark.y+6} L${landmark.x},${landmark.y-8} M${landmark.x+5},${landmark.y+6} L${landmark.x+5},${landmark.y-4}`
-      : `M${landmark.x},${landmark.y+6} L${landmark.x-4},${landmark.y-2} Q${landmark.x},${landmark.y-10} ${landmark.x+4},${landmark.y-2} Z`);
+    mark.setAttribute("d", glyph.d(landmark.x, landmark.y));
     mark.setAttribute("stroke", "#a9926a");
     mark.setAttribute("stroke-width", "2");
     mark.setAttribute("stroke-linecap", "round");
-    mark.setAttribute("fill", landmark.type === 'campsite' ? "#d9a15a" : "none");
+    mark.setAttribute("fill", glyph.fill);
     mark.style.pointerEvents = "none";
     g.appendChild(mark);
   });
 }
+
+// ===================== MAP LEGEND =====================
+// A small, dismissible reference panel for what the map's various non-obvious markers mean — per
+// the project owner, there was no in-game key for settlement-tier icon sizes, moving army
+// markers, field-battle markers, or landmark markers. Pure reference UI: no state, nothing
+// persisted, just a toggleable panel. Deliberately reuses the exact same marker art/constants the
+// live map itself draws from (CITY_ICON_HREF/SETTLEMENT_ICON_W/CITY_ICON_ASPECT, ARMY_ICON_POOLS,
+// BATTLE_MARKER_ICONS, LANDMARK_TYPES/LANDMARK_GLYPHS) rather than separately hand-drawn swatches,
+// so the legend can never visually drift from what's actually shown on the map.
+const LEGEND_LANDMARK_HINTS = {
+  ruins: "Gold &amp; XP", campsite: "A foraged item &amp; XP", cache: "Gold (no fight, no risk beyond getting there)", watchtower: "XP",
+};
+function legendRow(swatchHTML, labelHTML){
+  return `<div class="legend-row"><div class="legend-swatch">${swatchHTML}</div><div class="legend-label">${labelHTML}</div></div>`;
+}
+function populateLegendPanel(){
+  const el = document.getElementById('legend-rows');
+  if(!el) return;
+  let rows = '';
+  // Settlements — the same Cities.png coin icon buildCityIcons() draws, just at thumbnail scale,
+  // one per tier so the size difference itself IS the legend.
+  const tierImgs = ['village','town','city','capital'].map(t => {
+    const s = Math.max(6, Math.round(SETTLEMENT_ICON_W[t] / 4));
+    return `<img src="${CITY_ICON_HREF}" style="width:${s}px;height:${Math.round(s*CITY_ICON_ASPECT)}px">`;
+  }).join('');
+  rows += legendRow(tierImgs, `<b>Settlements</b> — larger icon = bigger tier (Village &rarr; Capital)`);
+  // Marching armies — the same two alliance emblem pools buildArmyMarkers() draws from (falls
+  // back to the same flat-color diamond buildArmyMarkers itself falls back to, if the pool is
+  // ever empty).
+  const goodIcon = (ARMY_ICON_POOLS.Good && ARMY_ICON_POOLS.Good[0]);
+  const badIcon = (ARMY_ICON_POOLS.Bad && ARMY_ICON_POOLS.Bad[0]);
+  const armySwatch = (goodIcon && badIcon)
+    ? `<img src="${goodIcon.href}" style="width:17px;height:${Math.round(17*goodIcon.aspect)}px">`
+      + `<img src="${badIcon.href}" style="width:17px;height:${Math.round(17*badIcon.aspect)}px">`
+    : `<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7,1 L11,7 L7,13 L3,7 Z" fill="${ARMY_MARKER_COLOR.Good}"/></svg>`
+      + `<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7,1 L11,7 L7,13 L3,7 Z" fill="${ARMY_MARKER_COLOR.Bad}"/></svg>`;
+  rows += legendRow(armySwatch, `<b>Marching army</b> — emblem shows which alliance, Good or Bad`);
+  // Field battle — the same crossed-weapons/medallion icon pool buildBattleMarkers() draws from.
+  if(BATTLE_MARKER_ICONS.length){
+    const battleIcon = BATTLE_MARKER_ICONS[0];
+    rows += legendRow(
+      `<img src="${battleIcon.href}" style="width:19px;height:${Math.round(19*battleIcon.aspect)}px">`,
+      `<b>Field battle</b> — tap to travel there or join the fight`
+    );
+  }
+  // Off-road landmarks — the exact same placeholder glyphs buildLandmarkMarkers() draws, built
+  // from the same LANDMARK_GLYPHS lookup at the same (11,11)-centered coordinates in a small
+  // 22x22 viewBox, so a new landmark type added to LANDMARK_TYPES/LANDMARK_GLYPHS automatically
+  // gets its own legend row for free.
+  LANDMARK_TYPES.forEach(t => {
+    const glyph = LANDMARK_GLYPHS[t.type] || LANDMARK_GLYPHS.ruins;
+    const svg = `<svg width="22" height="22" viewBox="0 0 22 22"><path d="${glyph.d(11,11)}" stroke="#a9926a" stroke-width="2" stroke-linecap="round" fill="${glyph.fill}"/></svg>`;
+    rows += legendRow(svg, `<b>${t.name}</b> — ${LEGEND_LANDMARK_HINTS[t.type] || 'a one-time find'}`);
+  });
+  el.innerHTML = rows;
+}
+populateLegendPanel(); // static content — doesn't depend on this character's own generated world
+function openLegendPanel(){
+  document.getElementById('legend-panel').classList.add('show');
+  document.getElementById('legend-backdrop').classList.add('show');
+}
+function closeLegendPanel(){
+  document.getElementById('legend-panel').classList.remove('show');
+  document.getElementById('legend-backdrop').classList.remove('show');
+}
+document.getElementById('legend-btn').addEventListener('click', openLegendPanel);
+document.getElementById('legend-close-btn').addEventListener('click', closeLegendPanel);
+document.getElementById('legend-backdrop').addEventListener('click', closeLegendPanel);
 
 // Cancels the current journey in place — the character stops exactly where the
 // animation had gotten to (snapped to the nearest real road-graph point), not
@@ -8678,7 +9228,7 @@ function showCampView(destId, destName, partialHours){
         ? `Making camp at ${here} — resting`
         : `On the road to ${destName} — resting`;
     }
-    if(Math.random() < NIGHT_AMBUSH_CHANCE * getCurrentWeather().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
+    if(Math.random() < NIGHT_AMBUSH_CHANCE * getCurrentWeather().ambushMult * getCurrentSeason().ambushMult * (hasPerk('sure_feet') ? 0.9 : 1) * (getItem('Bedroll') ? BEDROLL_AMBUSH_MULT : 1) * (hasActiveBlessing('warding') ? TEMPLE_BLESSING_WARDING_MULT : 1)){
       triggerAmbushFight(currentBurg, finishRest, 'camp');
     } else {
       finishRest();
@@ -12778,6 +13328,7 @@ Promise.all([
   const seed = parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10);
   world = generateWorld(seed);
   graph = world;
+  buildBurgSearchIndex(); // settlement search — see its own comment above, near #map-search-btn's listener
   buildAdjacency();
   buildFactionData();
   buildBurgAdjacency();

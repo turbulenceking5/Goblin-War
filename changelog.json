@@ -1264,5 +1264,41 @@
       "New worlds now place their cities and towns a lot more sensibly — good coastal and fertile ground actually attracts settlement, and a town's size reflects the quality of the ground it's on instead of being pure luck. Capitals in particular tend to land on real harbors now.",
       "Fixed a long-standing bug where every single settlement was silently flagged as a port — the port discount at the Marketplace now only applies at settlements actually near water."
     ]
+  },
+  {
+    "id": 169,
+    "date": "2026-10-04",
+    "changes": [
+      "Settlement names on the map no longer pile up on top of each other in crowded areas — they now nudge apart just enough to stay readable."
+    ]
+  },
+  {
+    "id": 170,
+    "date": "2026-10-04",
+    "changes": [
+      "Long journeys can now throw up a small roadside moment of their own — a shared campfire, a swollen river crossing, a stray pack-mule, and a few others — each with a choice to make, independent of the usual ambush risk."
+    ]
+  },
+  {
+    "id": 171,
+    "date": "2026-10-04",
+    "changes": [
+      "The world now turns through the seasons as the calendar advances, with a subtle seasonal tint over the map and a new season badge in the header. Winter's icy roads also slow travel and raise ambush risk a touch, same as bad weather does."
+    ]
+  },
+  {
+    "id": 172,
+    "date": "2026-10-04",
+    "changes": [
+      "Added a Search the Map button — find any settlement by name and jump the camera straight to it instead of hunting for it by eye."
+    ]
+  },
+  {
+    "id": 173,
+    "date": "2026-10-04",
+    "changes": [
+      "Two new off-road landmarks to stumble across: a Hidden Cache (a quick bit of gold) and an Old Watchtower (a solid chunk of XP), alongside the existing Ruins and Campsites.",
+      "Added a Map Key button that lays out what every icon and marker on the map actually means."
+    ]
   }
 ]

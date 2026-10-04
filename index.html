@@ -3427,6 +3427,15 @@ const REINFORCEMENT_DURATION_DAYS = 14;
 // kingdom rolls this chance every weekly tick to reinforce its own most-threatened ally
 // unprompted, same as a player Petition but not guaranteed every week.
 const TRUSTED_REINFORCEMENT_CHANCE = 0.35;
+// A second, player-independent reinforcement roll — "the world looks after its own sometimes" —
+// for a peaceful kingdom whose most-urgent ally (findAllyNeedingReinforcement) is under active
+// siege right now, regardless of the player's own reputation with that kingdom. Without this, a
+// besieged ally can only ever get outside help via the Trusted path above or a player Petition —
+// if the player never built Trusted standing with any peacetime kingdom, the world never acts on
+// its own at all. Deliberately much rarer than TRUSTED_REINFORCEMENT_CHANCE (reputation is a
+// stronger, player-earned signal than generic alliance solidarity) — first-pass number, easy to
+// retune later, same spirit as RAID_AMBUSH_CHANCE/TRUSTED_REINFORCEMENT_CHANCE above.
+const DISTRESS_REINFORCEMENT_CHANCE = 0.15;
 function getReinforcements(){
   if(_tickCache) return _tickCache.reinforcements;
   try{ return JSON.parse(localStorage.getItem(REINFORCE_KEY)) || {}; }catch(e){ return {}; }
@@ -4604,12 +4613,32 @@ function runFactionAITick(){
     // events.push — this file's own convention is only settlement captures are worth a toast (see
     // "The weekly tick" in context/factions-and-territory.md); setReinforcement already overwrites
     // rather than stacks, so this can never combine with a player Petition into a bigger bonus.
+    //
+    // Second, independent roll below (DISTRESS_REINFORCEMENT_CHANCE): the Trusted path above is
+    // entirely about the PLAYER's own standing with a peaceful kingdom, not how dire the war
+    // actually is — a besieged ally gets no help at all if the player never built Trusted rep
+    // anywhere. This roll instead keys off real in-world urgency (the chosen ally is under an
+    // active siege right now) and ignores reputation entirely, so the world has some chance of
+    // looking after its own even in a game where the player never bothered with diplomacy. It's
+    // the `else` arm of the same per-kingdom check below, so a kingdom that already granted
+    // reinforcement via the Trusted roll this tick can never also roll distress — each kingdom in
+    // ALL_KINGDOMS is only ever visited once per tick, so that's enough to prevent a double-fire.
     ALL_KINGDOMS.forEach(kingdom=>{
       if(getWarState(kingdom) !== 'peace') return;
-      if(reputationLabel(getReputation(kingdom)) !== 'Trusted') return;
-      if(Math.random() >= TRUSTED_REINFORCEMENT_CHANCE) return;
-      const ally = findAllyNeedingReinforcement(kingdom);
-      if(ally) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
+      if(reputationLabel(getReputation(kingdom)) === 'Trusted' && Math.random() < TRUSTED_REINFORCEMENT_CHANCE){
+        const ally = findAllyNeedingReinforcement(kingdom);
+        if(ally) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
+      } else if(Math.random() < DISTRESS_REINFORCEMENT_CHANCE){
+        const ally = findAllyNeedingReinforcement(kingdom);
+        // Require an active siege specifically, not merely a cut supply line — a supply cut alone
+        // is the softer of the two urgency signals findAllyNeedingReinforcement sorts on (it's
+        // often reversible on its own as roads reopen), while a siege is the clearest "this ally
+        // needs help right now" state the game has. Reserving this rarer, reputation-free path for
+        // sieges keeps it reading as "the world stepping in for a dire emergency," not a routine
+        // top-up that happens to skip the reputation check.
+        const isUnderSiege = ally && Object.values(getSieges()).some(s => s.defenderKingdom === ally);
+        if(ally && isUnderSiege) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
+      }
     });
     // Quests & Factions: "accepted quests react to the live war tick" — this week's declare/peace
     // pass above has already settled every relation for the tick, so this is the right moment to

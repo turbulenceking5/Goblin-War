@@ -914,6 +914,7 @@ const VAULT_KEY = "goblinwar_vault"; // null | {kingdom, principal, depositedDay
 const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name — see index.html's "Fealty/Allegiance"
 const ESPIONAGE_COOLDOWN_KEY = "goblinwar_espionageCooldowns"; // {burgId: gameDay} — see index.html's "Espionage"
 const SETTLEMENT_INVESTMENT_COOLDOWN_KEY = "goblinwar_investmentCooldowns"; // {burgId: gameDay} — see index.html's "Settlement Investment"
+const FORTIFY_KEY = "goblinwar_fortifications"; // {burgId: level 0-3} — see index.html's "Settlement Fortification"
 const SCRAP_KEY = "goblinwar_scrap"; // plain integer — see inventory.html's "Gear salvage/scrap"
 const RENOWN_TITLE_KEY = "goblinwar_renownTitle"; // plain string — see index.html's "Renown-based titles"
 const NOTABLE_FIGURE_PROGRESS_KEY = "goblinwar_figureProgress"; // {figureId: count} — see index.html's Notable Figure storyline
@@ -1100,6 +1101,7 @@ function collectCharacterSnapshot(){
     fealty: localStorage.getItem(FEALTY_KEY) || "",
     espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
+    fortifications: localStorage.getItem(FORTIFY_KEY) || "{}",
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",

@@ -920,7 +920,7 @@ function freshCharacterData(name, burgId, difficulty, mapSeed, isNewCharacter){
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", supplyInterventions: "{}", supplyInterventionCooldowns: "{}", recentEvents: "[]",
     warStarts: "{}", warHistory: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
     fieldBattles: "[]", fieldBattleCooldowns: "{}",
-    companionQuestsCompleted: "[]", companionHomeStatus: "{}", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", tooltipTourSeen: isNewCharacter ? "false" : "true", achievementsUnlocked: "{}", boardMonthSeen: "", landmarksClaimed: "[]", allyEquipped: "{}",
+    companionQuestsCompleted: "[]", companionHomeStatus: "{}", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", fortifications: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", tooltipTourSeen: isNewCharacter ? "false" : "true", achievementsUnlocked: "{}", boardMonthSeen: "", landmarksClaimed: "[]", allyEquipped: "{}",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -1000,6 +1000,7 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_fealty", merged.fealty);
   localStorage.setItem("goblinwar_espionageCooldowns", merged.espionageCooldowns);
   localStorage.setItem("goblinwar_investmentCooldowns", merged.investmentCooldowns);
+  localStorage.setItem("goblinwar_fortifications", merged.fortifications);
   localStorage.setItem("goblinwar_scrap", merged.scrap);
   localStorage.setItem("goblinwar_renownTitle", merged.renownTitle);
   localStorage.setItem("goblinwar_figureProgress", merged.figureProgress);

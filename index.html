@@ -115,6 +115,10 @@
   #overlay{ position:absolute; left:-480px; top:-480px; width:11200px; height:6068px; }
 
   .hitzone{ fill:transparent; cursor:pointer; }
+  /* army-hitzone overrides #army-markers' own group-level pointer-events:none (the group stays
+     none so the decorative icon underneath it is never itself the tap target, same split
+     battle-hitzone/landmark-hitzone already use against their own always-interactive groups). */
+  .army-hitzone{ pointer-events:auto; }
   .map-label{
     /* fill is set per-element (buildLabels(), via .style.fill not the fill attribute — a plain
        attribute loses to any CSS rule, even this class selector, so a CSS fill here would
@@ -195,6 +199,11 @@
   }
   #season-overlay.show{ opacity:1; }
   #season-badge{ font-size:10px; color:#a9926a; margin-left:4px; }
+  /* Nearest-conflict badge — same ambient-header-badge treatment as weather/season above, but
+     tappable: see updateConflictBadge/onArmyMarkerTap/onBattleMarkerTap/onMapTap. Empty (and
+     untappable, no cursor) when nothing's currently in motion within range. */
+  #conflict-badge{ font-size:10px; color:#e0a860; margin-left:4px; }
+  #conflict-badge.tappable{ cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
 
   #recenter-btn{
     position:fixed; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:26;
@@ -811,6 +820,7 @@
       </span>
       <span id="weather-badge"></span>
       <span id="season-badge"></span>
+      <span id="conflict-badge"></span>
     </div>
   </header>
 
@@ -2319,6 +2329,8 @@ function handleTap(clientX, clientY){
     onBattleMarkerTap(el.dataset.battle);
   } else if(el && el.dataset && el.dataset.landmark){
     onLandmarkMarkerTap(el.dataset.landmark);
+  } else if(el && el.dataset && el.dataset.army){
+    onArmyMarkerTap(el.dataset.army);
   } else if(el && el.classList && el.classList.contains('hitzone')){
     onMapTap(el.dataset.burg);
   } else {
@@ -2503,6 +2515,43 @@ function updateSeasonOverlay(){
   el.classList.add('show');
   badge.textContent = s.label;
 }
+// Nearest-conflict badge — per the research into real-time strategic awareness: the only existing
+// proactive war signal was the once-a-week "while you were away" summary modal; this is an
+// always-on ambient one, same header-badge treatment as weather/season above. Pure read/display —
+// every field it touches (goblinwar_armies/goblinwar_sieges/goblinwar_fieldBattles) is already
+// computed by the weekly faction tick, so this adds no new simulation, just visibility, same
+// "support role" spirit as onArmyMarkerTap. Tapping it opens the same #info-card the marker itself
+// would, via whichever existing tap handler fits (onBattleMarkerTap/onArmyMarkerTap/onMapTap) —
+// none of those need the marker to actually be on screen, they just set #info-card state directly.
+function updateConflictBadge(){
+  const badge = document.getElementById('conflict-badge');
+  if(!badge || !graph || !graph.burgs || !currentBurg) return;
+  let here;
+  try{ here = getCurrentXY(); }catch(e){ here = null; }
+  if(!here){ badge.textContent = ''; badge.classList.remove('tappable'); badge.onclick = null; return; }
+  const candidates = [];
+  getFieldBattles().forEach(b => candidates.push({ kind:'battle', id:b.id, x:b.x, y:b.y, label:`${b.goodKingdom} vs ${b.badKingdom} battle` }));
+  getArmies().forEach(a => candidates.push({ kind:'army', id:a.id, x:a.x, y:a.y, label:`${a.kingdom} army` }));
+  Object.entries(getSieges()).forEach(([burgId, s]) => {
+    const b = graph.burgs[burgId];
+    if(!b) return;
+    candidates.push({ kind:'siege', id:burgId, x:b.x, y:b.y, label:`siege of ${b.name}` });
+  });
+  if(!candidates.length){ badge.textContent = ''; badge.classList.remove('tappable'); badge.onclick = null; return; }
+  let nearest = null, bestDist = Infinity;
+  candidates.forEach(c => {
+    const d = Math.hypot(c.x - here.x, c.y - here.y);
+    if(d < bestDist){ bestDist = d; nearest = c; }
+  });
+  const miles = Math.round((bestDist * 3) / DISTANCE_SCALE); // same straight-line-to-miles conversion computeTravel's own fallback uses
+  badge.innerHTML = `&#9876; ${miles}mi: ${nearest.label}`;
+  badge.classList.add('tappable');
+  badge.onclick = ()=>{
+    if(nearest.kind === 'battle') onBattleMarkerTap(nearest.id);
+    else if(nearest.kind === 'army') onArmyMarkerTap(nearest.id);
+    else onMapTap(nearest.id);
+  };
+}
 // Same threshold the map tint and clock icon already use — one shared definition of "is it
 // night right now" for anything gameplay-side that wants to react to it (see doWork below).
 function isNightNow(){ return nightFactor(gameHour) >= 0.5; }
@@ -2528,6 +2577,7 @@ function refreshCalendarUI(){
   updateNightOverlay(gameHour);
   updateWeatherOverlay();
   updateSeasonOverlay();
+  updateConflictBadge();
 }
 // The single source of truth for time passing now — advances the real clock by any number of
 // hours (not just whole days the way the old advanceDays did), rolling into a new gameDay only
@@ -3770,6 +3820,30 @@ const GARRISON_TIER_MULT = { village: 1.0, town: 1.1, city: 1.25, capital: 1.5 }
 // getChokepointValue's comment for why this can't be called outside runFactionAITick.
 const FORTED_CHOKEPOINT_MULT_PER_POINT = 0.08;
 const FORTED_CHOKEPOINT_MAX_MULT = 1.4;
+// Settlement Fortification — a Guard House action (see buildFortifyHTML/acceptFortify below) that
+// pays gold, any time, at any settlement, to raise ITS OWN garrison multiplier for good — the
+// "prepare for the war that hasn't started yet" lever the other player-involvement actions here
+// don't cover (Defend the Walls/Fund the Garrison only ever help mid-siege). Distinct from the
+// chokepoint bonus just above (automatic, derived from map geometry) and from Settlement
+// Investment (which raises population, not defense) — this is the one lever that's purely a
+// player choice, paid for, and permanent once bought.
+const FORTIFY_KEY = "goblinwar_fortifications"; // {burgId: level, 0-FORTIFY_MAX_LEVEL}
+const FORTIFY_MAX_LEVEL = 3;
+const FORTIFY_MULT_PER_LEVEL = 0.18;
+const FORTIFY_BASE_COST = 60;
+function getFortifyLevels(){
+  try{ return JSON.parse(localStorage.getItem(FORTIFY_KEY)) || {}; }catch(e){ return {}; }
+}
+function getFortifyLevel(burgId){ return getFortifyLevels()[burgId] || 0; }
+// Cost scales with both the next level (each one pricier than the last) and the settlement's own
+// tier (reusing GARRISON_TIER_MULT — fortifying a capital costs more than a village, same as its
+// garrison is already worth more), so there's no single cheap level to grind everywhere.
+function getFortifyCost(burgId){
+  const level = getFortifyLevel(burgId);
+  const b = graph.burgs[burgId];
+  const tierMult = (b && GARRISON_TIER_MULT[b.tier]) || 1;
+  return Math.round(FORTIFY_BASE_COST * (level + 1) * tierMult);
+}
 function getGarrisonStrength(burgId){
   const kingdom = getControllerKingdom(burgId);
   // Escort the Supply Line (see acceptEscortSupplyLine) waives the cut-off penalty here for a
@@ -3786,7 +3860,8 @@ function getGarrisonStrength(burgId){
       fortedMult = Math.min(FORTED_CHOKEPOINT_MAX_MULT, 1 + chokepointValue * FORTED_CHOKEPOINT_MULT_PER_POINT);
     }
   }
-  return getPopulation(burgId) * MILITARY_FRACTION * cutMult * tierMult * fortedMult;
+  const fortifyMult = 1 + getFortifyLevel(burgId) * FORTIFY_MULT_PER_LEVEL;
+  return getPopulation(burgId) * MILITARY_FRACTION * cutMult * tierMult * fortedMult * fortifyMult;
 }
 
 // A small log of real siege/attack outcomes — the "news you hear" behind Tavern Talk's rumour
@@ -6780,6 +6855,7 @@ let currentBurg = localStorage.getItem(LOC_KEY) || "0"; // the guaranteed-Human 
 let selectedBurg = null;
 let selectedBattleId = null; // the info-card's other selection target — see onBattleMarkerTap
 let selectedLandmarkId = null; // the info-card's third selection target — see onLandmarkMarkerTap
+let selectedArmyId = null; // the info-card's fourth selection target — see onArmyMarkerTap
 let landmarks = []; // this character's off-road landmarks — deterministic per mapSeed, see generateLandmarks
 let shortcutQuote = null; // the current info-card selection's shortcut quote (computeShortcutTravel), if any — see onMapTap/btn-shortcut
 let playerMarkerEl = null;
@@ -7544,6 +7620,7 @@ function closeCard(){
   selectedBurg = null;
   selectedBattleId = null;
   selectedLandmarkId = null;
+  selectedArmyId = null;
   shortcutQuote = null;
   document.getElementById('btn-shortcut').style.display = 'none';
   clearRoutePreview();
@@ -8159,6 +8236,17 @@ function buildArmyMarkers(){
     // merged, reinforced force actually reads as a bigger army on the map, not just a bigger
     // number nobody sees.
     const hw = Math.max(3, Math.min(9, 3 + Math.sqrt(army.strength || 0) * 2.5));
+    // An invisible tap target, same "hitzone circle + separate visual" split battle/landmark
+    // markers already use — armies used to render with the whole group's pointer-events:none and
+    // nothing to tap at all (see onArmyMarkerTap). Sized off the same hw the visible icon below
+    // scales with, so a bigger/merged army gets a bigger tap target too.
+    const hit = document.createElementNS(ns, "circle");
+    hit.setAttribute("class", "hitzone army-hitzone");
+    hit.setAttribute("cx", army.x);
+    hit.setAttribute("cy", army.y);
+    hit.setAttribute("r", Math.max(16, hw * 2.4));
+    hit.dataset.army = army.id;
+    g.appendChild(hit);
     const pool = ARMY_ICON_POOLS[alliance];
     if(pool && pool.length){
       // Falls back to variant 0 for an army saved before iconVariant existed, or if the index is
@@ -8645,6 +8733,37 @@ function onBattleMarkerTap(battleId){
       travelBtn.textContent = t.ferryCost > 0 ? `Travel Here (${t.hours}h, ${t.ferryCost}g)` : `Travel Here (${t.hours}h)`;
     }
   }
+  document.getElementById('info-card').classList.add('open');
+}
+
+// The army-marker counterpart to onMapTap/onBattleMarkerTap above — same #info-card, but
+// deliberately informational only, no Travel Here: an army's route changes day to day (merging,
+// reinforcing, withdrawing under supply pressure), so a travel quote against it would go stale
+// almost immediately, and letting the player directly intercept one would hand them a way to
+// personally decide a siege's outcome — exactly what the project's own "player power stays a
+// support role" constraint (see context/war-room.md) rules out. This only fixes the gap
+// buildArmyMarkers left: you could always see an army on the map, just never ask it anything.
+function onArmyMarkerTap(armyId){
+  const army = getArmies().find(a => a.id === armyId);
+  if(!army){ closeCard(); return; }
+  selectedBurg = null;
+  selectedBattleId = null;
+  selectedLandmarkId = null;
+  selectedArmyId = armyId;
+  shortcutQuote = null;
+  document.getElementById('btn-shortcut').style.display = 'none';
+  showHighlight(army.x, army.y);
+
+  document.getElementById('info-name').textContent = `${army.kingdom} Army`;
+  const targetBurg = army.targetBurgId ? graph.burgs[army.targetBurgId] : null;
+  const statusLine = army.status === 'sieging'
+    ? `besieging ${targetBurg ? targetBurg.name : 'a settlement'}`
+    : `marching toward ${targetBurg ? targetBurg.name : 'an unknown target'}`;
+  const cutOffNote = army.daysCutOff > 0 ? ` <span style="color:#e0a860;">(cut off from supply)</span>` : '';
+  document.getElementById('info-meta').innerHTML = `<span>at war with ${army.defenderKingdom}</span> — ${describeArmyStrength(army.strength)}, ${statusLine}${cutOffNote}`;
+
+  document.getElementById('info-travel').textContent = "A moving army can't be reached directly — visit the settlement it's bound for instead.";
+  document.getElementById('btn-travel').style.display = 'none';
   document.getElementById('info-card').classList.add('open');
 }
 
@@ -10941,10 +11060,10 @@ function showLocationView(burgId){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
       }
       else if(btn.dataset.action === 'guardhouse'){
-        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+        showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); wireFortifyButton(burgId); });
       }
       else if(btn.dataset.action === 'palace'){
-        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+        showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
       }
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
@@ -11522,11 +11641,19 @@ function buildGuardHouseStats(burgId){
   const loanRow = (loan && loan.kingdom === controllerKingdom)
     ? `<div style="display:flex; justify-content:space-between; margin-top:4px; color:${isLoanInDefault(loan) ? '#e07a5f' : '#e0a860'};"><span>${isLoanInDefault(loan) ? 'Loan overdue to' : 'Owe a loan to'} ${controllerKingdom}</span><b>${getLoanOwed(loan)}g</b></div>`
     : '';
+  // War Intensity — a cheap escalation signal: today the player could only infer how bad a war is
+  // from scattered numbers (siege progress %, army strength). This is one more derived label off
+  // data already computed every tick (getWarIntensity, shared with the War Room Palace card).
+  const frontlineEnemy = getFrontlineEnemyKingdom(burgId);
+  const intensityRow = (frontlineEnemy && controllerKingdom && getRelation(controllerKingdom, frontlineEnemy) === 'war')
+    ? (()=>{ const intensity = getWarIntensity(controllerKingdom, frontlineEnemy); return `<div style="display:flex; justify-content:space-between; margin-top:4px;"><span>War footing vs ${frontlineEnemy}</span><b style="color:${intensity.color};">${intensity.label}</b></div>`; })()
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; font-size:13.5px; color:var(--parchment);">
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>Local population</span><b>${formatPopulation(pop)}</b></div>
       <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span>${controllerKingdom || 'Unknown'} forces</span><b>${formatPopulation(army)}</b></div>
       <div style="display:flex; justify-content:space-between;"><span>${controllerKingdom || 'This kingdom'}'s opinion of you</span><b>${reputationLabel(getReputation(controllerKingdom))}</b></div>
+      ${intensityRow}
       ${siegeRow}
       ${tributeRow}
       ${treatyRow}
@@ -11554,7 +11681,50 @@ function buildGuardHouseActionsHTML(burgId){
       </div>
     `;
   }
-  return buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildMercenaryHireHTML(burgId);
+  return buildEspionageHTML(burgId) + buildCaravanEscortHTML(burgId) + buildFortifyHTML(burgId) + buildMercenaryHireHTML(burgId);
+}
+
+// See FORTIFY_KEY/getFortifyLevel/getFortifyCost above for the data model. Not offered while a
+// siege is already underway here — that's what Defend the Walls/Fund the Garrison are for; this is
+// specifically the peacetime, before-the-fact lever.
+function buildFortifyHTML(burgId){
+  const kingdom = getControllerKingdom(burgId);
+  if(!kingdom || getSieges()[burgId]) return '';
+  const level = getFortifyLevel(burgId);
+  if(level >= FORTIFY_MAX_LEVEL){
+    return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Walls Fully Fortified</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5;">This settlement's defenses are as strong as coin alone can make them.</div>
+    </div>`;
+  }
+  const cost = getFortifyCost(burgId);
+  const afford = playerGold >= cost;
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Fortify the Walls${level > 0 ? ` (Level ${level} &rarr; ${level+1})` : ''}</div>
+      <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">Pay for real improvements to this settlement's own defenses — higher walls, stocked arms — so it holds out longer whenever a siege eventually comes.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; color:#e0a860; font-weight:700;">-${cost}g</span>
+        <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="fortify-btn" ${afford ? '' : 'disabled'}>Fortify</button>
+      </div>
+    </div>`;
+}
+function acceptFortify(burgId){
+  if(isGuardHouseLockedOut(burgId) || getSieges()[burgId]){ showLocationView(burgId); return; }
+  const level = getFortifyLevel(burgId);
+  const cost = getFortifyCost(burgId);
+  if(level >= FORTIFY_MAX_LEVEL || playerGold < cost) return;
+  setGold(playerGold - cost);
+  const levels = getFortifyLevels();
+  levels[burgId] = level + 1;
+  localStorage.setItem(FORTIFY_KEY, JSON.stringify(levels));
+  showToast(`The walls here stand stronger now (Fortification ${level+1}/${FORTIFY_MAX_LEVEL}).`);
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); wireFortifyButton(burgId); });
+}
+function wireFortifyButton(burgId){
+  const btn = document.getElementById('fortify-btn');
+  if(btn) btn.addEventListener('click', ()=> acceptFortify(burgId));
 }
 
 // Espionage — a Guard House action per the Expansion Research idea of the same name. Pays gold for
@@ -11602,11 +11772,17 @@ function gainEspionage(burgId){
   if(!kingdom || hasSpiedToday(burgId) || playerGold < ESPIONAGE_COST || isGuardHouseLockedOut(burgId)){ showLocationView(burgId); return; }
   setGold(playerGold - ESPIONAGE_COST);
   recordSpied(burgId);
-  const marching = getArmies().some(a => a.kingdom === kingdom && a.status === 'marching');
+  const marchingArmies = getArmies().filter(a => a.kingdom === kingdom && a.status === 'marching');
+  // Naming this settlement specifically (when it's the actual target) is the one thing the old
+  // generic "banners on the march" line couldn't do despite targetBurgId already existing on every
+  // army record — real advance warning, not just knowing a muster exists somewhere.
+  const targetsHere = marchingArmies.some(a => a.targetBurgId === burgId);
   const strengthLine = describeArmyStrength(getArmyStrength(kingdom));
-  const musterLine = marching ? ` Word is they already have banners on the march.` : ` No muster seems underway, for now.`;
+  const musterLine = targetsHere
+    ? ` Word is a banner already marches on these very walls.`
+    : marchingArmies.length ? ` Word is they already have banners on the march.` : ` No muster seems underway, for now.`;
   showToast(`Your coin buys a rumor: ${kingdom} fields ${strengthLine}.${musterLine}`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); wireFortifyButton(burgId); });
 }
 
 // Caravan Escort — the Expansion Research idea of the same name: a paid Guard House action that
@@ -11652,7 +11828,7 @@ function acceptCaravanEscort(burgId){
   setGold(playerGold - CARAVAN_ESCORT_COST);
   localStorage.setItem(CARAVAN_ESCORT_KEY, 'true');
   showToast(`You hire a caravan to escort your next trip.`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); wireFortifyButton(burgId); });
 }
 function wireCaravanEscortButton(burgId){
   const btn = document.getElementById('caravan-escort-btn');
@@ -12175,7 +12351,7 @@ function hireMercenary(burgId, typeId){
   mercs.push({ instanceId:`${type.id}_${gameDay}_${Math.floor(Math.random()*100000)}`, typeId:type.id, hiredDay:gameDay, lastUpkeepDay:gameDay });
   saveMercenaries(mercs);
   showToast(`${type.title} joins you — ${type.hireCost}g paid, ${type.upkeep}g/day upkeep from here.`);
-  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); });
+  showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); wireFortifyButton(burgId); });
 }
 function wireMercenaryButtons(burgId){
   document.querySelectorAll('[data-hire]').forEach(btn=>{
@@ -12293,7 +12469,7 @@ function acceptPetition(burgId){
   const repNote = adjustReputation(offer.ally, REP_GAIN_MEDIUM);
   showToast(`${offer.kingdom} agrees to send reinforcements to ${offer.ally}! +${offer.gold}g, +${offer.xp} XP.`
     + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Negotiate Peace — the counterpart to Petition for Troops, and the direct payoff of tracking
@@ -12372,7 +12548,7 @@ function acceptNegotiatePeace(burgId){
   const loyaltyNote = adjustPartyLoyalty(GOOD_ACTION_LOYALTY_GAIN);
   const repNote = adjustReputation(offer.kingdom, REP_GAIN_MAJOR);
   showToast(`${offer.kingdom} and ${offer.enemy} agree to a truce.` + loyaltyNote + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Incite War — the direct opposite of Negotiate Peace, per the project owner: instead of bribing
@@ -12444,7 +12620,7 @@ function acceptInciteWar(burgId){
   const loyaltyNote = adjustPartyLoyalty(-INCITE_WAR_LOYALTY_PENALTY);
   const repNote = adjustReputation(offer.kingdom, REP_LOSS_SEVERE);
   showToast(`${offer.kingdom} and ${offer.target} are now at war. +${offer.gold}g.` + loyaltyNote + repNote);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Palace Loans — the fourth Palace card. Shows a borrow offer when nothing's outstanding, or the
@@ -12489,7 +12665,7 @@ function acceptLoan(burgId){
   saveLoan({ kingdom, principal: LOAN_PRINCIPAL, borrowedDay: gameDay, dueDay: gameDay + LOAN_TERM_DAYS });
   setGold(playerGold + LOAN_PRINCIPAL);
   showToast(`${kingdom}'s treasury advances you ${LOAN_PRINCIPAL}g, due within ${LOAN_TERM_DAYS} days.`);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 // A loan repaid before its due date nudges reputation up a little — the same "keeping your word"
 // spirit already worth something everywhere else in this file; a defaulted one that's finally
@@ -12505,7 +12681,7 @@ function repayLoan(burgId){
   localStorage.removeItem(LOAN_KEY);
   const repNote = wasDefaulted ? '' : adjustReputation(loan.kingdom, REP_GAIN_MINOR);
   showToast(`Debt to ${loan.kingdom} cleared — ${owed}g repaid.${repNote}`);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 
 // Palace Vault actions — see VAULT_KEY above. Rebuilds the whole Palace panel after either action,
@@ -12517,7 +12693,7 @@ function depositVault(burgId){
   saveVault({ kingdom, principal: VAULT_DEPOSIT, depositedDay: gameDay });
   setGold(playerGold - VAULT_DEPOSIT);
   showToast(`${VAULT_DEPOSIT}g deposited with ${kingdom}'s treasury.`);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 function withdrawVault(burgId){
   const vault = getVault();
@@ -12531,7 +12707,7 @@ function withdrawVault(burgId){
     localStorage.removeItem(VAULT_KEY);
     showToast(`${value}g withdrawn from ${vault.kingdom}'s treasury.`);
   }
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 // Shows a deposit offer when nothing's outstanding, the current forfeited notice if this vault's
 // kingdom has since fallen, or the growing balance with a Withdraw button otherwise — same
@@ -12584,7 +12760,7 @@ function swearFealty(burgId){
   if(!kingdom || getController(burgId) !== b.race || getFealty()){ showLocationView(burgId); return; }
   localStorage.setItem(FEALTY_KEY, kingdom);
   showToast(`You swear fealty to ${kingdom} — a bond that can never be undone.`);
-  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
+  showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
 }
 function buildFealtyHTML(burgId){
   const b = graph.burgs[burgId];
@@ -12609,9 +12785,76 @@ function buildFealtyHTML(burgId){
   `;
 }
 
-// All six Palace cards can appear together in the same panel render, so their click handlers
+// War Room — a seventh Palace card, read-only (no button, nothing to wire). Per the research into
+// real-time strategic awareness: the player could always see one siege/army at a time by tapping
+// its own marker, but nowhere summarized "what's happening across the whole realm right now" or
+// "who actually trusts me." Every number here is already computed elsewhere (getSieges/getArmies/
+// getFieldBattles/getReputation/getWarStartDay) — this adds no new simulation and no new player
+// power, purely visibility, same spirit as the conflict badge/army-marker tap-to-inspect above.
+function getWarIntensity(k1, k2){
+  const sieges = Object.values(getSieges()).filter(s => (s.attackerKingdom===k1 && s.defenderKingdom===k2) || (s.attackerKingdom===k2 && s.defenderKingdom===k1)).length;
+  const armies = getArmies().filter(a => (a.kingdom===k1 && a.defenderKingdom===k2) || (a.kingdom===k2 && a.defenderKingdom===k1)).length;
+  const battles = getFieldBattles().filter(b => (b.goodKingdom===k1 && b.badKingdom===k2) || (b.goodKingdom===k2 && b.badKingdom===k1)).length;
+  const score = sieges*2 + armies + battles*3;
+  if(score >= 6) return { label:'Decisive', color:'#e07a5f' };
+  if(score >= 3) return { label:'Brutal', color:'#e0a860' };
+  if(score >= 1) return { label:'Heated', color:'#e0c468' };
+  return { label:'Skirmishing', color:'#a9926a' };
+}
+// Every cross-alliance kingdom pair currently at war, each pair listed once regardless of which
+// side's own getEnemiesAtWar scan found it first.
+function getActiveWarPairs(){
+  const seen = new Set();
+  const pairs = [];
+  ALL_KINGDOMS.forEach(k => {
+    getEnemiesAtWar(k).forEach(enemy => {
+      const key = getRelationKey(k, enemy);
+      if(seen.has(key)) return;
+      seen.add(key);
+      pairs.push(key.split('::'));
+    });
+  });
+  return pairs;
+}
+function buildWarRoomHTML(burgId){
+  const warPairs = getActiveWarPairs();
+  const warRows = warPairs.length ? warPairs.map(([k1,k2]) => {
+    const intensity = getWarIntensity(k1, k2);
+    const sieges = Object.values(getSieges()).filter(s => (s.attackerKingdom===k1 && s.defenderKingdom===k2) || (s.attackerKingdom===k2 && s.defenderKingdom===k1)).length;
+    const armies = getArmies().filter(a => (a.kingdom===k1 && a.defenderKingdom===k2) || (a.kingdom===k2 && a.defenderKingdom===k1)).length;
+    const days = Math.max(0, gameDay - getWarStartDay(k1, k2));
+    const detail = [sieges ? `${sieges} siege${sieges===1?'':'s'}` : null, armies ? `${armies} arm${armies===1?'y':'ies'}` : null].filter(Boolean).join(', ') || 'no active movement yet';
+    return `
+      <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.08); display:flex; justify-content:space-between; align-items:flex-start;">
+        <span style="font-size:12.5px;">${k1} vs ${k2}<br><span style="font-size:11px; color:#a9926a;">${detail} &middot; ${days} day${days===1?'':'s'} at war</span></span>
+        <b style="color:${intensity.color}; font-size:11.5px; flex:none; margin-left:8px; white-space:nowrap;">${intensity.label}</b>
+      </div>
+    `;
+  }).join('') : `<div style="font-size:13px; color:#a9926a; margin-top:6px;">No wars anywhere in the realm right now.</div>`;
+
+  let repMap;
+  try{ repMap = JSON.parse(localStorage.getItem(REPUTATION_KEY)) || {}; }catch(e){ repMap = {}; }
+  const repKingdoms = Object.keys(repMap).filter(k => repMap[k] !== 0).sort((a,b) => repMap[b] - repMap[a]);
+  const repRows = repKingdoms.length ? repKingdoms.map(k => {
+    const label = reputationLabel(repMap[k]);
+    const color = label==='Trusted' ? '#7fbf6a' : label==='Friendly' ? '#a9c97a' : label==='Hostile' ? '#e07a5f' : '#a9926a';
+    return `<div style="display:flex; justify-content:space-between; margin-top:4px;"><span style="font-size:12.5px;">${k}</span><b style="font-size:12px; color:${color};">${label}</b></div>`;
+  }).join('') : `<div style="font-size:13px; color:#a9926a; margin-top:6px;">You haven't made enough of an impression on anyone yet.</div>`;
+
+  return `
+    <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
+      <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">War Room</div>
+      <div style="font-size:12px; color:#a9926a; margin-bottom:2px;">Wars across the realm</div>
+      ${warRows}
+      <div style="font-size:12px; color:#a9926a; margin-top:14px; margin-bottom:2px;">Kingdoms you've dealt with</div>
+      ${repRows}
+    </div>
+  `;
+}
+
+// All seven Palace cards can appear together in the same panel render, so their click handlers
 // are wired from one shared place rather than duplicating the "if the button exists, wire it"
-// guard at every call site that re-renders the panel.
+// guard at every call site that re-renders the panel. War Room has no button of its own (read-only).
 function wirePalaceButtons(burgId){
   const petitionBtn = document.getElementById('petition-accept-btn');
   if(petitionBtn) petitionBtn.addEventListener('click', ()=> acceptPetition(burgId));
@@ -13909,6 +14152,7 @@ function collectCharacterSnapshot(){
     fealty: localStorage.getItem(FEALTY_KEY) || "",
     espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
+    fortifications: localStorage.getItem(FORTIFY_KEY) || "{}",
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",

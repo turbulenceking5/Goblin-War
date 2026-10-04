@@ -1332,5 +1332,17 @@
     "changes": [
       "Added Fog of War — the map now stays dark and hazy in places you haven't actually been, lifting for good around every settlement you've visited and every landmark you've found, with the mist also parting around you while you're actually on the road."
     ]
+  },
+  {
+    "id": 178,
+    "date": "2026-10-04",
+    "changes": [
+      "You can now tap an army marching on the map to see whose it is, how strong it looks, and where it's bound — previously only battles and settlements could be tapped.",
+      "A new header badge quietly points toward the nearest active siege, army, or field battle while you travel, so a war doesn't only surface once a week.",
+      "The Palace now has a War Room: a realm-wide look at every war in progress and your own standing with every kingdom you've dealt with.",
+      "Guard House now shows your settlement's War Footing against its bordering enemy at a glance.",
+      "Added Fortify the Walls at the Guard House — pay to strengthen a settlement's own defenses ahead of time, before a siege ever arrives.",
+      "Paying for intel at the Guard House now warns you directly if an enemy muster is marching on that very settlement, not just somewhere on the march."
+    ]
   }
 ]

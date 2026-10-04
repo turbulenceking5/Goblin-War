@@ -8632,15 +8632,19 @@ function beginTravel(destId, viaShortcut){
       }
     };
     // On-the-road encounters — independent of (not instead of) the arrival roll just above. Only
-    // ever considered for a trip that actually crossed at least one full in-game day mid-journey
-    // (same day-rollover math advanceTime itself just used a few lines up, computed here from the
-    // untouched startHour so it reads identically regardless of code order) — a short same-day hop
-    // between neighboring settlements never has a `daysCrossed` to roll against at all, so it can
-    // never fire for one. Resolved first, since it's conceptually something that happened earlier
-    // in the journey, not at the destination's doorstep — its own onEnd just hands off into the
-    // unchanged resolveArrival above, so a trip can get both a travel encounter *and* an arrival
-    // ambush/world-event in sequence; it never suppresses or replaces that roll.
-    const daysCrossed = Math.floor((startHour + t.hours) / 24);
+    // ever considered for a trip that actually spans at least one full in-game day of travel —
+    // deliberately NOT advanceTime's own day-ROLLOVER math (Math.floor((gameHour+hours)/24)),
+    // which counts calendar-midnight crossings rather than trip duration: that formula would wrongly
+    // treat a 1-hour hop starting at 23:30 as a "day crossed" (it tips over one midnight) while
+    // treating a 20-hour trip starting at 01:00 as zero (it never reaches the next midnight) — the
+    // opposite of what "did this trip actually span a full day of travel" should mean. Using the
+    // trip's own duration instead means a short same-day hop between neighboring settlements never
+    // has a `daysCrossed` to roll against at all, regardless of what hour it happens to start at.
+    // Resolved first, since it's conceptually something that happened earlier in the journey, not
+    // at the destination's doorstep — its own onEnd just hands off into the unchanged resolveArrival
+    // above, so a trip can get both a travel encounter *and* an arrival ambush/world-event in
+    // sequence; it never suppresses or replaces that roll.
+    const daysCrossed = Math.floor(t.hours / 24);
     if(daysCrossed >= 1 && rollTravelEncounter(daysCrossed)){
       triggerTravelEncounter(resolveArrival);
     } else {

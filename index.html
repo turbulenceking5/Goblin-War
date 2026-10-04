@@ -3427,6 +3427,15 @@ const REINFORCEMENT_DURATION_DAYS = 14;
 // kingdom rolls this chance every weekly tick to reinforce its own most-threatened ally
 // unprompted, same as a player Petition but not guaranteed every week.
 const TRUSTED_REINFORCEMENT_CHANCE = 0.35;
+// A second, player-independent reinforcement roll — "the world looks after its own sometimes" —
+// for a peaceful kingdom whose most-urgent ally (findAllyNeedingReinforcement) is under active
+// siege right now, regardless of the player's own reputation with that kingdom. Without this, a
+// besieged ally can only ever get outside help via the Trusted path above or a player Petition —
+// if the player never built Trusted standing with any peacetime kingdom, the world never acts on
+// its own at all. Deliberately much rarer than TRUSTED_REINFORCEMENT_CHANCE (reputation is a
+// stronger, player-earned signal than generic alliance solidarity) — first-pass number, easy to
+// retune later, same spirit as RAID_AMBUSH_CHANCE/TRUSTED_REINFORCEMENT_CHANCE above.
+const DISTRESS_REINFORCEMENT_CHANCE = 0.15;
 function getReinforcements(){
   if(_tickCache) return _tickCache.reinforcements;
   try{ return JSON.parse(localStorage.getItem(REINFORCE_KEY)) || {}; }catch(e){ return {}; }
@@ -3476,17 +3485,97 @@ function getArmyStrength(kingdom){
   return base + getReinforcementBonus(kingdom);
 }
 
-// Closest settlement whose kingdom is currently at peace — where a burg's refugees go.
+// Bounded-depth BFS cap for findNearestPeacefulSettlement's own burgAdjacency search below — same
+// "real border, not a proximity guess" idea pickRaidTarget's borderCandidates already uses, just
+// walked outward more than one hop since a burg's own direct neighbors are often all at war with
+// it too (that's usually *why* its people are fleeing). Each "hop" in burgAdjacency is already a
+// whole settlement-to-settlement jump, not a single map cell (see buildBurgAdjacency above), so a
+// depth of 3-4 reaches a wide ring of real road/sea-connected neighbors — deep enough that a
+// peaceful haven is almost always found this way — while staying nowhere near an unbounded flood
+// over the ~450-800 burgs in graph.burgs; a region cut off from any peaceful neighbor within this
+// range (isolated by distance, not just by who's at war) falls through to the straight-line
+// fallback below instead of this BFS growing without limit looking for one.
+const REFUGEE_HAVEN_BFS_DEPTH_CAP = 4;
+// Mirrors RAID_CANDIDATE_POOL's own "small pool, not just the single best" idea (see
+// pickRaidTarget) for both branches of findNearestPeacefulSettlement below: the first BFS depth
+// that turns up any peaceful hits at all can still turn up more than one, and the straight-line
+// fallback sorts every peaceful burg by distance — either way, only the closest handful are worth
+// weighing against each other by remaining capacity (pickByRemainingCapacity below), not the
+// entire match set.
+const REFUGEE_HAVEN_CANDIDATE_POOL = 8;
+
+// Light capacity-awareness: prefers whichever of a small pool of near-equally-close havens has
+// proportionally more room left, rather than always returning the single closest entry regardless
+// of how much it's already absorbed. Weighted, not capped — every candidate keeps a real (if
+// small) chance of being picked even once it's already swollen with earlier refugee waves, so this
+// can never produce "nowhere to go" the way a hard capacity limit could. "Room left" is current
+// population (getPopulation, which already includes any earlier refugee arrivals) measured against
+// that settlement's own *original* population (graph.burgs[id].population, the permanent starting
+// figure — see "Population, armies & refugees" in factions-and-territory.md for why these two
+// numbers differ and aren't the same field) — a settlement already well past its starting size is
+// still eligible, just less likely, floored at a small flat chance rather than zero.
+function pickByRemainingCapacity(candidates){
+  if(candidates.length === 1) return candidates[0];
+  const weights = candidates.map(b=>{
+    const original = (b.population > 0) ? b.population : 0.001; // guard divide-by-zero on a zero/missing starting figure
+    const fullness = Math.min(1, getPopulation(b.id) / original); // >1 clamped to 1 once it's absorbed enough refugees to exceed its starting size
+    return Math.max(0.05, 1 - fullness); // emptier settlements weighted higher, but even a "full" one keeps a 5% floor chance
+  });
+  const total = weights.reduce((sum,w)=>sum+w, 0);
+  let roll = Math.random() * total;
+  for(let i=0; i<candidates.length; i++){
+    roll -= weights[i];
+    if(roll <= 0) return candidates[i];
+  }
+  return candidates[candidates.length-1]; // floating-point fallback, should only ever trigger on a rounding hair
+}
+
+// Closest settlement whose kingdom is currently at peace — where a burg's refugees go. Prefers a
+// real road/sea-adjacency match over a pure straight-line guess, same spirit as pickRaidTarget's
+// own border-first search: a bounded BFS outward through burgAdjacency (see buildBurgAdjacency
+// above), stopping at the first depth (up to REFUGEE_HAVEN_BFS_DEPTH_CAP hops) that has any
+// peaceful hits at all, since those are by definition the closest-by-road candidates and there's
+// no reason to keep expanding past them. Only falls back to the old full straight-line scan (kept
+// as the exact same "closest by distance, peaceful, not self" search as before) when the BFS finds
+// nothing peaceful within range at all — an isolated pocket with no close peaceful neighbor
+// reachable by road/sea. Either branch hands its small pool of near-equally-good candidates to
+// pickByRemainingCapacity above rather than deterministically returning the single nominal best.
 function findNearestPeacefulSettlement(fromBurgId){
   const from = graph.burgs[fromBurgId];
   if(!from) return null;
-  let best = null, bestDist = Infinity;
+
+  const visited = new Set([fromBurgId]);
+  let frontier = burgAdjacency[fromBurgId] || [];
+  for(let depth=1; depth<=REFUGEE_HAVEN_BFS_DEPTH_CAP && frontier.length; depth++){
+    const hits = [];
+    const nextFrontier = [];
+    frontier.forEach(id=>{
+      if(visited.has(id)) return; // already reached at an earlier (shorter-or-equal) depth, or queued twice this same depth
+      visited.add(id);
+      const b = graph.burgs[id];
+      if(!b) return;
+      if(!isAtWarAt(id)) hits.push(b);
+      (burgAdjacency[id] || []).forEach(n=>{ if(!visited.has(n)) nextFrontier.push(n); });
+    });
+    if(hits.length) return pickByRemainingCapacity(hits.slice(0, REFUGEE_HAVEN_CANDIDATE_POOL));
+    frontier = nextFrontier;
+  }
+
+  // Fallback: nothing peaceful reachable by road/sea within the depth cap (e.g. a region ringed
+  // entirely by kingdoms at war, or sitting in a sparse corner of burgAdjacency) — the same
+  // "closest by straight-line distance, excluding self and anyone at war" search the old
+  // single-best version always did, just collecting a small pool instead of only the single
+  // nearest so pickByRemainingCapacity has something to weigh. Still guaranteed non-null whenever
+  // the old version would have been: it only returns null if literally no other peaceful
+  // settlement exists anywhere on the map.
+  const peaceful = [];
   Object.values(graph.burgs).forEach(b=>{
     if(b.id === fromBurgId || isAtWarAt(b.id)) return;
-    const d = Math.hypot(b.x-from.x, b.y-from.y);
-    if(d < bestDist){ bestDist = d; best = b; }
+    peaceful.push(b);
   });
-  return best;
+  if(!peaceful.length) return null;
+  peaceful.sort((a,b)=> Math.hypot(a.x-from.x,a.y-from.y) - Math.hypot(b.x-from.x,b.y-from.y));
+  return pickByRemainingCapacity(peaceful.slice(0, REFUGEE_HAVEN_CANDIDATE_POOL));
 }
 
 // Applies a fractional population loss to one settlement: REFUGEE_DEATH_SHARE of it is gone
@@ -4604,12 +4693,32 @@ function runFactionAITick(){
     // events.push — this file's own convention is only settlement captures are worth a toast (see
     // "The weekly tick" in context/factions-and-territory.md); setReinforcement already overwrites
     // rather than stacks, so this can never combine with a player Petition into a bigger bonus.
+    //
+    // Second, independent roll below (DISTRESS_REINFORCEMENT_CHANCE): the Trusted path above is
+    // entirely about the PLAYER's own standing with a peaceful kingdom, not how dire the war
+    // actually is — a besieged ally gets no help at all if the player never built Trusted rep
+    // anywhere. This roll instead keys off real in-world urgency (the chosen ally is under an
+    // active siege right now) and ignores reputation entirely, so the world has some chance of
+    // looking after its own even in a game where the player never bothered with diplomacy. It's
+    // the `else` arm of the same per-kingdom check below, so a kingdom that already granted
+    // reinforcement via the Trusted roll this tick can never also roll distress — each kingdom in
+    // ALL_KINGDOMS is only ever visited once per tick, so that's enough to prevent a double-fire.
     ALL_KINGDOMS.forEach(kingdom=>{
       if(getWarState(kingdom) !== 'peace') return;
-      if(reputationLabel(getReputation(kingdom)) !== 'Trusted') return;
-      if(Math.random() >= TRUSTED_REINFORCEMENT_CHANCE) return;
-      const ally = findAllyNeedingReinforcement(kingdom);
-      if(ally) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
+      if(reputationLabel(getReputation(kingdom)) === 'Trusted' && Math.random() < TRUSTED_REINFORCEMENT_CHANCE){
+        const ally = findAllyNeedingReinforcement(kingdom);
+        if(ally) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
+      } else if(Math.random() < DISTRESS_REINFORCEMENT_CHANCE){
+        const ally = findAllyNeedingReinforcement(kingdom);
+        // Require an active siege specifically, not merely a cut supply line — a supply cut alone
+        // is the softer of the two urgency signals findAllyNeedingReinforcement sorts on (it's
+        // often reversible on its own as roads reopen), while a siege is the clearest "this ally
+        // needs help right now" state the game has. Reserving this rarer, reputation-free path for
+        // sieges keeps it reading as "the world stepping in for a dire emergency," not a routine
+        // top-up that happens to skip the reputation check.
+        const isUnderSiege = ally && Object.values(getSieges()).some(s => s.defenderKingdom === ally);
+        if(ally && isUnderSiege) setReinforcement(ally, getArmyStrength(kingdom) * REINFORCEMENT_FRACTION, kingdom);
+      }
     });
     // Quests & Factions: "accepted quests react to the live war tick" — this week's declare/peace
     // pass above has already settled every relation for the tick, so this is the right moment to
@@ -12117,10 +12226,19 @@ function acceptPetition(burgId){
 // strong one. Picks the weakest enemy when more than one applies, same "start with the easiest
 // win" logic Petition for Troops' least-reinforced-ally pick already uses.
 const NEGOTIATE_PEACE_BASE_COST = 150;
+// Reputation gate, per the project owner (context/roadmap.md's "Incite War / Negotiate Peace need
+// more weight"): brokering a truce means the home court has to trust the player enough to let them
+// speak for it diplomatically at all, not just have a legitimate court sitting. -10 is the floor of
+// reputationLabel's own Neutral bucket (-10 to 10) — an ordinary, no-strong-feelings-either-way
+// court will still hear the offer; only a court that's actually Unfriendly or Hostile (< -10) won't.
+// Deliberately the *lower* of the two thresholds here: ending a war is the more sympathetic ask of
+// the two (see Incite War's own, stricter gate below).
+const NEGOTIATE_PEACE_MIN_REPUTATION = -10;
 function generateNegotiatePeaceOffer(burgId){
   const b = graph.burgs[burgId];
   const kingdom = b.state;
   if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  if(getReputation(kingdom) < NEGOTIATE_PEACE_MIN_REPUTATION) return null; // court doesn't trust the player enough to broker this on its behalf
   const enemies = getEnemiesAtWar(kingdom);
   if(!enemies.length) return null;
   const myStrength = getArmyStrength(kingdom);
@@ -12140,11 +12258,19 @@ function buildNegotiatePeaceHTML(burgId){
   const desperateNote = isSupplyExhausted(offer.enemy)
     ? `<div style="font-size:12px; color:#7fbf6a; margin-top:-4px; margin-bottom:10px;">Their supply lines are cut — they'd welcome peace.</div>`
     : '';
+  // War-history transparency (context/factions-and-territory.md's war-history ledger already prices
+  // this in via getWarHistoryPeaceMultiplier — this just surfaces the count itself, so the player
+  // can see *why* a repeat-enemy truce costs more instead of it being an invisible multiplier).
+  const peaceHistoryCount = getWarHistoryCount(offer.kingdom, offer.enemy);
+  const warHistoryNote = peaceHistoryCount > 0
+    ? `<div style="font-size:12px; color:#a9926a; margin-top:-4px; margin-bottom:10px;">This isn't the first time they've come to blows — ${offer.kingdom} and ${offer.enemy} have been to war ${peaceHistoryCount} time${peaceHistoryCount === 1 ? '' : 's'} before. Envoys doubt this truce will hold any better than the last.</div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Negotiate Peace</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at war with ${offer.enemy}. Bribe envoys to broker a truce between them.</div>
       ${desperateNote}
+      ${warHistoryNote}
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; color:#e0a860; font-weight:700;">${offer.cost}g</span>
         <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="negotiate-peace-btn">Negotiate</button>
@@ -12178,10 +12304,18 @@ function acceptNegotiatePeace(burgId){
 // ratio math Negotiate Peace uses to price a truce prices the payout here, just inverted (a
 // stronger target pays better rather than costing more).
 const INCITE_WAR_BASE_GOLD = 120;
+// Reputation gate, per the project owner (context/roadmap.md's "Incite War / Negotiate Peace need
+// more weight") — set stricter than Negotiate Peace's: paying a court's own agitators to go start a
+// war is a far more questionable ask of it than paying envoys to end one, so an ordinary Neutral
+// court shouldn't do it just because it has no strong opinion of the player yet. 11 is one past the
+// top of reputationLabel's Neutral bucket (-10 to 10) — i.e. the court has to actually be Friendly
+// (>10) or better before it'll entertain this.
+const INCITE_WAR_MIN_REPUTATION = 11;
 function generateInciteWarOffer(burgId){
   const b = graph.burgs[burgId];
   const kingdom = b.state;
   if(!kingdom || getController(burgId) !== b.race) return null; // no legitimate court left here
+  if(getReputation(kingdom) < INCITE_WAR_MIN_REPUTATION) return null; // court doesn't trust the player enough to broker this on its behalf
   const candidates = ALL_KINGDOMS.filter(k =>
     k !== kingdom && ALLIANCE[KINGDOM_RACE[k]] !== ALLIANCE[KINGDOM_RACE[kingdom]] && getRelation(kingdom, k) !== 'war'
     && !isWarCooldownActive(kingdom, k) // a war-exhaustion treaty holding between these two can't be paid around
@@ -12200,10 +12334,18 @@ function buildInciteWarHTML(burgId){
   if(getFealty()) return ''; // swore off stirring conflict anywhere, permanently — see FEALTY_KEY
   const offer = generateInciteWarOffer(burgId);
   if(!offer) return '';
+  // War-history transparency, same precedent as Negotiate Peace above — the ledger already prices
+  // this in via getWarHistoryInciteMultiplier, this just names it so a cheaper-than-expected payout
+  // against an old enemy doesn't read as an unexplained number.
+  const inciteHistoryCount = getWarHistoryCount(offer.kingdom, offer.target);
+  const warHistoryNote = inciteHistoryCount > 0
+    ? `<div style="font-size:12px; color:#a9926a; margin-top:-4px; margin-bottom:10px;">Old grudges run deep — ${offer.kingdom} and ${offer.target} have already gone to war ${inciteHistoryCount} time${inciteHistoryCount === 1 ? '' : 's'} before, which is exactly why the agitators' price is soft.</div>`
+    : '';
   return `
     <div style="background:rgba(255,255,255,.06); border:1.5px solid rgba(209,164,69,.35); border-radius:10px; padding:14px; margin-top:12px;">
       <div style="font-family:'Cinzel',serif; font-size:13px; font-weight:700; color:var(--parchment); margin-bottom:4px;">Incite War</div>
       <div style="font-size:13px; color:#a9926a; line-height:1.5; margin-bottom:10px;">${offer.kingdom} is at peace with ${offer.target}. Pay agitators to provoke a war between them.</div>
+      ${warHistoryNote}
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; color:#7fbf6a; font-weight:700;">+${offer.gold}g</span>
         <button class="btn btn-primary" style="flex:none; padding:8px 16px;" id="incite-war-btn">Incite</button>
@@ -12633,7 +12775,14 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   const siege = getSieges()[burgId];
   if(!siege) return;
   const attackerRace = KINGDOM_RACE[siege.attackerKingdom] || 'ork';
-  const variants = ENEMY_VARIANTS[attackerRace] || ENEMY_VARIANTS.ork;
+  // ENEMY_VARIANTS has no 'human'/'dwarf' entry (no race-specific art/stats exist for a
+  // Good-alliance attacker yet — an asset-generation decision for the project owner, not
+  // something to invent here), so a Human/Dwarf attacking kingdom falls back to the Bandit
+  // pool rather than Ork: Bandits are already unbranded human-looking raiders, so this stops
+  // the fight from actively mislabeling the attacker as the wrong hostile race. attackerRace
+  // itself is untouched below — combat.attackerKingdom/the log text/getSiegeBackdrop still key
+  // off the real kingdom, only the enemy variant stat/portrait pool changes.
+  const variants = ENEMY_VARIANTS[attackerRace] || ENEMY_VARIANTS.bandit;
   const count = 2 + Math.floor(Math.random()*2); // 2 or 3
   const specs = [];
   for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);

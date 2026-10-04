@@ -6618,6 +6618,56 @@ function clearPendingSettlementEvent(burgId){
   if(state[burgId]) state[burgId].eventId = null;
   localStorage.setItem(SETTLEMENT_EVENT_KEY, JSON.stringify(state));
 }
+// On-the-road counterpart to WORLD_EVENTS/SETTLEMENT_EVENTS above — same {id, title, text, good,
+// bad} shape and the same showEventModal/resolveWorldEvent resolution path, but rolled for days
+// genuinely *crossed mid-journey* (see rollTravelEncounter/beginTravel), not for the arrival itself
+// (that's still WORLD_EVENTS' job) and not for a settlement the player is standing in (that's
+// SETTLEMENT_EVENTS'). Framed around the days-deep stretch of the journey itself — a shared fire,
+// a crossing, a dry spell — deliberately distinct from WORLD_EVENTS' own "just outside town"
+// rural framing (milestone/cart/crossroads/farmstead/treeline) and SETTLEMENT_EVENTS' in-town one.
+const TRAVEL_ENCOUNTERS = [
+  { id:'road_night_fire', title:"A Fire Down the Road",
+    text:"Somewhere in the days since you last saw a proper roof, you spot the orange flicker of someone else's campfire a short way off the path.",
+    good:{ label:"Share the fire", gold:0, loyalty:8, xp:6, resultText:"A stranger's stew and an hour of trading stories makes the road feel shorter. You part ways come morning, a little richer for the company." },
+    bad:{ label:"Keep to your own fire", gold:0, loyalty:-4, xp:0, resultText:"You give the light a wide berth and bed down alone again. Safer, maybe. Lonelier, certainly." } },
+  { id:'swollen_ford', title:"A Swollen Ford",
+    text:"Days of travel have brought you to a river crossing running higher and faster than the road markers promised — a local waits at the bank offering to guide you through for a price.",
+    good:{ label:"Pay the guide", gold:-10, loyalty:0, xp:5, resultText:"He knows the footing better than you ever would have guessed, and you're across dry before you know it." },
+    bad:{ label:"Find your own way across", gold:0, loyalty:0, xp:3, staminaCost:15, resultText:"You make it across on your own, soaked to the bone and aching for it, but you keep your coin." } },
+  { id:'stray_packmule', title:"A Stray Pack-Mule",
+    text:"A loaded pack-mule trots alongside the road with no owner in sight, saddlebags swinging and clearly not wild stock.",
+    good:{ label:"Track down its owner", gold:0, loyalty:10, xp:8, resultText:"A mile on you find the drover, frantic and grateful, searching the ditches for exactly this animal." },
+    bad:{ label:"Keep whatever's in the saddlebags", gold:12, loyalty:-10, xp:0, resultText:"Whoever lost that mule is someone else's problem now. The coin in the saddlebag spends just the same." } },
+  { id:'distant_watchfires', title:"Watchfires on the Ridge",
+    text:"Deep into a long stretch of road, you notice watchfires burning along a ridge well off the path — soldiers, by the look of the spacing, keeping an eye on something you can't see.",
+    good:{ label:"Go see what they're watching for", gold:5, loyalty:4, xp:10, staminaCost:10, resultText:"A tense climb later, a sergeant waves you off with a warning — and a coin for not making trouble — rather than chase you off empty-handed." },
+    bad:{ label:"Not your business tonight", gold:0, loyalty:0, xp:0, resultText:"Whatever they're watching for, it's none of your concern tonight. You keep walking." } },
+  { id:'roadside_shrine', title:"A Roadside Shrine",
+    text:"Days into the journey, the road passes a small weathered shrine, its offering bowl holding nothing but a few wilted flowers and a handful of coppers.",
+    good:{ label:"Leave an offering", gold:-5, loyalty:5, xp:4, resultText:"You add what you can spare to the bowl. Whether anyone's listening or not, it feels like good luck for the road ahead." },
+    bad:{ label:"Take the coppers", gold:4, loyalty:-5, xp:0, resultText:"A few coppers are a few coppers. You pocket them and don't look back at the shrine." } },
+  { id:'dry_stretch', title:"A Dry Stretch of Road",
+    text:"An unexpectedly dry stretch of the journey has left your waterskin lighter than you'd like, with no well or stream in sight for miles yet.",
+    good:{ label:"Ration carefully", gold:0, loyalty:0, xp:4, thirstCost:4, resultText:"You go a little thirstier than you'd like, but you make it to the next water source with something left in the skin." },
+    bad:{ label:"Drink your fill now", gold:0, loyalty:0, xp:0, resultText:"You drink deep while you still can. The skin's bone dry well before the next stream — tomorrow's problem, not today's." } },
+];
+// Flat per-day chance, deliberately simpler than rollAmbush's own night/weather/perk-scaled math —
+// this system doesn't need that elaborateness, just a low independent chance per full in-game day
+// actually crossed mid-journey (rollTravelEncounter below), not per hour or per mile.
+const TRAVEL_ENCOUNTER_CHANCE = 0.12;
+// Independent Bernoulli trial per day crossed, same chance each day, but surfaces as at most one
+// hit for the whole trip (returns on the first one) — a long multi-day trip is meaningfully more
+// likely to have *something* happen on it than a 1-day hop, without ever stacking multiple
+// encounter modals back to back for the same journey. `days` is always a whole number >= 1 here
+// (see beginTravel — callers never invoke this for a same-day hop at all).
+function rollTravelEncounter(days){
+  for(let i=0;i<days;i++){ if(Math.random() < TRAVEL_ENCOUNTER_CHANCE) return true; }
+  return false;
+}
+function triggerTravelEncounter(onEnd){
+  const event = TRAVEL_ENCOUNTERS[Math.floor(Math.random()*TRAVEL_ENCOUNTERS.length)];
+  showEventModal(event, onEnd, null);
+}
 function rollWorldEvent(){ return Math.random() < WORLD_EVENT_CHANCE; }
 // {event, onEnd, burgId} while #world-event-modal is open — burgId is set only for a
 // settlement-anchored event (see triggerSettlementEvent/showEventModal below), same "add a field
@@ -6651,7 +6701,10 @@ function triggerSettlementEvent(burgId){
 }
 // gold can go either direction (clamped at 0, same floor every gold spend in the game already
 // uses); healthCost/staminaCost are optional stakes on the riskier "good" choices, floored at 1/0
-// respectively so helping someone can never itself be fatal.
+// respectively so helping someone can never itself be fatal. hungerCost/thirstCost (TRAVEL_ENCOUNTERS
+// only so far, but generic here same as the others) feed straight into addHunger/addThirst using
+// their own existing clamp-and-overflow handling — never a new persisted key, same meters travel
+// arrival already drains.
 function resolveWorldEvent(choiceKey){
   if(!activeWorldEvent) return;
   const { event, onEnd, burgId } = activeWorldEvent;
@@ -6662,6 +6715,8 @@ function resolveWorldEvent(choiceKey){
   if(choice.gold) setGold(Math.max(0, playerGold + choice.gold));
   if(choice.healthCost) setHealth(Math.max(1, playerHealth - choice.healthCost));
   if(choice.staminaCost) setStamina(Math.max(0, playerStamina - choice.staminaCost));
+  if(choice.hungerCost) addHunger(choice.hungerCost);
+  if(choice.thirstCost) addThirst(choice.thirstCost);
   const leveledUp = choice.xp ? addXp(choice.xp) : false;
   const loyaltyNote = adjustPartyLoyalty(choice.loyalty);
   showToast(choice.resultText + (leveledUp ? ` Level up! You are now level ${playerLevel}.` : '') + loyaltyNote);
@@ -8192,14 +8247,37 @@ function beginTravel(destId, viaShortcut){
     // over to whenever the player next actually completes a road trip.
     if(escorted) localStorage.setItem(CARAVAN_ESCORT_KEY, 'false');
     const ambushMult = (viaShortcut ? SHORTCUT_AMBUSH_MULT : 1) * (escorted ? CARAVAN_ESCORT_AMBUSH_MULT : 1);
-    if(rollAmbush(t.hours, startHour, ambushMult)){
-      triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
-    } else if(rollWorldEvent()){
-      triggerWorldEvent(()=> showLocationView(currentBurg));
-    } else if(escorted){
-      showCaravanArrivalDialogue(currentBurg);
+    // Resolves the existing arrival-time interruption exactly as before — unchanged, and still at
+    // most one of ambush/world-event/escort-dialogue per arrival. Pulled into its own closure so
+    // the new travel-encounter roll just below can run first and chain into it afterward, rather
+    // than being folded into this same else-if chain as one more alternative — that would make the
+    // travel encounter *compete with* the arrival roll (one or the other, never both), when the
+    // whole point is that they're independent and can both fire on the same trip.
+    const resolveArrival = () => {
+      if(rollAmbush(t.hours, startHour, ambushMult)){
+        triggerAmbushFight(currentBurg, ()=> showLocationView(currentBurg), 'road');
+      } else if(rollWorldEvent()){
+        triggerWorldEvent(()=> showLocationView(currentBurg));
+      } else if(escorted){
+        showCaravanArrivalDialogue(currentBurg);
+      } else {
+        showLocationView(currentBurg);
+      }
+    };
+    // On-the-road encounters — independent of (not instead of) the arrival roll just above. Only
+    // ever considered for a trip that actually crossed at least one full in-game day mid-journey
+    // (same day-rollover math advanceTime itself just used a few lines up, computed here from the
+    // untouched startHour so it reads identically regardless of code order) — a short same-day hop
+    // between neighboring settlements never has a `daysCrossed` to roll against at all, so it can
+    // never fire for one. Resolved first, since it's conceptually something that happened earlier
+    // in the journey, not at the destination's doorstep — its own onEnd just hands off into the
+    // unchanged resolveArrival above, so a trip can get both a travel encounter *and* an arrival
+    // ambush/world-event in sequence; it never suppresses or replaces that roll.
+    const daysCrossed = Math.floor((startHour + t.hours) / 24);
+    if(daysCrossed >= 1 && rollTravelEncounter(daysCrossed)){
+      triggerTravelEncounter(resolveArrival);
     } else {
-      showLocationView(currentBurg);
+      resolveArrival();
     }
   }, (info)=>{
     if(!activeTravel) return;

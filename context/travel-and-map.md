@@ -306,10 +306,11 @@ mirror `onBattleMarkerTap`/`beginTravelToBattle` almost line for line.
   Campsite pays a foraged item (Food or a Healing Potion, via the same `addItem` the Marketplace/
   loot system already use) plus XP, a Cache pays pure gold (weighted toward a bigger payout than
   Ruins' own gold roll, since finding one carries no ongoing risk beyond the arrival roll every
-  landmark type already shares), and a Watchtower pays pure XP (no lore/map-reveal perk — this
-  codebase has no fog-of-war/map-reveal system to hook into, so it stays reward-only like every
-  other type). One-time only: arriving safely calls `grantLandmarkReward`, which marks the landmark
-  claimed (`claimLandmark`) before anything else, so it can't be farmed twice.
+  landmark type already shares), and a Watchtower pays pure XP (its own "climb up, take in the
+  view" flavor is now covered for free by claiming it also punching a Fog of War hole around it —
+  see below — so no separate reward field was added just for that). One-time only: arriving safely
+  calls `grantLandmarkReward`, which marks the landmark claimed (`claimLandmark`) before anything
+  else, so it can't be farmed twice.
 - **Reaching one plays out exactly like reaching a settlement or a battle**: `onLandmarkMarkerTap`
   shows the same `#info-card` quote/Travel-Here flow, and `beginTravelToLandmark` rolls the same
   ambush/world-event checks on arrival any other trip does — a landmark is not automatically safe to
@@ -326,6 +327,53 @@ mirror `onBattleMarkerTap`/`beginTravelToBattle` almost line for line.
   (`LANDMARK_GLYPHS`: a broken column for Ruins, a small flame for a Campsite, a small chest for a
   Cache, a crumbling turret for a Watchtower) pending any real art, same "ship the mechanic, swap in
   real art later" precedent the rest of this codebase already sets.
+
+## Fog of War
+
+Unvisited regions of the map render dark until the player has actually been near them, rather than
+the whole map (every settlement name/icon, road, landmark) being visible from a brand-new game.
+
+- **Zero new persisted state.** The revealed set is derived fresh, every rebuild, from
+  `goblinwar_visitedBurgs`/`getVisitedBurgs()` (already tracked for achievements — see
+  [player-state.md](player-state.md)) and `goblinwar_landmarksClaimed`/`getClaimedLandmarks()`
+  (already tracked for the landmark reward system above), plus wherever the player currently stands
+  (`getCurrentXY()`) — no new `localStorage` key, no character-snapshot triplicate changes anywhere.
+  Same "derive a set from already-persisted state" precedent
+  [factions-and-territory.md](factions-and-territory.md)'s `getSupplyCutBurgs(kingdom)` already set.
+- **An SVG `<mask>` — new technique for this codebase.** `#overlay`'s markup gained a
+  `<radialGradient id="fog-reveal-gradient">` (black center fading to white at the edge) and a
+  `<mask id="fog-mask">` holding a full-coverage white `<rect>` plus a `<g id="fog-holes">` of
+  gradient circles — white mask content shows the dark `#fog-rect` (`fill:var(--ink); opacity:.88`),
+  black hides it, so each circle "burns through" a soft-edged hole wherever the player has actually
+  been. No prior `<mask>`/`radialGradient` existed anywhere in `index.html` before this — the
+  existing darkening layers (`#night-overlay`, `#season-overlay`, `#weather-overlay`,
+  `#ui-vignette`) are all flat screen-space CSS color washes, not tied to map coordinates. `#fog-rect`
+  sits in `#overlay`'s child order right before `#player-layer`, late enough to darken every
+  marker/label/icon/road layer beneath it, but still below the player's own position marker and the
+  selection highlight ring — you always know where you are, even in the dark.
+- **`buildFogOverlay()`** rebuilds `#fog-holes` from scratch (same `buildXMarkers()`
+  rebuild-from-scratch convention every other marker layer already follows) — a hole of
+  `FOG_REVEAL_RADIUS` (110 logical units) around every visited burg and around wherever
+  `getCurrentXY()` currently points, plus a smaller `FOG_LANDMARK_REVEAL_RADIUS` (80) hole around
+  every claimed landmark. Called from three places: the world-load marker-build block (once per
+  load), the end of `recordVisitedBurg()` (so a never-visited arrival punches a new permanent hole
+  immediately), and the end of `claimLandmark()` (so looting a landmark reveals around it too).
+- **A live "torch" reveal while actually traveling — deliberately not persisted.** A single
+  `#fog-mask-live` circle's `cx`/`cy` are just updated directly every `animateTravel` frame (the
+  same cheap attribute-write technique `positionPlayerMarker`/`centerOnLogical` already use), fed by
+  the live logical-space `x`/`y` `onProgress` already provides (see "Travel animation" above) — added
+  at all three travel-animation call sites (plain settlement travel, travel to a field battle, travel
+  to a landmark). This makes the fog visibly part around the player's own marker mid-trip, but once
+  the trip ends only the arrival point's own permanent hole (via `recordVisitedBurg`) remains — a road
+  walked once and never arrived-from-again (the player turns back partway, or the game closes
+  mid-trip) leaves no lasting scar. **Known simplification**, stated plainly rather than discovered
+  later: the alternative (persisting every mile of every road ever walked as its own revealed point)
+  has no natural cap, unlike the settlement/landmark counts the world generator fixes — if a fuller
+  "revealed roads stay revealed" version is ever wanted, it needs a real capped/simplified
+  persistence shape (e.g. snapping to road-graph edges rather than raw path samples), not a
+  straight extension of the live circle above.
+- **No settings toggle.** Day/night, weather, and seasons all shipped as always-on map effects with
+  no opt-out, and fog follows the same precedent.
 
 ## Map legend
 

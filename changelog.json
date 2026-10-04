@@ -1325,5 +1325,12 @@
     "changes": [
       "A Favor for a Kingdom can now go a third round — once a kingdom trusts you deeply enough, their Quest Board may offer 'A Lasting Alliance' instead, the biggest-paying favor yet."
     ]
+  },
+  {
+    "id": 177,
+    "date": "2026-10-04",
+    "changes": [
+      "Added Fog of War — the map now stays dark and hazy in places you haven't actually been, lifting for good around every settlement you've visited and every landmark you've found, with the mist also parting around you while you're actually on the road."
+    ]
   }
 ]

@@ -7287,15 +7287,118 @@ function kingdomColor(kingdom){
   return color;
 }
 
+// ---- Settlement label collision avoidance — build-time, one-shot, pure logical-space nudge ----
+// Known gap this closes (see travel-and-map.md's buildCityIcons() writeup, "Labels still have no
+// collision avoidance at all"): dense settlement clusters make names overlap and become unreadable.
+// buildKingdomTerritoryLabels()/positionKingdomLabels() just above already run a real
+// force-relaxation separation pass, but that one has to re-run on every pan/zoom tick because
+// #kingdom-labels-layer lives in screen space with a FIXED PIXEL font size (see that function's own
+// comment) — at ~800 settlement labels (vs ~15-24 kingdom labels) doing the same thing every frame
+// would be a real perf concern.
+//
+// Settlement labels don't have that problem. They're real SVG <text> elements inside the scaled
+// #overlay, with font-size set directly in LOGICAL units (LABEL_FONT_SIZE) — the same coordinate
+// space b.x/b.y already live in. Because #overlay is scaled by one uniform view.scale transform,
+// whether two labels' rendered boxes overlap on screen is entirely determined by whether their boxes
+// overlap in LOGICAL space, and a uniform scale can't change that (it can't make two things that
+// don't overlap start overlapping, or vice versa, since it scales every distance by the same
+// factor). So a one-shot pass computed in logical space at build time is correct at every zoom level
+// forever — there's nothing to re-run on pan/zoom, unlike the kingdom labels' fixed-screen-px sizing,
+// which genuinely does need re-layout as the viewport's own CSS size changes.
+//
+// Labels also never need to move again after this: a settlement's name (content) and b.x/b.y (base
+// position) never change post-load — only a label's COLOR depends on current territorial control
+// (kingdomColor(getControllerKingdom(id))), which does change at the weekly tick. buildLabels()
+// still reruns then to pick that color up, but the expensive nudge pass itself is cached
+// (labelNudgeCache below, computed once per page load) — a weekly-tick rebuild is just ~800 cheap
+// attribute writes reusing the cached offsets, not a second full collision pass.
+//
+// Nudges are applied along the X axis only, never Y. Y is reserved entirely for LABEL_OFFSET_Y's own
+// job of clearing a label of its own settlement's icon (see that constant's comment) — nudging Y
+// here too could undo that guarantee for whichever label got pushed toward its icon. Resolving an
+// AABB overlap only ever requires separating along ONE axis (if two boxes don't overlap on X, they
+// don't overlap at all, regardless of Y), so X-only pushes are sufficient to clear every detected
+// overlap while leaving every label's icon-clearance guarantee completely untouched.
+//
+// Text width isn't measured against the real DOM (getBBox()/getComputedTextLength() on ~800
+// elements would force that many synchronous layout passes just to build the map) — it's estimated
+// from character count * font-size * LABEL_CHAR_WIDTH_RATIO, a cheap heuristic tuned by eye against
+// Cinzel's own average glyph advance. Good enough to catch real overlaps in dense clusters, not a
+// pixel-perfect layout — the same "good enough, not true bin-packing" spirit
+// positionKingdomLabels() already documents for its own pass.
+//
+// ~800 settlements is the one real difference from the kingdom pass (~24) that matters for cost:
+// even a naive O(n^2) pairwise check over 800 points measures well under 100ms (comparable to
+// buildBorderMarkers()'s own one-time ~130ms grid trace at load) — but the spatial-hash bucketing
+// below avoids the full O(n^2) anyway, by only ever comparing a label against others in its own or
+// an adjacent grid cell.
+const LABEL_CHAR_WIDTH_RATIO = 0.56; // Cinzel serif's rough average glyph advance, as a fraction of font-size
+const LABEL_HALF_HEIGHT_RATIO = 0.55; // rough half cap-to-descender height, as a fraction of font-size
+const LABEL_PAD = 2; // logical units of breathing room added to every side of a label's estimated box
+const LABEL_SEPARATION_PASSES = 5; // same order as positionKingdomLabels()'s own 6 — converges well past any overlap found in testing against a realistic settlement spacing floor
+const LABEL_GRID_CELL = 200; // logical units — comfortably bigger than any single label's own half-width/half-height, so two labels in non-adjacent cells can never actually overlap
+let labelNudgeCache = null; // burgId -> x-offset in logical units; computed once per page load (world/positions never change after that)
+function computeLabelNudges(){
+  const entries = [];
+  let i = 0;
+  for(const id in graph.burgs){
+    const b = graph.burgs[id];
+    const fontSize = LABEL_FONT_SIZE[b.tier] || 4;
+    const name = b.name || '';
+    entries.push({
+      id,
+      x: b.x, y: b.y + (LABEL_OFFSET_Y[b.tier] || 11),
+      hw: Math.max(fontSize, name.length * fontSize * LABEL_CHAR_WIDTH_RATIO) / 2 + LABEL_PAD,
+      hh: fontSize * LABEL_HALF_HEIGHT_RATIO + LABEL_PAD,
+      dx: 0, idx: i++
+    });
+  }
+  for(let pass=0; pass<LABEL_SEPARATION_PASSES; pass++){
+    // Spatial hash, rebuilt fresh each pass from the entries' current (nudged) x — only labels
+    // sharing or neighboring a bucket can possibly overlap, given LABEL_GRID_CELL's size guarantee.
+    const buckets = new Map();
+    for(const e of entries){
+      const cx = Math.floor((e.x + e.dx) / LABEL_GRID_CELL), cy = Math.floor(e.y / LABEL_GRID_CELL);
+      const key = cx + ',' + cy;
+      let list = buckets.get(key);
+      if(!list){ list = []; buckets.set(key, list); }
+      list.push(e);
+    }
+    for(const e of entries){
+      const cx = Math.floor((e.x + e.dx) / LABEL_GRID_CELL), cy = Math.floor(e.y / LABEL_GRID_CELL);
+      for(let ncx = cx-1; ncx <= cx+1; ncx++){
+        for(let ncy = cy-1; ncy <= cy+1; ncy++){
+          const list = buckets.get(ncx + ',' + ncy);
+          if(!list) continue;
+          for(const other of list){
+            if(other.idx <= e.idx) continue; // each unordered pair resolved exactly once
+            const ax = e.x + e.dx, bx = other.x + other.dx;
+            const dx = bx - ax, dy = other.y - e.y;
+            const ox = (e.hw + other.hw) - Math.abs(dx);
+            const oy = (e.hh + other.hh) - Math.abs(dy);
+            if(ox <= 0 || oy <= 0) continue; // boxes don't actually overlap — nothing to resolve
+            const push = (ox/2) * (dx < 0 ? -1 : 1); // dx===0 ties toward the positive branch, same convention positionKingdomLabels() uses
+            e.dx -= push; other.dx += push;
+          }
+        }
+      }
+    }
+  }
+  const cache = {};
+  entries.forEach(e=>{ cache[e.id] = e.dx; });
+  return cache;
+}
+
 function buildLabels(){
   const g = document.getElementById('labels');
   g.innerHTML = '';
   const ns = "http://www.w3.org/2000/svg";
+  if(!labelNudgeCache) labelNudgeCache = computeLabelNudges();
   for(const id in graph.burgs){
     const b = graph.burgs[id];
     const t = document.createElementNS(ns, "text");
     t.setAttribute("class", `map-label tier-${b.tier}`);
-    t.setAttribute("x", b.x);
+    t.setAttribute("x", b.x + (labelNudgeCache[id] || 0));
     t.setAttribute("y", b.y + (LABEL_OFFSET_Y[b.tier] || 11));
     t.setAttribute("font-size", LABEL_FONT_SIZE[b.tier] || 4);
     t.setAttribute("font-weight", b.tier === 'capital' ? '700' : '500');

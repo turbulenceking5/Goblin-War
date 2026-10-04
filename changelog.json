@@ -1308,5 +1308,12 @@
       "Villages and towns feel less copy-pasted: the Tavern, Marketplace, Work, and Talk to Townsfolk options now describe what's actually going on in that specific settlement — fishing-village chatter at a port, quarry talk in the mountains, guarded tavern gossip in a recently conquered town, and so on.",
       "A City or Capital's long list of options (Temple, Guard House, Blacksmith, the Palace, and whatever's urgent that day) is now sorted into labeled sections — Pressing Matters, Services, Work & Trade, People — instead of one long undifferentiated scroll. Smaller settlements with only the basics still show a plain list."
     ]
+  },
+  {
+    "id": 175,
+    "date": "2026-10-04",
+    "changes": [
+      "Defending the Walls against a Human or Dwarf kingdom's siege no longer shows you fighting Ork Raiders — you now face unbranded renegade troops instead, until real Human/Dwarf soldier art is ready."
+    ]
   }
 ]

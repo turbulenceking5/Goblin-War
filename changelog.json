@@ -1344,5 +1344,48 @@
       "Added Fortify the Walls at the Guard House — pay to strengthen a settlement's own defenses ahead of time, before a siege ever arrives.",
       "Paying for intel at the Guard House now warns you directly if an enemy muster is marching on that very settlement, not just somewhere on the march."
     ]
+  },
+  {
+    "id": 179,
+    "date": "2026-10-05",
+    "changes": [
+      "Winter now makes mountain and snow-covered road stretches slower and more hazardous to cross — a real detour is often worth it if one exists.",
+      "Shipwrecks join the off-road landmarks you can stumble across — found only near the coast, paying out gold and sometimes salvaged cargo.",
+      "Refugees fleeing a losing settlement now show up as a small marker that actually walks the road to safety, rather than just vanishing and reappearing elsewhere.",
+      "A new Tavern Regular, the Storyteller, recounts real recent happenings from the wider realm instead of fixed flavor text.",
+      "An Envoy now holds court at whichever enemy capital your side is at war with — a taunting conversation to have, not a quest to accept.",
+      "The Temple now offers Absolution — pay to ease a kingdom's bitterest rivalry, making a future peace cheaper or a future war costlier to start against that one enemy.",
+      "Take In a Refugee — a cheap, short-lived helper you can hire straight from the Refugee Camp, gone again within a few days regardless of upkeep paid.",
+      "Food prices now shift with the season — a touch cheaper after Autumn's harvest, pricier through Winter's lean months."
+    ]
+  },
+  {
+    "id": 180,
+    "date": "2026-10-05",
+    "changes": [
+      "Goblin Shieldbearers and Ork Warlords now carry real armor that blunts incoming damage — Reckless Swing and Precise Shot punch straight through it regardless.",
+      "A multi-enemy fight can now break and scatter once it's clearly lost, instead of always grinding down to the very last hit point.",
+      "Goblin Archers, Goblin Shamans, and Ork Shamans now fight from the back row — a plain Attack or melee Special can't reach them until the front line falls, though Precise Shot still can snipe them early.",
+      "Fixed a long-standing bug: enemies that are supposed to always target your weakest ally (Goblin Chieftains, Ork Warlords, Shamans, and the Dire Bear) were actually picking targets at random the whole time.",
+      "Two new capstone skill-tree nodes — Juggernaut, Shadow Step, and Master Trader — give a well-leveled character with nothing left to spend skill points on somewhere real to put them.",
+      "Visiting a settlement for the very first time, and claiming an off-road landmark, now grants a small amount of XP on top of whatever else it pays.",
+      "Axe and Spear/Bow weapon ladders join the Sword as real alternatives for your weapon slot — an Axe can stagger, a Spear ignores enemy armor on a plain Attack, and a Bow boosts Precise Shot.",
+      "Matching gear tiers across your whole loadout now grants a small set bonus — 3 of 6 slots in the same tier gives a little, all 6 gives more.",
+      "Hired swords and recruited companions now grow stronger the more fights they survive at your side, and Ser Brannoc, Wren, and Thrain each unleash their own signature move every few rounds."
+    ]
+  },
+  {
+    "id": 181,
+    "date": "2026-10-05",
+    "changes": [
+      "Smuggle Supplies Through Enemy Lines — a new, riskier Board quest that runs a shipment straight into a warzone for a steep premium.",
+      "A Debt to Repay — a real way to climb back out of a kingdom's bad graces after being locked out of its Guard House, by paying up front and delivering it to their capital in person.",
+      "Defend My Home — when a recruited companion's own settlement comes under siege, they'll personally ask you to help defend it.",
+      "Fund the Garrison — a new Guard House action to pay for a temporary edge in an active siege, no fighting required.",
+      "Scorched Earth — a grim, opt-in option once a siege looks all but lost: burn the settlement's own stores so whoever takes it never gets the full prize.",
+      "Added Export Save in Settings and Import Save on the character-creation screen — a real local backup of your character, separate from the cloud save.",
+      "Added a Reduced Motion toggle in Settings, following your device's own motion setting by default.",
+      "A failed autosave now retries automatically the next time it would normally save, and lets you know once it's caught up."
+    ]
   }
 ]

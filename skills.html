@@ -213,6 +213,12 @@ const PERKS = [
   { id:"silver_tongue", name:"Silver Tongue", stat:"int", req:2, desc:"-10% Marketplace buy prices." },
   { id:"scavenger",     name:"Scavenger",     stat:"int", req:2, desc:"+20% gold from combat victories." },
   { id:"field_rations", name:"Field Rations", stat:"int", req:4, desc:"-10% Hunger/Thirst lost while traveling or waiting." },
+  // Capstone skill-tree nodes — mirrors index.html's own copy (that's where the mechanical
+  // effects actually live: getEquipDamageBonus/getDodgeChance/getGoldMult). pointCost:2 is read
+  // by renderNodeDetail's unlock button below.
+  { id:"juggernaut",    name:"Juggernaut",    stat:"str", req:8, pointCost:2, desc:"+4 flat damage on attack, stacking with Power Strike." },
+  { id:"shadow_step",   name:"Shadow Step",   stat:"agi", req:6, pointCost:2, desc:"+15% chance to fully dodge an enemy's counter-attack, stacking with Evasion." },
+  { id:"master_trader", name:"Master Trader", stat:"int", req:6, pointCost:2, desc:"+25% gold from combat victories, stacking with Scavenger." },
 ];
 // Mirrors index.html's MOVES exactly (duplicated per the no-modules convention) — the actual
 // combat effects live there (combatSpecial); this copy only drives the unlock UI. Shares the
@@ -242,6 +248,12 @@ const SKILL_ICONS = {
   adrenaline_rush: "assets/ui/move-adrenaline-rush.png",
   war_cry: "assets/ui/move-war-cry.png",
   cleave: "assets/ui/move-cleave.png",
+  // No dedicated art generated yet — same "ship the mechanic, swap in real art later" precedent
+  // TIER_ART's SVGs set before real location photos existed. Reuses each capstone's own stat's
+  // existing icon as a placeholder rather than falling back to a broken image.
+  juggernaut: "assets/ui/perk-power-strike.png",
+  shadow_step: "assets/ui/perk-evasion.png",
+  master_trader: "assets/ui/perk-scavenger.png",
 };
 
 let toastTimer;
@@ -299,11 +311,12 @@ function renderNodeDetail(){
   // Mutually exclusive perk choices — see PERKS' own `excludes` field above. excludedBy is the
   // id of whichever rival was trained instead, or undefined if none/not applicable.
   const excludedBy = !isUnlocked && (skill.excludes || []).find(id => unlocked[id]);
+  const pointCost = skill.pointCost || 1;
   const action = isUnlocked
     ? `<span class="perk-unlocked-badge">Unlocked</span>`
     : excludedBy
       ? `<div class="node-detail-excluded">Mutually exclusive with ${(findSkill(excludedBy)||{}).name || excludedBy} — already trained, and can't be undone except by a full Rite of Renewal at the Temple.</div>`
-      : `<button class="perk-unlock-btn" id="node-unlock-btn" ${(!meetsReq || skillPoints <= 0) ? 'disabled' : ''}>Unlock (1 point)</button>`;
+      : `<button class="perk-unlock-btn" id="node-unlock-btn" ${(!meetsReq || skillPoints < pointCost) ? 'disabled' : ''}>Unlock (${pointCost} point${pointCost === 1 ? '' : 's'})</button>`;
   panel.innerHTML = `
     <div class="node-detail-name">${skill.name}<span>${skill.type === 'move' ? 'Special Attack' : 'Passive Perk'}</span></div>
     <div class="node-detail-desc">${skill.desc}</div>
@@ -314,12 +327,12 @@ function renderNodeDetail(){
   const btn = document.getElementById('node-unlock-btn');
   if(btn) btn.addEventListener('click', ()=>{
     const points = parseInt(localStorage.getItem(SKILLPOINTS_KEY) || "0", 10);
-    if(points <= 0) return;
+    if(points < pointCost) return;
     const unlockedNow = getUnlockedSkills();
     if((skill.excludes || []).some(id => unlockedNow[id])) return; // defensive re-check — the button shouldn't even render in this case
     unlockedNow[skill.id] = true;
     localStorage.setItem(SKILLS_KEY, JSON.stringify(unlockedNow));
-    localStorage.setItem(SKILLPOINTS_KEY, String(points - 1));
+    localStorage.setItem(SKILLPOINTS_KEY, String(points - pointCost));
     showToast(`Unlocked ${skill.name}.`);
     renderProgression();
   });

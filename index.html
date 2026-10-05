@@ -662,6 +662,21 @@
   #loc-banner-portrait.solo img{ height:175%; width:auto; filter:drop-shadow(0 8px 14px rgba(0,0,0,.65)); }
   #loc-banner-portrait.lineup{ align-items:flex-end; gap:6px; }
   #loc-banner-portrait.lineup img{ height:94%; width:auto; filter:drop-shadow(0 8px 14px rgba(0,0,0,.65)); }
+  /* A closer, head-and-shoulders crop of the same .lineup treatment — for a real one-on-one
+     conversation (showNatashaConversation) rather than a hire-roster lineup, where the full-body
+     "feet-to-frame" read above is the point (seeing a mercenary's build/gear at a glance). Reuses
+     the exact same full-body art with no new assets: each img gets an explicit height + a forced
+     aspect-ratio (overriding its own intrinsic one) narrower than the source art's, so object-fit:
+     cover crops in on the top of the image — object-position:center top keeps that crop anchored
+     at the head rather than centered on the whole figure. No separate overflow:hidden wrapper is
+     needed; object-fit:cover already clips to the img's own box. 56%/1.65 is tuned by eye against
+     the real Natasha/Sophie portraits (assets/npcs/) to land right at "head down to the shoulders,
+     just above where the torso broadens" — if a future character's art has different proportions
+     (a taller crown, floppier ears, etc.) this may need retuning the same way. */
+  #loc-banner-portrait.lineup.closeup{ align-items:center; }
+  #loc-banner-portrait.lineup.closeup img{
+    height:56%; width:auto; aspect-ratio:1.65; object-fit:cover; object-position:center top;
+  }
   #loc-back{
     align-self:flex-start; display:flex; align-items:center; gap:6px;
     font-family:'Cinzel', serif; font-size:11px; letter-spacing:.5px;
@@ -10062,7 +10077,7 @@ function showCampView(destId, destName, partialHours){
     ? `Making camp at ${here}`
     : `On the road to ${destName} — ${formatDuration(partialHours)} passed`;
   document.getElementById('loc-banner-art').innerHTML = CAMP_ART;
-  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup');
+  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup', 'closeup');
   document.getElementById('loc-banner-portrait').innerHTML = '';
 
   const list = document.getElementById('loc-action-list');
@@ -11492,10 +11507,12 @@ function showNatashaConversation(burgId){
   const list = document.getElementById('loc-action-list');
   const ctx = { kingdom: getControllerKingdom(burgId), cooldownKey: 'princess:natasha' };
   // Lineup treatment (see #loc-banner-portrait's .lineup CSS, the same one showMercenaryLineupPortraits
-  // uses) — Natasha and Sophie were always meant to appear together, per Character Forge.
+  // uses) — Natasha and Sophie were always meant to appear together, per Character Forge. Also
+  // 'closeup' — see the matching CSS comment — a real one-on-one conversation reads better zoomed
+  // in on their faces than the mercenary roster's full-body "feet-to-frame" treatment.
   const portraitEl = document.getElementById('loc-banner-portrait');
   portraitEl.innerHTML = `<img src="${NATASHA.portrait}" alt="${NATASHA.name}"><img src="${NATASHA.sophiePortrait}" alt="Sophie">`;
-  portraitEl.classList.add('show', 'lineup');
+  portraitEl.classList.add('show', 'lineup', 'closeup');
   function render(){
     const node = tree.nodes[nodeId];
     list.innerHTML = `
@@ -11691,7 +11708,7 @@ function showLocationView(burgId){
   document.getElementById('loc-sub').textContent = `${TIER_LABEL[b.tier]||b.tier}${controlNote}`;
   document.getElementById('loc-banner-art').classList.remove('photo');
   document.getElementById('loc-banner-art').innerHTML = TIER_ART[b.tier] || TIER_ART.village;
-  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup');
+  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup', 'closeup');
   document.getElementById('loc-banner-portrait').innerHTML = '';
 
   const workedToday = hasWorkedToday(burgId);
@@ -14457,7 +14474,7 @@ function showFieldBattlePanel(battleId){
   stopWaiting();
   const battle = getFieldBattles().find(b => b.id === battleId);
   const list = document.getElementById('loc-action-list');
-  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup');
+  document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup', 'closeup');
   document.getElementById('loc-banner-portrait').innerHTML = '';
   document.getElementById('loc-banner-art').classList.remove('photo');
   document.getElementById('loc-banner-art').innerHTML = CAMP_ART;

@@ -11609,7 +11609,7 @@ function showLocationView(burgId){
   const activeSiege = getSieges()[burgId];
   if(activeSiege){
     const defendedToday = hasDefendedToday(burgId);
-    actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/><path d="M3 10h18"/>`, title:"Defend the Walls", desc: defendedToday ? "You've already fought here today — come back tomorrow" : `${activeSiege.attackerKingdom}'s forces are attacking`, action:'defend_walls', disabled:defendedToday, category:'urgent' });
+    actions.push({ icon:`<path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-7h6v7"/><path d="M3 10h18"/>`, title:"Defend the Walls", desc: defendedToday ? "You've already fought here today — come back tomorrow" : (()=>{ const tier = getSiegeDefenseTier(burgId); return tier === 'fierce' ? `${activeSiege.attackerKingdom} throws everything it has at the walls — the city may not hold much longer` : tier === 'probing' ? `A probing raid — the garrison can likely hold without you` : `${activeSiege.attackerKingdom}'s forces are attacking`; })(), action:'defend_walls', disabled:defendedToday, category:'urgent' });
     // Scorch the Earth — only once the siege looks all but lost. See canScorchEarth above.
     if(canScorchEarth(burgId)){
       actions.push({ icon:`<path d="M12 2c2 4-2 5-2 8a4 4 0 1 0 8 0c0-1.5-1-2.5-1-2.5s0 2-1.5 2c1-2 .5-4-1-5.5 0 2-1 3-2.5 2z"/>`, title:"Scorch the Earth", desc:"Deny the enemy a whole prize, before it's too late", action:'scorch_earth', category:'urgent' });
@@ -13965,6 +13965,98 @@ function acceptEscortSupplyLine(burgId){
 const SIEGE_DEFENSE_PROGRESS_RELIEF = 30; // % knocked off the siege's progress on a successful defense
 const SIEGE_DEFENSE_GOLD_RANGE = [15,35];
 const SIEGE_DEFENSE_XP_RANGE = [20,35];
+// Reward scaling by siege tier (see getSiegeDefenseTier below) — "a harder fight visibly looks
+// harder and pays out more" is already this codebase's documented convention for combat rewards
+// (context/combat.md's "Ending a fight"), but Defend the Walls never followed it because every
+// defense used to be the exact same flat fight regardless of how the siege was actually going.
+// SIEGE_FIERCE_REWARD_MULT (1.4x) is applied to gold, XP, AND the progress relief itself on a
+// fierce win — bigger risk (tougher, more numerous enemies), bigger reward across the board.
+// SIEGE_PROBING_RELIEF_MULT (0.75x) only ever touches relief, deliberately NOT gold/XP — a probing
+// raid is still a real fight worth a real payout, it just shouldn't single-handedly matter as much
+// to the siege's overall outcome as beating back a serious assault does; the point is to make a
+// trivial fight feel less *decisive*, not to make it feel punishing. Pressing applies neither
+// multiplier, leaving the three base constants above exactly as they always were — pressing is the
+// default/common tier (see getSiegeDefenseTier's own comment), so an "ordinary" siege defense pays
+// out identically to how it did before this feature shipped.
+const SIEGE_FIERCE_REWARD_MULT = 1.4;
+const SIEGE_PROBING_RELIEF_MULT = 0.75;
+// ---- Siege Defense Tiers — scaling the fight itself to the real siege state ----
+// Until now, Defend the Walls always spawned the same flat 2-3 random enemies no matter how the
+// underlying siege was actually going — a settlement barely troubled by a token probing force got
+// exactly the same fight as one about to fall to an overwhelming host. getSiegeDefenseTier reads
+// the real attacker-vs-defender balance (the same kind of comparison advanceSiege already makes
+// for its own background math, see its attackerStrength/defenderStrength) and buckets it into
+// three difficulty tiers that the fight's enemy count/toughness, its reward, and its flavor text
+// all key off of below.
+//
+// A besieging army at or above SIEGE_TIER_FIERCE_RATIO (1.3x) the garrison's own strength is
+// clearly winning the siege on paper — that reads as "fierce." One at or below
+// SIEGE_TIER_PROBING_RATIO (0.7x) is clearly losing — a token/probing force the garrison can
+// mostly handle without the player — that reads as "probing." Everything between those two ratios
+// (a real, undecided back-and-forth) is "pressing" — deliberately the widest band, and the one
+// every *typical existing* siege should land in, since this feature must not make an average siege
+// suddenly feel different from how it already played before this tier system existed.
+const SIEGE_TIER_FIERCE_RATIO = 1.3;
+const SIEGE_TIER_PROBING_RATIO = 0.7;
+// Fallback thresholds, used only when there's no live attackingArmy record to compare strengths
+// with at all (a legacy save predating per-army strength tracking, or a siege being read mid-tick
+// before its own army record exists yet) — siege.progress/stalledTicks are the only signal left in
+// that case. A siege already past SIEGE_TIER_FALLBACK_FIERCE_PROGRESS (66%) is objectively close
+// to falling regardless of *why*, so that alone earns "fierce" here. One still under
+// SIEGE_TIER_FALLBACK_PROBING_PROGRESS (20%) has barely gotten going — "probing." stalledTicks
+// normally signals the *attacker* struggling (advanceSiege bumps it whenever its own success-chance
+// roll hits the floor, or whenever the player personally beats the attack back — see
+// resolveSiegeDefense), but a siege that's stalled more than once and is *still here* rather than
+// having already withdrawn (SIEGE_STALL_RETREAT_TICKS, 4 ticks, is when it finally gives up) reads
+// as an attacker digging in for a renewed, more determined push rather than quietly packing up — so
+// SIEGE_TIER_FALLBACK_FIERCE_STALLED_TICKS (2) treats that persistence itself as a "fierce" signal
+// in this fallback path too, same as high progress.
+const SIEGE_TIER_FALLBACK_FIERCE_PROGRESS = 66;
+const SIEGE_TIER_FALLBACK_PROBING_PROGRESS = 20;
+const SIEGE_TIER_FALLBACK_FIERCE_STALLED_TICKS = 2;
+// Returns 'probing' | 'pressing' | 'fierce' for a besieged settlement — read-only, doesn't touch
+// advanceSiege's own strength/progress math at all, just a second read of the same inputs for the
+// player's own Defend the Walls fight/reward/flavor text (see triggerSiegeDefenseFight,
+// resolveSiegeDefense, and showLocationView's "Defend the Walls" action desc).
+function getSiegeDefenseTier(burgId){
+  const siege = getSieges()[burgId];
+  if(!siege) return 'pressing'; // shouldn't be called without an active siege; default to the unchanged-behavior tier rather than throw
+  // Same lookup triggerSiegeDefenseFight already does for its own equipment flavor line below —
+  // reused verbatim rather than re-derived differently here.
+  const attackingArmy = getArmies().find(a => a.status === 'sieging' && a.kingdom === siege.attackerKingdom && a.defenderKingdom === siege.defenderKingdom && a.targetBurgId === burgId);
+  if(attackingArmy){
+    const ratio = attackingArmy.strength / (getGarrisonStrength(burgId) || 1);
+    if(ratio >= SIEGE_TIER_FIERCE_RATIO) return 'fierce';
+    if(ratio <= SIEGE_TIER_PROBING_RATIO) return 'probing';
+    return 'pressing';
+  }
+  // Fallback — no live army record found, see the constants' own comment above.
+  const progress = siege.progress || 0;
+  const stalledTicks = siege.stalledTicks || 0;
+  if(progress >= SIEGE_TIER_FALLBACK_FIERCE_PROGRESS || stalledTicks >= SIEGE_TIER_FALLBACK_FIERCE_STALLED_TICKS) return 'fierce';
+  if(progress < SIEGE_TIER_FALLBACK_PROBING_PROGRESS) return 'probing';
+  return 'pressing';
+}
+// Picks one enemy variant from a race's ENEMY_VARIANTS array, optionally biased toward that race's
+// own tougher entries — used by triggerSiegeDefenseFight's 'fierce' tier so a serious assault
+// visibly throws harder fighters at the player instead of picking uniformly at random like every
+// other tier/context still does. Kept deliberately simple per the brief: sort by hp descending,
+// then weight each entry by its rank so the toughest variant is the most likely pick and the
+// weakest the least, with a smooth linear falloff in between — no need for a fancier curve. A
+// race with only one variant (Bandit) or an unbiased pick just falls through to the plain uniform
+// choice every other combat context already uses.
+function pickSiegeDefenseVariant(variants, biasTough){
+  if(!biasTough || variants.length <= 1) return variants[Math.floor(Math.random()*variants.length)];
+  const sorted = [...variants].sort((a,b) => b.hp - a.hp);
+  const weights = sorted.map((v,i) => sorted.length - i); // toughest (i=0) gets the biggest weight
+  const totalWeight = weights.reduce((sum,w) => sum+w, 0);
+  let roll = Math.random() * totalWeight;
+  for(let i=0;i<sorted.length;i++){
+    if(roll < weights[i]) return sorted[i];
+    roll -= weights[i];
+  }
+  return sorted[0]; // float rounding guard — should never actually fall through the loop above
+}
 function getSiegeDefenseCooldowns(){ try{ return JSON.parse(localStorage.getItem(SIEGE_DEFENSE_COOLDOWN_KEY)) || {}; }catch(e){ return {}; } }
 function hasDefendedToday(burgId){ return getSiegeDefenseCooldowns()[burgId] === gameDay; }
 function recordSiegeDefended(burgId){
@@ -13989,9 +14081,15 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   // itself is untouched below — combat.attackerKingdom/the log text/getSiegeBackdrop still key
   // off the real kingdom, only the enemy variant stat/portrait pool changes.
   const variants = ENEMY_VARIANTS[attackerRace] || ENEMY_VARIANTS.bandit;
-  const count = 2 + Math.floor(Math.random()*2); // 2 or 3
+  // Tier the fight to the real siege state (see getSiegeDefenseTier) — probing stays a flat, easy
+  // 2 (today's floor); pressing is exactly the original 2-or-3 coin flip, untouched; fierce is
+  // always the full 3, AND biases which 3 toward that race's own tougher variants (see
+  // pickSiegeDefenseVariant) rather than picking uniformly like the other two tiers still do.
+  const tier = getSiegeDefenseTier(burgId);
+  const count = tier === 'probing' ? 2 : tier === 'fierce' ? 3 : (2 + Math.floor(Math.random()*2)); // pressing: 2 or 3, same as before this feature existed
+  const biasTough = tier === 'fierce';
   const specs = [];
-  for(let i=0;i<count;i++) specs.push(variants[Math.floor(Math.random()*variants.length)]);
+  for(let i=0;i<count;i++) specs.push(pickSiegeDefenseVariant(variants, biasTough));
   startCombat(specs, PLAYER_DMG_RANGE, onEnd || (()=>{}), attackerRace, getSiegeBackdrop(attackerRace));
   // Recorded so endCombat's victory branch can attribute killed-enemy population loss (see
   // applyEnemyCasualtyLoss) to this specific kingdom rather than just "the nearest settlement of
@@ -14006,8 +14104,15 @@ function triggerSiegeDefenseFight(burgId, onEnd){
   const attackingArmy = getArmies().find(a => a.status === 'sieging' && a.kingdom === siege.attackerKingdom && a.defenderKingdom === siege.defenderKingdom && a.targetBurgId === burgId);
   const equipmentLine = attackingArmy && attackingArmy.equipment === 'rams' ? ' Rams batter at the gates.'
     : attackingArmy && attackingArmy.equipment === 'catapults' ? ' Catapults hurl stone over the walls.' : '';
+  // The siege-flavor line itself varies lightly by tier (see getSiegeDefenseTier) — fierce calls
+  // out the assault's full weight, probing undersells it as the lesser push it actually is;
+  // pressing keeps the exact original wording, so a "normal" fight's log reads unchanged from
+  // before this feature shipped. equipmentLine's ram/catapult logic above is untouched either way.
+  const tierLine = tier === 'fierce' ? `${siege.attackerKingdom} throws its full host at the walls of ${graph.burgs[burgId].name}!`
+    : tier === 'probing' ? `${siege.attackerKingdom}'s raiders test the walls of ${graph.burgs[burgId].name}.`
+    : `${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!`;
   log.innerHTML = log.querySelector('.combat-intro-line').outerHTML
-    + `<div>${siege.attackerKingdom}'s forces storm the walls of ${graph.burgs[burgId].name}!${equipmentLine}</div>`;
+    + `<div>${tierLine}${equipmentLine}</div>`;
 }
 // Combat's onEnd hook, per-siege: victory knocks a meaningful chunk off progress (not an
 // instant win) plus a reward; defeat/flee simply leaves the siege to advance normally on the
@@ -14018,15 +14123,27 @@ function resolveSiegeDefense(burgId, result){
   if(!siege) return;
   recordSiegeDefended(burgId);
   if(result === 'victory'){
-    siege.progress = Math.max(0, siege.progress - SIEGE_DEFENSE_PROGRESS_RELIEF);
+    // Read before touching siege.progress below — getSiegeDefenseTier reflects the siege state the
+    // fight the player just won was actually built from (see triggerSiegeDefenseFight), not
+    // whatever progress this very victory is about to knock off. The siege row itself is still
+    // present at this point (only a captured/stalled siege gets deleted, and this is neither), so
+    // the same attackingArmy lookup getSiegeDefenseTier makes is still valid here too.
+    const tier = getSiegeDefenseTier(burgId);
+    const reliefMult = tier === 'fierce' ? SIEGE_FIERCE_REWARD_MULT : tier === 'probing' ? SIEGE_PROBING_RELIEF_MULT : 1;
+    const relief = Math.round(SIEGE_DEFENSE_PROGRESS_RELIEF * reliefMult);
+    siege.progress = Math.max(0, siege.progress - relief);
     // Counts the same way a natural success-chance-floor tick does (see SIEGE_STALL_RETREAT_TICKS)
     // — the player personally beating back this attacker reads, mechanically, as one more sign
     // this siege isn't going anywhere, so repeatedly defending the same city quietly reroutes the
     // AI's *next* muster elsewhere without ever changing who ultimately wins the underlying war.
     siege.stalledTicks = (siege.stalledTicks||0) + 1;
     setSieges(sieges);
-    const gold = randRange(SIEGE_DEFENSE_GOLD_RANGE);
-    const xp = randRange(SIEGE_DEFENSE_XP_RANGE);
+    // Gold/XP only scale up on 'fierce' (see SIEGE_FIERCE_REWARD_MULT's own comment) — 'probing'
+    // deliberately leaves these two alone, only its relief is reduced, and 'pressing' leaves every
+    // one of these three numbers exactly as they always were.
+    const rewardMult = tier === 'fierce' ? SIEGE_FIERCE_REWARD_MULT : 1;
+    const gold = Math.round(randRange(SIEGE_DEFENSE_GOLD_RANGE) * rewardMult);
+    const xp = Math.round(randRange(SIEGE_DEFENSE_XP_RANGE) * rewardMult);
     setGold(playerGold + gold);
     const leveledUp = addXp(xp);
     const repNote = adjustReputation(siege.defenderKingdom, REP_GAIN_MAJOR);

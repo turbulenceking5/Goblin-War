@@ -4388,11 +4388,17 @@ function advanceSiege(attackerKingdom, defenderKingdom, attackerArmy){
   applyWarLoss(burgId, RAID_DAMAGE_RATE);
 
   const target = graph.burgs[burgId];
-  let captured = false, stalled = false;
+  let captured = false, stalled = false, playerPresent = false;
   if(siege.progress >= 100){
     setController(burgId, attackerKingdom);
     delete sieges[burgId];
     captured = true;
+    // The one case where this quiet weekly tick can land directly on the player rather than just
+    // as background flavor: they can be standing right in this settlement the moment it falls.
+    // currentBurg is the module-level "where is the player right now" global declared elsewhere
+    // in the file — safe to read here since this function body only runs well after it's been
+    // assigned a real value, regardless of the two declarations' textual order.
+    playerPresent = burgId === currentBurg;
   } else if(siege.stalledTicks >= SIEGE_STALL_RETREAT_TICKS){
     delete sieges[burgId];
     stalled = true;
@@ -4402,7 +4408,7 @@ function advanceSiege(attackerKingdom, defenderKingdom, attackerArmy){
   }
   setSieges(sieges);
   if(attackerArmy) saveArmies(getArmies());
-  return { captured, stalled, target, sortied };
+  return { captured, stalled, target, sortied, playerPresent };
 }
 
 // Where a marching army musters from — the attacking kingdom's own capital, falling back to
@@ -4808,6 +4814,10 @@ function runFactionAITick(){
   };
   try{
     const events = [];
+    // Set at most once this tick, below, if a siege captures the exact settlement the player is
+    // currently standing in — the one case where this background weekly tick needs to reach past
+    // flavor text and actually interrupt the player (see handlePlayerCaughtInSiegeFall).
+    let playerCaughtInFall = null;
     for(let i=0;i<ALL_KINGDOMS.length;i++){
       for(let j=i+1;j<ALL_KINGDOMS.length;j++){
         const k1 = ALL_KINGDOMS[i], k2 = ALL_KINGDOMS[j];
@@ -4881,6 +4891,12 @@ function runFactionAITick(){
             pairArmies.forEach(a => removeArmy(a.id));
             events.push(`${result.target.name} has fallen to ${RACE_LABEL[KINGDOM_RACE[kingdom]]} forces from ${kingdom}.`);
             recordWorldEvent(`Word has it ${result.target.name} has fallen to ${kingdom}'s forces, taken from ${enemy}.`);
+            // The player can only ever be in one place — once set this tick, never overwrite it,
+            // even if a later capture in this same loop also happens to match (shouldn't happen,
+            // but stay defensive).
+            if(!playerCaughtInFall && result.playerPresent){
+              playerCaughtInFall = { burgName: result.target.name, attackerKingdom: kingdom };
+            }
             // That capture may have been enemy's very last settlement — see isKingdomEliminated/
             // eliminateKingdom above for what happens next.
             if(isKingdomEliminated(enemy)) eliminateKingdom(enemy, events);
@@ -5011,7 +5027,7 @@ function runFactionAITick(){
     // Same reasoning, for a recruited companion's own home settlement/kingdom — see
     // checkCompanionHomeFates.
     checkCompanionHomeFates();
-    return events;
+    return { events, playerCaughtInFall };
   } finally {
     _tickCache = null;
   }
@@ -5022,7 +5038,7 @@ function maybeRunFactionAI(){
   const lastTick = parseInt(localStorage.getItem(LASTWARTICK_KEY) || "0", 10);
   if(gameDay - lastTick < WAR_TICK_INTERVAL_DAYS) return;
   localStorage.setItem(LASTWARTICK_KEY, String(gameDay));
-  const events = runFactionAITick();
+  const { events, playerCaughtInFall } = runFactionAITick();
   buildFrontlineMarkers();
   buildBorderMarkers();
   buildSupplyMarkers();
@@ -5032,6 +5048,30 @@ function maybeRunFactionAI(){
   buildArmyMarkers();
   buildBattleMarkers();
   showAwaySummary(events, checkBoardRefresh());
+  // A louder beat layered on top of the quiet summary above, not a replacement for it — see
+  // handlePlayerCaughtInSiegeFall's own comment for why this one case needs more than a toast
+  // line buried in a recap modal.
+  if(playerCaughtInFall) handlePlayerCaughtInSiegeFall(playerCaughtInFall);
+}
+// The one case where the weekly faction tick's siege capture can directly affect the player in
+// the moment, not just as background flavor read later in "While you were away": the settlement
+// they're currently standing in falls out from under them. Per this project's own "player should
+// never be soft-locked" and "a toast, not a modal" precedents (see
+// context/factions-and-territory.md's "Known simplifications"), this is a toast + one small,
+// clearly-bounded penalty rather than forcing a fight or blocking input — the player simply
+// finds themselves having fled when the tick lands, same as any other silent weekly tick outcome,
+// just one they can't miss this time.
+const SIEGE_FALL_ESCAPE_GOLD_LOSS_FRACTION = 0.1; // 10% of current gold, lost in the chaos of fleeing
+function handlePlayerCaughtInSiegeFall({ burgName, attackerKingdom }){
+  // Force-close the location view if it's open — harmless if it's already closed. Deliberately
+  // leaves #combat-view alone: if the player happens to be mid-"Defend the Walls" fight at the
+  // exact moment this tick fires, that fight is left to play out; resolveSiegeDefense already
+  // no-ops gracefully once the siege entry is gone (its own `if(!siege) return;` guard), so
+  // nothing else needs to change there.
+  document.getElementById('location-view').classList.remove('show');
+  showToast(`${burgName} falls to ${attackerKingdom} around you! You barely escape with your life — some of your coin is lost in the chaos.`);
+  setGold(Math.max(0, Math.round(playerGold * (1 - SIEGE_FALL_ESCAPE_GOLD_LOSS_FRACTION))));
+  recordWorldEvent(`Word has it a traveler barely escaped ${burgName} as it fell to ${attackerKingdom}.`);
 }
 // "While you were away" summary — the Expansion Research idea of the same name. The weekly
 // faction tick used to only ever surface a single truncated toast line ("N settlements changed
@@ -14905,6 +14945,16 @@ function showBlacksmithPanel(burgId){
 }
 
 document.getElementById('loc-back').addEventListener('click', ()=>{
+  // Explicit retreat framing — leaving a settlement currently under active siege (while the
+  // player was presumably helping defend it, or just passing through) deserves an acknowledgment
+  // rather than silently vanishing, same "no penalty, the fight continues without you" precedent
+  // Field Battle's own Retreat button already sets (see #battle-retreat-btn above). Purely
+  // narrative: no mechanical effect, the siege itself just keeps advancing in the background as
+  // it always has.
+  const siege = getSieges()[currentBurg];
+  if(siege){
+    showToast(`You pull back from ${graph.burgs[currentBurg].name}'s walls — ${siege.attackerKingdom}'s siege presses on without you.`);
+  }
   document.getElementById('location-view').classList.remove('show');
 });
 

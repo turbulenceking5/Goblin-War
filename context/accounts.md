@@ -27,6 +27,50 @@ Both are genuinely shared files, not duplicated per page — the project's usual
 
 The gate itself never silently pulls or pushes character data — it only ever redirects to characters.html when no character is active, and it's characters.html's explicit Play/Create actions (not the gate) that actually write character data onto the live `goblinwar_*` keys. This sidesteps an earlier design problem: an early version of this project had login optionally auto-load a single cloud save, which risked silently overwriting more recent local progress with a stale cloud copy. Making character selection an explicit, always-required step (see [characters.md](characters.md)) rather than something login does automatically means there's never a question of which side "wins" — the player is always the one choosing what loads.
 
+## Mock mode
+
+Both gate scripts recognize an opt-in, dev/test-only bypass for exercising the game without a
+real Supabase account or network access — useful for UI verification (e.g. Playwright) in an
+environment with no way to actually log in. Visit any gated page once with `?mock=1` in the URL;
+`assets/auth-gate-sync.js` flips `localStorage.goblinwar_mockMode` to `'1'` on the first hit, so
+it survives ordinary navigation without the param needing to ride along on every internal link
+(`?mock=0` clears it again, same place).
+
+**It's additive, not a weaker version of the real checks.** `auth-gate-sync.js`'s synchronous
+pass still enforces "pick a character" in mock mode exactly as it does for real — only the token
+check is skipped, because there's no real token to check. The actual substitution happens in
+`auth-client.js`: when the flag is set, `const sb` is built by `createMockSupabaseClient()`
+instead of `supabase.createClient(...)`, and every other file's `sb.*` call sites (login.html,
+characters.html, settings.html, index.html's graves calls) run completely unchanged against it —
+they have no idea they're not talking to real Supabase. The mock client mirrors just the slice of
+the real API this game actually calls:
+- `auth.getSession()` always resolves a fake, always-valid session (`user.id` is a random id
+  generated once and cached in `localStorage.goblinwar_mockUserId`, so it's stable across reloads
+  within the same browser).
+- `auth.onAuthStateChange()`/`signOut()` — `signOut()` just fires the same `SIGNED_OUT` event a
+  real logout would, so the existing listener in `auth-client.js` (completely unchanged) still
+  clears the active character and redirects to login.html exactly like a real logout does.
+- `auth.signInWithPassword()`/`signUp()` — trivially succeed, kept for API-shape completeness.
+  **login.html itself is not mock-aware** — it builds its own `sb` inline
+  (`supabase.createClient(...)`, never going through `auth-client.js`) rather than using the
+  shared client this section describes, since accounts.md's own "gate itself" section already
+  notes it manages its own gating separately from the two shared scripts. So the actual entry
+  point for testing under mock mode is **characters.html**, not login.html:
+  `characters.html?mock=1` loads both gate scripts (it's the one page that does, per the "gate
+  itself" section above) and goes straight to character selection — pick or create a character
+  there and every page reached from it plays fully offline from then on.
+- `from(table).select()/insert()/update()/delete()/eq()/order()/single()/maybeSingle()` — a small
+  chainable query builder backed by plain JSON arrays in `localStorage` (`goblinwar_mockdb_<table>`,
+  e.g. `goblinwar_mockdb_characters`), covering exactly the `characters`/`graves` operations the
+  real pages issue (see each page's own `sb.from(...)` call sites). No real Supabase project, no
+  network call, ever touched while this flag is set.
+
+This is a two-file change (`auth-gate-sync.js` + `auth-client.js`) rather than something every
+gated page needs its own copy of — same reasoning as the rest of this doc: it's part of the
+shared security-relevant gate, not game logic. A real player has no reason to ever add `?mock=1`
+to a URL, so this never shows up or matters for normal play; it exists purely so the game's pages
+can be opened and clicked through in a browser with no Supabase project configured at all.
+
 ## Per-account "seen the changelog" state
 
 `goblinwar_lastSeenChangelog` (index.html's "What's New" popup, and changelog.html marking itself as read) is namespaced per logged-in account — `goblinwar_lastSeenChangelog_<user id>` — rather than one flat key. `CHANGELOG_SEEN_KEY` starts `null` in both pages and is only set once `authGateReady` resolves with a session; anything that reads/writes it (`checkForWhatsNew()`, the dismiss handler, `renderChangelog()`) guards against it still being `null`. This means the popup's "seen" state is tied to *who's logged in*, not to the browser — one player dismissing it never marks it seen for a different account on the same device, and the same player logging into a second device still sees whatever they personally haven't seen yet (instead of every new device replaying the whole history, which the old flat per-browser key would have caused now that login exists).

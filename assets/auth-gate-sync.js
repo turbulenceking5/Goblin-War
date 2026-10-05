@@ -16,7 +16,31 @@
 // copy drift from another's would be a login bypass, not just a display bug.
 (function(){
   const path = location.pathname.split('/').pop() || 'index.html';
+
+  // Offline/mock mode for local testing without a real Supabase account or network access — see
+  // context/accounts.md's "Mock mode" section. Opt-in only: visiting any page once with ?mock=1
+  // flips a localStorage flag that persists across normal navigation (so the param doesn't need
+  // to ride along on every link); ?mock=0 clears it again. A real player has no reason to ever
+  // add this param, so it never weakens the real gate below for them — it only substitutes a
+  // fake, entirely local session + character store (assets/auth-client.js) for someone who
+  // deliberately opted in.
+  const mockParam = new URLSearchParams(location.search).get('mock');
+  if(mockParam === '1') localStorage.setItem('goblinwar_mockMode', '1');
+  else if(mockParam === '0') localStorage.removeItem('goblinwar_mockMode');
+  const mockMode = localStorage.getItem('goblinwar_mockMode') === '1';
+
   if(path === 'login.html' || path === 'characters.html') return; // these manage their own gating
+
+  if(mockMode){
+    // No real token to check — assets/auth-client.js substitutes a fake, always-valid session.
+    // Still enforce the real "pick a character" requirement, same as the real gate below, so a
+    // mock session can't skip straight into gameplay with nothing selected.
+    if(!localStorage.getItem('goblinwar_activeCharacterId')){
+      location.replace(`characters.html?redirect=${encodeURIComponent(path)}&_=${Date.now()}`);
+    }
+    return;
+  }
+
   let ref = null;
   try { ref = new URL(SUPABASE_URL).hostname.split('.')[0]; } catch(e){}
   const hasToken = ref && !!localStorage.getItem(`sb-${ref}-auth-token`);

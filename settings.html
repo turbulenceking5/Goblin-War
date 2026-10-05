@@ -135,6 +135,10 @@
         <input type="checkbox" id="data-saver-toggle" style="width:auto; flex:none; margin-top:2px; accent-color:var(--gold);">
         <span>Data Saver — load simple icons instead of the heavier equipment and battle-scene art. Takes effect from your next visit or fight. This device only — it doesn't travel with the save.</span>
       </label>
+      <label style="display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:var(--parchment); line-height:1.4; cursor:pointer; margin-top:10px;">
+        <input type="checkbox" id="reduced-motion-toggle" style="width:auto; flex:none; margin-top:2px; accent-color:var(--gold);">
+        <span>Reduced Motion — skip the frame-by-frame travel animation and combat hit-shake in favor of instant jumps. Follows your device's own motion setting until you change it here. This device only — it doesn't travel with the save.</span>
+      </label>
     </div>
 
     <div class="section-label">Account</div>
@@ -145,6 +149,7 @@
           <button class="btn btn-secondary" id="switch-character-btn">Switch Character</button>
           <button class="btn btn-primary" id="save-now-btn">Save Now</button>
         </div>
+        <button class="btn btn-secondary" id="export-save-btn" style="width:100%; margin-top:8px;">Export Save</button>
         <button class="btn-danger" id="logout-btn">Log Out</button>
         <div class="account-synced" id="cloud-synced"></div>
       </div>
@@ -861,7 +866,7 @@ function generateWorld(seed){
   return {
     burgs, edges, states, startBurgId,
     kingdomCount: capitals.length,
-    _raw: { elevation, moisture, VW, VH, RF_COLS, RF_ROWS, isLand, shoreDist, RF_LOGICAL_SCALE_X, RF_LOGICAL_SCALE_Y }
+    _raw: { elevation, moisture, VW, VH, RF_COLS, RF_ROWS, isLand, shoreDist, landShoreDist, RF_LOGICAL_SCALE_X, RF_LOGICAL_SCALE_Y }
   };
 }
 
@@ -905,6 +910,7 @@ const WAR_HISTORY_KEY = "goblinwar_warHistory"; // {"KingdomA::KingdomB": count}
 const WARCOOLDOWN_KEY = "goblinwar_warCooldowns"; // {"KingdomA::KingdomB": gameDay a treaty expires} — see index.html's war exhaustion
 const TRIBUTE_KEY = "goblinwar_tribute"; // {kingdomName: {role, counterpart, expiresDay}} — see index.html's war exhaustion
 const ARMY_KEY = "goblinwar_armies"; // JSON array of marching/sieging armies — see index.html's "Armies march before a siege starts"
+const REFUGEE_CONVOY_KEY = "goblinwar_refugeeConvoys"; // JSON array of cosmetic refugee-convoy markers — see index.html's "Visible refugee convoys"
 const FIELD_BATTLE_KEY = "goblinwar_fieldBattles"; // JSON array of active field battles — see index.html's "Field battles"
 const FIELD_BATTLE_COOLDOWN_KEY = "goblinwar_fieldBattleCooldowns";
 const COMPANION_QUEST_DONE_KEY = "goblinwar_companionQuestsCompleted";
@@ -914,6 +920,9 @@ const VAULT_KEY = "goblinwar_vault"; // null | {kingdom, principal, depositedDay
 const FEALTY_KEY = "goblinwar_fealty"; // null | kingdom name — see index.html's "Fealty/Allegiance"
 const ESPIONAGE_COOLDOWN_KEY = "goblinwar_espionageCooldowns"; // {burgId: gameDay} — see index.html's "Espionage"
 const SETTLEMENT_INVESTMENT_COOLDOWN_KEY = "goblinwar_investmentCooldowns"; // {burgId: gameDay} — see index.html's "Settlement Investment"
+const FORTIFY_KEY = "goblinwar_fortifications"; // {burgId: level 0-3} — see index.html's "Settlement Fortification"
+const FUND_GARRISON_KEY = "goblinwar_fundedGarrisons"; // {burgId: expiresDay} — see index.html's "Fund the Garrison"
+const SCORCHED_EARTH_KEY = "goblinwar_scorchedBurgs"; // [burgId, ...] — see index.html's "Scorched Earth"
 const SCRAP_KEY = "goblinwar_scrap"; // plain integer — see inventory.html's "Gear salvage/scrap"
 const RENOWN_TITLE_KEY = "goblinwar_renownTitle"; // plain string — see index.html's "Renown-based titles"
 const NOTABLE_FIGURE_PROGRESS_KEY = "goblinwar_figureProgress"; // {figureId: count} — see index.html's Notable Figure storyline
@@ -927,6 +936,8 @@ const ACHIEVEMENT_UNLOCKED_KEY = "goblinwar_achievementsUnlocked"; // {achieveme
 const BOARD_MONTH_SEEN_KEY = "goblinwar_boardMonthSeen"; // last calendar-month index the Quest Board refresh was announced for — see index.html's "While you were away" summary
 const LANDMARK_CLAIMED_KEY = "goblinwar_landmarksClaimed"; // [landmarkId, ...] — see index.html's "Off-road discoverable landmarks"
 const ALLY_EQUIPPED_KEY = "goblinwar_allyEquipped"; // {allyId: itemName} — see index.html's "Let companions/mercenaries equip gear"
+const ALLY_VETERANCY_KEY = "goblinwar_allyVeterancy"; // {allyId: fightCount} — see index.html's "Ally veterancy"
+const COMPANION_DEFEND_HOME_DONE_KEY = "goblinwar_companionDefendHomeDone"; // [companionId, ...] — see index.html's "Defend My Home"
 const LEVEL_KEY = "goblinwar_level";
 const XP_KEY = "goblinwar_xp";
 const SKILLPOINTS_KEY = "goblinwar_skillPoints";
@@ -1091,6 +1102,7 @@ function collectCharacterSnapshot(){
     warCooldowns: localStorage.getItem(WARCOOLDOWN_KEY) || "{}",
     tribute: localStorage.getItem(TRIBUTE_KEY) || "{}",
     armies: localStorage.getItem(ARMY_KEY) || "[]",
+    refugeeConvoys: localStorage.getItem(REFUGEE_CONVOY_KEY) || "[]",
     fieldBattles: localStorage.getItem(FIELD_BATTLE_KEY) || "[]",
     fieldBattleCooldowns: localStorage.getItem(FIELD_BATTLE_COOLDOWN_KEY) || "{}",
     companionQuestsCompleted: localStorage.getItem(COMPANION_QUEST_DONE_KEY) || "[]",
@@ -1100,6 +1112,9 @@ function collectCharacterSnapshot(){
     fealty: localStorage.getItem(FEALTY_KEY) || "",
     espionageCooldowns: localStorage.getItem(ESPIONAGE_COOLDOWN_KEY) || "{}",
     investmentCooldowns: localStorage.getItem(SETTLEMENT_INVESTMENT_COOLDOWN_KEY) || "{}",
+    fortifications: localStorage.getItem(FORTIFY_KEY) || "{}",
+    fundedGarrisons: localStorage.getItem(FUND_GARRISON_KEY) || "{}",
+    scorchedBurgs: localStorage.getItem(SCORCHED_EARTH_KEY) || "[]",
     scrap: localStorage.getItem(SCRAP_KEY) || "0",
     renownTitle: localStorage.getItem(RENOWN_TITLE_KEY) || "",
     figureProgress: localStorage.getItem(NOTABLE_FIGURE_PROGRESS_KEY) || "{}",
@@ -1113,6 +1128,8 @@ function collectCharacterSnapshot(){
     boardMonthSeen: localStorage.getItem(BOARD_MONTH_SEEN_KEY) || "",
     landmarksClaimed: localStorage.getItem(LANDMARK_CLAIMED_KEY) || "[]",
     allyEquipped: localStorage.getItem(ALLY_EQUIPPED_KEY) || "{}",
+    allyVeterancy: localStorage.getItem(ALLY_VETERANCY_KEY) || "{}",
+    defendHomeDone: localStorage.getItem(COMPANION_DEFEND_HOME_DONE_KEY) || "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -1158,6 +1175,28 @@ document.getElementById('switch-character-btn').addEventListener('click', ()=>{
   location.href = 'characters.html?_=' + Date.now();
 });
 
+// Export/Import a character save as a local file — the Expansion Research idea of the same name.
+// Export serializes the exact same shape collectCharacterSnapshot() already builds for Supabase
+// (see above) into a downloadable .json — a genuine local backup distinct from the Supabase row
+// itself, useful before a risky Delete This Character or when moving a save between accounts/
+// devices with no cloud sync in the loop at all. Import lives on characters.html's Create flow
+// (see its own "Import Save" file input), since importing really is creating a new character row
+// seeded from this file instead of a blank slate.
+document.getElementById('export-save-btn').addEventListener('click', ()=>{
+  const snapshot = collectCharacterSnapshot();
+  const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const safeName = (localStorage.getItem(NAME_KEY) || 'character').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'character';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `goblin-war-${safeName}-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('Save exported — check your downloads.');
+});
+
 // Data Saver — device-local, not part of the character snapshot/save-sync triplet (see index.html's
 // isDataSaverOn for the full reasoning on why this one setting deliberately doesn't travel with
 // the save). Read/written straight off localStorage, no account/character plumbing needed.
@@ -1166,6 +1205,19 @@ const dataSaverToggle = document.getElementById('data-saver-toggle');
 dataSaverToggle.checked = localStorage.getItem(DATA_SAVER_KEY) === 'true';
 dataSaverToggle.addEventListener('change', ()=>{
   localStorage.setItem(DATA_SAVER_KEY, String(dataSaverToggle.checked));
+});
+
+// A Reduced Motion toggle — same device-local, not-part-of-the-save shape as Data Saver above,
+// but defaults to the OS/browser's own prefers-reduced-motion media query (see index.html's
+// isReducedMotion) rather than a flat false until the player explicitly sets it here themselves.
+const REDUCED_MOTION_KEY = "goblinwar_reducedMotion";
+const reducedMotionToggle = document.getElementById('reduced-motion-toggle');
+const storedReducedMotion = localStorage.getItem(REDUCED_MOTION_KEY);
+reducedMotionToggle.checked = storedReducedMotion !== null
+  ? storedReducedMotion === 'true'
+  : !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+reducedMotionToggle.addEventListener('change', ()=>{
+  localStorage.setItem(REDUCED_MOTION_KEY, String(reducedMotionToggle.checked));
 });
 
 document.getElementById('logout-btn').addEventListener('click', async ()=>{

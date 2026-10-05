@@ -137,6 +137,10 @@
           <button class="btn btn-secondary" id="cancel-create-btn">Cancel</button>
           <button class="btn btn-primary" id="confirm-create-btn">Begin Adventure</button>
         </div>
+        <div class="field-label" style="margin-top:14px;">Or Import a Save File</div>
+        <div class="difficulty-note" style="margin-bottom:8px;">Carries over a character exported from settings.html's Export Save button — a real local backup, separate from the Supabase row itself. Starting City/Difficulty above are ignored; the file's own data decides those.</div>
+        <input type="file" id="import-save-input" accept="application/json" style="display:none;">
+        <button class="btn btn-secondary" id="import-save-btn" style="width:100%;">Import Save</button>
       </div>
     </div>
   </main>
@@ -832,7 +836,7 @@ function generateWorld(seed){
   return {
     burgs, edges, states, startBurgId,
     kingdomCount: capitals.length,
-    _raw: { elevation, moisture, VW, VH, RF_COLS, RF_ROWS, isLand, shoreDist, RF_LOGICAL_SCALE_X, RF_LOGICAL_SCALE_Y }
+    _raw: { elevation, moisture, VW, VH, RF_COLS, RF_ROWS, isLand, shoreDist, landShoreDist, RF_LOGICAL_SCALE_X, RF_LOGICAL_SCALE_Y }
   };
 }
 
@@ -918,9 +922,9 @@ function freshCharacterData(name, burgId, difficulty, mapSeed, isNewCharacter){
     visitedBurgs: "[]", defeatedVariants: "{}", party: "[]", mercenaries: "[]", companionLoyalty: "{}", reputation: "{}", kingdomFavorTier: "{}",
     territoryControl: "{}", relations: "{}", reinforcements: "{}", lastWarTick: 0, population: "{}",
     sieges: "{}", refugeeArrivals: "{}", siegeDefenseCooldowns: "{}", supplyInterventions: "{}", supplyInterventionCooldowns: "{}", recentEvents: "[]",
-    warStarts: "{}", warHistory: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]",
+    warStarts: "{}", warHistory: "{}", warCooldowns: "{}", tribute: "{}", armies: "[]", refugeeConvoys: "[]",
     fieldBattles: "[]", fieldBattleCooldowns: "{}",
-    companionQuestsCompleted: "[]", companionHomeStatus: "{}", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", tooltipTourSeen: isNewCharacter ? "false" : "true", achievementsUnlocked: "{}", boardMonthSeen: "", landmarksClaimed: "[]", allyEquipped: "{}",
+    companionQuestsCompleted: "[]", companionHomeStatus: "{}", loan: "null", vault: "null", fealty: "", espionageCooldowns: "{}", investmentCooldowns: "{}", fortifications: "{}", fundedGarrisons: "{}", scorchedBurgs: "[]", scrap: "0", renownTitle: "", figureProgress: "{}", tavernRegularProgress: "{}", templeBlessing: "null", caravanEscort: "false", cartographerScouted: "[]", tutorialSeen: isNewCharacter ? "false" : "true", tooltipTourSeen: isNewCharacter ? "false" : "true", achievementsUnlocked: "{}", boardMonthSeen: "", landmarksClaimed: "[]", allyEquipped: "{}", allyVeterancy: "{}", defendHomeDone: "[]",
     savedAt: new Date().toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})
   };
 }
@@ -991,6 +995,7 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_warCooldowns", merged.warCooldowns);
   localStorage.setItem("goblinwar_tribute", merged.tribute);
   localStorage.setItem("goblinwar_armies", merged.armies);
+  localStorage.setItem("goblinwar_refugeeConvoys", merged.refugeeConvoys);
   localStorage.setItem("goblinwar_fieldBattles", merged.fieldBattles);
   localStorage.setItem("goblinwar_fieldBattleCooldowns", merged.fieldBattleCooldowns);
   localStorage.setItem("goblinwar_companionQuestsCompleted", merged.companionQuestsCompleted);
@@ -1000,6 +1005,11 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_fealty", merged.fealty);
   localStorage.setItem("goblinwar_espionageCooldowns", merged.espionageCooldowns);
   localStorage.setItem("goblinwar_investmentCooldowns", merged.investmentCooldowns);
+  localStorage.setItem("goblinwar_fortifications", merged.fortifications);
+  localStorage.setItem("goblinwar_fundedGarrisons", merged.fundedGarrisons);
+  localStorage.setItem("goblinwar_scorchedBurgs", merged.scorchedBurgs);
+  localStorage.setItem("goblinwar_allyVeterancy", merged.allyVeterancy);
+  localStorage.setItem("goblinwar_companionDefendHomeDone", merged.defendHomeDone);
   localStorage.setItem("goblinwar_scrap", merged.scrap);
   localStorage.setItem("goblinwar_renownTitle", merged.renownTitle);
   localStorage.setItem("goblinwar_figureProgress", merged.figureProgress);
@@ -1069,6 +1079,39 @@ document.getElementById('confirm-create-btn').addEventListener('click', async ()
   };
   const { data: row, error } = await sb.from('characters')
     .insert({ user_id: session.user.id, name, data: freshCharacterData(name, burgId, difficulty, previewSeed, true) })
+    .select().single();
+  if(error){ errorEl.textContent = error.message; return; }
+  playCharacter(row);
+});
+
+// Import a character save — the other half of settings.html's Export Save. A real new character
+// row, same insert() shape confirm-create-btn's own handler above uses, just seeded from the
+// uploaded file's own data instead of freshCharacterData() — applyCharacterData (called inside
+// playCharacter) already merges whatever's missing onto a fresh baseline, so an older or
+// hand-edited export degrades gracefully rather than needing a strict schema match.
+document.getElementById('import-save-btn').addEventListener('click', ()=>{
+  document.getElementById('import-save-input').click();
+});
+document.getElementById('import-save-input').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  e.target.value = ''; // so re-selecting the same file name still fires 'change' next time
+  if(!file) return;
+  const errorEl = document.getElementById('create-error');
+  errorEl.textContent = '';
+  if(!session){ errorEl.textContent = 'Still signing you in — try again in a moment.'; return; }
+  let data;
+  try{
+    data = JSON.parse(await file.text());
+  }catch(err){
+    errorEl.textContent = "That doesn't look like a valid save file.";
+    return;
+  }
+  if(!data || typeof data !== 'object' || !data.name){
+    errorEl.textContent = "That save file is missing its character name — is it the right file?";
+    return;
+  }
+  const { data: row, error } = await sb.from('characters')
+    .insert({ user_id: session.user.id, name: data.name, data })
     .select().single();
   if(error){ errorEl.textContent = error.message; return; }
   playCharacter(row);

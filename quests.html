@@ -208,6 +208,9 @@ function questTitle(q){
   if(q.type === 'kill_bandits') return 'Deal with the Bandits';
   if(q.type === 'kill_raiders') return q.targetKingdom ? `Drive Off ${q.targetKingdom}'s Raiders` : 'Drive Off the Raiders';
   if(q.type === 'companion_kill' || q.type === 'companion_deliver') return (COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].title) || 'A Personal Favor';
+  if(q.type === 'smuggle_supplies') return 'Smuggle Supplies Through Enemy Lines';
+  if(q.type === 'debt_repay') return 'A Debt to Repay';
+  if(q.type === 'companion_defend') return 'Defend My Home';
   return 'Quest';
 }
 function questDistanceNote(q){
@@ -231,6 +234,12 @@ function questDesc(q){
     : `${q.giverName} asked you to drive off the goblin and ork raiders threatening the region.`) + questRivalNote(q);
   if(q.type === 'companion_deliver') return `Carry word from ${q.giverName} to ${q.targetName}.${questDistanceNote(q)}`;
   if(q.type === 'companion_kill') return `${q.giverName} ${(COMPANION_QUESTS[q.companionId] && COMPANION_QUESTS[q.companionId].ask) || 'asked for your help.'}`;
+  if(q.type === 'smuggle_supplies') return `${q.giverName} needs a quiet shipment run straight through to ${q.targetName}, enemy lines or not — the pay reflects the risk.${questDistanceNote(q)}`;
+  // 60 mirrors index.html's DEBT_REPAY_GOLD_COST literally — same no-modules convention as the
+  // "3" literal in questTitle above (this file never loads enough of index.html's war/
+  // reputation machinery to import the real constant).
+  if(q.type === 'debt_repay') return `Carry the 60g you paid up front to ${q.targetName} in person — a real gesture ${q.targetKingdom} might actually notice.${questDistanceNote(q)}`;
+  if(q.type === 'companion_defend') return `${q.giverName} begged you to help defend ${q.targetName} — win a Defend the Walls fight there while the siege still holds.`;
   return '';
 }
 // Rival Adventurer race — see index.html's generateNotableFigureOffer/checkRivalQuestExpiry.

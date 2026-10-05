@@ -1387,5 +1387,15 @@
       "Added a Reduced Motion toggle in Settings, following your device's own motion setting by default.",
       "A failed autosave now retries automatically the next time it would normally save, and lets you know once it's caught up."
     ]
+  },
+  {
+    "id": 182,
+    "date": "2026-10-05",
+    "changes": [
+      "Talk to the Garrison Captain or a Frightened Townsfolk at any besieged settlement — real conversations that react to how the siege is actually going.",
+      "Defend the Walls now scales with the real siege — a token raid is an easy fight, a full-strength assault throws more and tougher enemies at you for a bigger reward.",
+      "Leaving a besieged settlement now acknowledges the retreat instead of silently vanishing.",
+      "If a settlement falls to the enemy while you're standing in it, you'll know it — a dramatic escape, and some coin lost in the chaos."
+    ]
   }
 ]

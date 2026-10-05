@@ -11614,6 +11614,12 @@ function showLocationView(burgId){
     if(canScorchEarth(burgId)){
       actions.push({ icon:`<path d="M12 2c2 4-2 5-2 8a4 4 0 1 0 8 0c0-1.5-1-2.5-1-2.5s0 2-1.5 2c1-2 .5-4-1-5.5 0 2-1 3-2.5 2z"/>`, title:"Scorch the Earth", desc:"Deny the enemy a whole prize, before it's too late", action:'scorch_earth', category:'urgent' });
     }
+    // Talk to whoever's actually living through this siege — see showSiegeGarrisonConversation
+    // below (Defend the Walls' own counterpart to Field Battle's Talk-to-camp-characters). Two
+    // generic, unnamed roles, same precedent MERCENARY_TYPES/FIELD_BATTLE_CAMP_CHARACTERS set.
+    SIEGE_GARRISON_CHARACTERS.forEach(c => {
+      actions.push({ icon:`<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`, title:`Talk to ${c.title}`, desc:c.blurb, action:`siege_talk_${c.id}`, category:'people' });
+    });
   }
   if(hasRecentRefugeeArrival(burgId)){
     actions.push({ icon:`<circle cx="9" cy="9" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5"/><path d="M13 20c.3-2.3 2-4 3.5-4.2"/>`, title:"Refugee Camp", desc:"Help those who fled the fighting", action:'refugee_camp', category:'urgent' });
@@ -11684,6 +11690,7 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
       else if(btn.dataset.action === 'talk') showFlavorDialoguePanel(burgId, 'Talk to Townsfolk', 'townsfolk', null, getTownsfolkLines(burgId));
       else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
+      else if(btn.dataset.action.startsWith('siege_talk_')) showSiegeGarrisonConversation(burgId, btn.dataset.action.slice('siege_talk_'.length));
       else if(btn.dataset.action === 'scorch_earth'){
         showConfirm(`Burn ${graph.burgs[burgId].name}'s own stores rather than let them fall whole? This permanently cripples how much it can ever recover — even after the siege ends, even if it's reclaimed later.`, ()=> acceptScorchEarth(burgId));
       }
@@ -14053,6 +14060,122 @@ function resolveSiegeDefense(burgId, result){
     showToast(`The attack presses on despite your efforts.`);
   }
   showLocationView(burgId);
+}
+
+// ===================== SIEGE GARRISON: TALKING DURING AN ACTIVE SIEGE =====================
+// Defend the Walls' own counterpart to Field Battle's "Talk to the Quartermaster/Soldier" camp
+// characters below (see FIELD_BATTLE_CAMP_CHARACTERS/FIELD_BATTLE_CAMP_TREES) — until now, a
+// besieged settlement had exactly one interaction on offer (fight), with no way to actually ask
+// anyone there how the siege is going. This isn't a separate Army-Camp-style overlay though:
+// Field Battles get their own screen because tapping a battle marker never goes through
+// showLocationView at all, but a siege is just one more thing happening at an ordinary
+// settlement, so these two entries are pushed onto showLocationView's own `activeSiege` block
+// (right alongside Defend the Walls/Scorch the Earth) and "Back" from the conversation returns
+// to showLocationView(burgId) — that settlement's own action list — not to the map.
+//
+// Same "deliberately faceless, no portrait art needed" precedent MERCENARY_TYPES/
+// FIELD_BATTLE_CAMP_CHARACTERS already set — two generic, unnamed roles, not individuals, and
+// flavor-only (no `effects` on any choice, same as the Field Battle camp characters): there's no
+// natural effect target here either (not the player's own party, not really a single kingdom's
+// reputation when the player hasn't necessarily even fought yet).
+//
+// The actual point of this feature, unlike the Field Battle camp chatter it's modeled on: the
+// dialogue has to read as if these people are living through *this* siege, not generic flavor
+// text. SIEGE_GARRISON_TREES below is a map of *builder functions*, not static trees like
+// FIELD_BATTLE_CAMP_TREES — each one takes the live siege record, how many days it's run, and
+// whether Scorch the Earth has opened up, and returns a tree shaped exactly like
+// FIELD_BATTLE_CAMP_TREES' own entries. showSiegeGarrisonConversation calls the right builder
+// fresh every time it opens, reading getSieges()[burgId]/gameDay/canScorchEarth right then —
+// so a siege that's dragged on for days (or one that's since been lifted entirely between
+// visits) always gets wording that matches what's actually true *now*, not whatever was true
+// the first time the player talked to this character.
+const SIEGE_GARRISON_CHARACTERS = [
+  { id:"captain", title:"the Garrison Captain", blurb:"Barking orders along the wall" },
+  { id:"townsfolk", title:"a Frightened Townsfolk", blurb:"Clutching what belongings they could grab" },
+];
+function buildSiegeCaptainTree(burgName, siege, days, scorchAvailable){
+  const dayPhrase = days <= 0 ? "since this morning" : days === 1 ? "for a full day now" : `for ${days} days now`;
+  const openLine = siege.progress >= 70
+    ? `"${siege.attackerKingdom}'s been hammering these walls ${dayPhrase}, and I won't lie to you — we're holding, but barely."`
+    : siege.progress >= 40
+      ? `"${siege.attackerKingdom}'s forces have been at it ${dayPhrase}. Walls are cracking in a few places, but they're cracking slower than the enemy's patience is."`
+      : `"${siege.attackerKingdom} only just sat down outside our walls ${dayPhrase}. Spirits are still high up here — ask me again once it's dragged on a while."`;
+  const fallLine = scorchAvailable
+    ? `"Between you and me — if this keeps going, torching our own stores before ${siege.attackerKingdom} can loot them whole might be the smarter mercy. That's not my call to make, though."`
+    : `"Don't talk to me about burning our own stores. Not yet. Not while we've still got a wall worth defending."`;
+  return {
+    start: "root",
+    nodes: {
+      root: { text: openLine,
+        choices: [
+          { label:"Ask how the defense is really holding up", next:"ask_defense" },
+          { label:"Ask what happens if the walls fall", next:"ask_fall" },
+          { label:"Leave the Captain to it" }
+        ] },
+      ask_defense: { text: `"Every day we hold is a day ${siege.attackerKingdom} bleeds men and food camped out there doing nothing. That's the whole game — outlast them." The Captain doesn't look up from the wall. ${days >= 5 ? `"Still, ${days} days is a long time to ask anyone to keep believing that."` : `"Early days yet, but I believe it."`}`, choices: [] },
+      ask_fall: { text: fallLine, choices: [] }
+    }
+  };
+}
+function buildSiegeTownsfolkTree(burgName, siege, days, scorchAvailable){
+  const dayPhrase = days <= 0 ? "today" : days === 1 ? "since yesterday" : `for ${days} days`;
+  const openLine = siege.progress >= 70
+    ? `They're pale, clutching a bundle of belongings to their chest. "${days} days of this and I don't know how much longer the walls can take it. Should we even still be here?"`
+    : siege.progress >= 40
+      ? `They flinch at a distant crash from the walls. "It's been ${dayPhrase} now. Nobody will tell us plainly how bad it is."`
+      : `They're jumpy, but trying to hold it together. "${siege.attackerKingdom}'s army showed up ${dayPhrase} ago. Everyone keeps saying the walls will hold."`;
+  const goLine = siege.progress >= 70
+    ? `They shake their head. "Where would we even go? ${siege.attackerKingdom}'s men are camped across every road out of here."`
+    : `"No. This is our home. We'll just have to hope the walls hold."`;
+  return {
+    start: "root",
+    nodes: {
+      root: { text: openLine,
+        choices: [
+          { label:"Try to reassure them", next:"reassure" },
+          { label:"Ask if they have anywhere to go", next:"ask_go" },
+          { label:"Leave them be" }
+        ] },
+      reassure: { text: `They manage a thin, unconvinced smile. "Thank you for saying so. I just... I keep thinking about ${burgName} the way it was before any of this."`, choices: [] },
+      ask_go: { text: goLine, choices: [] }
+    }
+  };
+}
+const SIEGE_GARRISON_TREES = {
+  captain: buildSiegeCaptainTree,
+  townsfolk: buildSiegeTownsfolkTree,
+};
+function showSiegeGarrisonConversation(burgId, charId){
+  const char = SIEGE_GARRISON_CHARACTERS.find(c => c.id === charId);
+  const burg = graph.burgs[burgId];
+  const siege = getSieges()[burgId];
+  const builder = SIEGE_GARRISON_TREES[charId];
+  // Defensive re-check, same pattern showFieldBattleCharacterConversation uses for a battle
+  // that's resolved since — a siege can lift (victory, Scorch the Earth, or the weekly tick)
+  // between the player opening this action and actually tapping into it.
+  if(!char || !builder || !siege || !burg){ showLocationView(burgId); return; }
+  const days = Math.max(0, gameDay - siege.startedDay);
+  const scorchAvailable = canScorchEarth(burgId);
+  const tree = builder(burg.name, siege, days, scorchAvailable);
+  let nodeId = tree.start;
+  const list = document.getElementById('loc-action-list');
+  function render(){
+    const node = tree.nodes[nodeId];
+    list.innerHTML = `
+      <button class="loc-action" id="siege-convo-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to ${burg.name}</span></span>
+      </button>
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">${char.title}</div>
+      ${renderDialogueBody(node)}
+    `;
+    document.getElementById('siege-convo-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    wireDialogueChoices(node, choice => {
+      if(choice.next){ nodeId = choice.next; render(); }
+      else showLocationView(burgId);
+    });
+  }
+  render();
 }
 
 // ===================== FIELD BATTLES: THE ARMY CAMP =====================

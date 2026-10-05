@@ -1397,5 +1397,12 @@
       "Leaving a besieged settlement now acknowledges the retreat instead of silently vanishing.",
       "If a settlement falls to the enemy while you're standing in it, you'll know it — a dramatic escape, and some coin lost in the chaos."
     ]
+  },
+  {
+    "id": 183,
+    "date": "2026-10-05",
+    "changes": [
+      "Princess Natasha, and her companion Sophie, can now be found and spoken with at her home kingdom's Capital Palace — a real, branching conversation that reacts to whether her kingdom is at war."
+    ]
   }
 ]

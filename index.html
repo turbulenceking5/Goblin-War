@@ -2227,6 +2227,13 @@ function assignDynamicHomes(seed, world){
   // homeBurgId above — keep them in sync now that her home isn't a fixed literal.
   const wren = COMPANIONS.find(c=>c.id==='wren-sable');
   if(wren && COMPANION_QUESTS['wren-sable']) COMPANION_QUESTS['wren-sable'].targetBurgId = wren.homeBurgId;
+
+  // Natasha — a princess, so her home has to actually be a Capital (Palace's own existing
+  // Capital-only gate is what surfaces her, see isNatashaHome/showNatashaConversation) rather
+  // than any Good-alliance settlement like a Notable Figure/Companion. Falls back to any human
+  // settlement, then any Good burg, if this particular world rolled no human Capital at all.
+  const humanCapitals = humanBurgs.filter(id => world.burgs[id].tier === 'capital');
+  NATASHA.homeBurgId = pickDistinct(humanCapitals.length ? humanCapitals : (humanBurgs.length ? humanBurgs : fallbackPool), 1)[0] || world.startBurgId;
 }
 
 const TIER_LABEL = { village:"Village", town:"Town", city:"City", capital:"Capital" };
@@ -11414,6 +11421,102 @@ function showCompanionPanel(burgId){
   }
 }
 
+// ===================== NATASHA & SOPHIE: A FIRST SLICE OF "TALKABLE NPCS" =====================
+// Per context/roadmap.md's "Talkable NPCs" section: a princess of a major human kingdom and her
+// mythical companion dog, both already named, written, and given real generated portrait art
+// (Character Forge) well before any system existed to use them. Rather than attempt the whole
+// still-unscoped "named NPCs everywhere" idea in one pass, this wires in exactly the one piece
+// that was already fully designed and waiting — a real talkable individual, not another entry in
+// an anonymous flavor-line pool. She's pinned to one specific human Capital (assignDynamicHomes,
+// same deterministic-per-seed pattern NOTABLE_FIGURES/COMPANIONS already use) and reached through
+// the Palace's own existing Capital-only gate rather than a new overlay — a royal audience fits
+// the Palace's backdrop better than inventing a new location type for one character.
+//
+// No quest offer here (that's the Notable Figure's job) — this is purely the "a chance to talk to
+// a real person" slice, same spirit as Talk at the Campfire, but deeper and reactive to the home
+// kingdom's live war state like the Siege Garrison conversations are to a siege.
+const NATASHA = { id:'natasha', name:'Natasha', title:'Princess', portrait:'assets/npcs/natasha.png', sophiePortrait:'assets/npcs/sophie.png', homeBurgId:null };
+function isNatashaHome(burgId){
+  if(NATASHA.homeBurgId !== burgId) return false;
+  const home = graph.burgs[burgId];
+  return !!home && getController(burgId) === home.race;
+}
+function buildNatashaTree(burgId){
+  const kingdom = getControllerKingdom(burgId) || graph.burgs[burgId].state;
+  const atWar = isAtWarAt(burgId);
+  const enemies = atWar ? getEnemiesAtWar(kingdom) : [];
+  const enemyName = enemies.length ? enemies[0] : 'its enemies';
+  return {
+    start: "root",
+    nodes: {
+      root: { text:`Natasha rises as you're announced, Sophie padding to her side and settling with a low huff, the faint rune-markings along her coat pulsing once. "A traveler from beyond the court — how refreshing. Sit, if you like. Sophie won't bite, whatever she looks like she might."`,
+        choices: [
+          { label:"Ask after the kingdom", next:"ask_kingdom" },
+          { label:"Ask about Sophie", next:"ask_sophie" },
+          { label:"Pledge your service to the crown", next:"offer_service", effects:{rep:2} },
+          { label:"Take your leave" }
+        ] },
+      ask_kingdom: atWar ? {
+        text:`Her easy manner cools a shade. "${kingdom} is at war with ${enemyName}. I won't pretend that sits lightly with me — every season it drags on is another season villages burn that didn't ask to be part of it." Sophie's ears flatten, as if she understands every word.`,
+        choices: [
+          { label:"“I'll do what I can to help turn the tide.”", next:"war_support", effects:{rep:2} },
+          { label:"“War is a game for the powerful. I want no part of it.”", next:"war_shrug", effects:{rep:-2} }
+        ]
+      } : {
+        text:`She relaxes. "Peaceful, for now — and I intend to keep it that way as long as I can manage it. Peace is harder work than anyone admits; it just doesn't come with songs written about it."`,
+        choices: [
+          { label:"“A rare thing, in times like these. May it hold.”", next:"peace_kind", effects:{rep:2} },
+          { label:"“Peace never holds forever.”", next:"peace_cynic" }
+        ]
+      },
+      war_support: { text:`Something in her posture eases, just slightly. "Then I'm glad to have crossed paths with you today." Sophie's tail thumps once against the floor.`, choices: [] },
+      war_shrug: { text:`Her expression doesn't change, but something behind her eyes does. "Spoken like someone who's never had to watch it happen to their own." She doesn't say anything else.`, choices: [] },
+      peace_kind: { text:`"From your lips," she says, almost smiling. "I'll take the good omen."`, choices: [] },
+      peace_cynic: { text:`"No," she agrees quietly. "It never does. That's exactly why I mean to make the most of it while it lasts."`, choices: [] },
+      ask_sophie: { text:`At the sound of her name, Sophie lifts her head, the rune-markings along her coat pulsing brighter for a moment. "She's been at my side since I was a girl," Natasha says, resting a hand on the dog's broad head. "Older than she has any right to look, and wiser than half my father's council. I've learned not to ask how — some gifts are better left unquestioned."`,
+        choices: [
+          { label:"“She's beautiful.”", next:"sophie_compliment" },
+          { label:"“Isn't that a little unsettling?”", next:"sophie_unsettling" }
+        ] },
+      sophie_compliment: { text:`Sophie's tail sweeps the floor twice, as if she understood that too. "She thinks so as well," Natasha says dryly. "She's never once been shy about it."`, choices: [] },
+      sophie_unsettling: { text:`Natasha shrugs, unbothered. "Everyone says that. She's never given me a reason to agree."`, choices: [] },
+      offer_service: { text:`She studies you a moment, as if weighing whether you mean it. "Sincerity's rarer at court than you'd think. I'll remember the offer."`, choices: [] }
+    }
+  };
+}
+function showNatashaConversation(burgId){
+  const burg = graph.burgs[burgId];
+  if(!isNatashaHome(burgId) || !burg){ showLocationView(burgId); return; }
+  const tree = buildNatashaTree(burgId);
+  let nodeId = tree.start;
+  const list = document.getElementById('loc-action-list');
+  const ctx = { kingdom: getControllerKingdom(burgId), cooldownKey: 'princess:natasha' };
+  // Lineup treatment (see #loc-banner-portrait's .lineup CSS, the same one showMercenaryLineupPortraits
+  // uses) — Natasha and Sophie were always meant to appear together, per Character Forge.
+  const portraitEl = document.getElementById('loc-banner-portrait');
+  portraitEl.innerHTML = `<img src="${NATASHA.portrait}" alt="${NATASHA.name}"><img src="${NATASHA.sophiePortrait}" alt="Sophie">`;
+  portraitEl.classList.add('show', 'lineup');
+  function render(){
+    const node = tree.nodes[nodeId];
+    list.innerHTML = `
+      <button class="loc-action" id="natasha-convo-back-btn">
+        <svg class="li-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="li-text"><b>Back</b><span>Return to ${burg.name}</span></span>
+      </button>
+      <div style="font-family:'Cinzel',serif; font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase; color:#a9926a; margin:10px 0 8px;">${NATASHA.title} ${NATASHA.name}</div>
+      ${renderDialogueBody(node)}
+    `;
+    document.getElementById('natasha-convo-back-btn').addEventListener('click', ()=> showLocationView(burgId));
+    wireDialogueChoices(node, choice => {
+      const note = applyDialogueEffects(choice.effects, ctx);
+      if(note) showToast(note);
+      if(choice.next){ nodeId = choice.next; render(); }
+      else showLocationView(burgId);
+    });
+  }
+  render();
+}
+
 // Village/Town flavor variants for the base Tavern/Marketplace/Work/Talk-to-Townsfolk action
 // descriptions below, so two Villages (or two Towns) don't read as copy-pasted — keyed off data
 // already computed per-burg (b.biome, b.port, getPopulation, getController vs b.race, and
@@ -11642,6 +11745,12 @@ function showLocationView(burgId){
     if(envoyBurg && envoyBurg.id === burgId){
       actions.push({ icon:`<path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/>`, title:"The Envoy", desc:"A foreign envoy receives visitors here", action:'envoy', category:'people' });
     }
+    // Natasha — see showNatashaConversation above. Same pinned-home, disappears-if-captured
+    // pattern as Notable Figure/Companion, but gated to this Capital specifically since she's
+    // royalty, not just any resident of a Good-alliance settlement.
+    if(isNatashaHome(burgId)){
+      actions.push({ icon:`<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>`, title:"An Audience with the Princess", desc:"Princess Natasha receives visitors today", action:'natasha', category:'people' });
+    }
   }
   // Any settlement, any tier, can be under siege (advanceSiege doesn't restrict targeting by
   // tier) or have taken in refugees this week — both conditions are rare enough day-to-day that
@@ -11726,6 +11835,7 @@ function showLocationView(burgId){
         showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
       }
       else if(btn.dataset.action === 'envoy') showFlavorDialoguePanel(burgId, 'The Envoy', 'envoy');
+      else if(btn.dataset.action === 'natasha') showNatashaConversation(burgId);
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
       else if(btn.dataset.action === 'talk') showFlavorDialoguePanel(burgId, 'Talk to Townsfolk', 'townsfolk', null, getTownsfolkLines(burgId));

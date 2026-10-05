@@ -4,8 +4,8 @@
 
 A Claude Artifact tracking AI-image-generation prompts and generated portraits for Goblin War's
 characters and enemies — `ENEMY_VARIANTS` combat portraits, `NOTABLE_FIGURES` portraits,
-recruitable `COMPANIONS`, and not-yet-wired NPCs like Natasha & Sophie (see
-[roadmap.md](roadmap.md)'s "Talkable NPCs & Dialogue" section). Tabbed by race/category (human,
+recruitable `COMPANIONS`, and Natasha & Sophie (now wired in — see
+[roadmap.md](roadmap.md)'s "Talkable NPCs" section). Tabbed by race/category (human,
 goblin, ork, dwarf, creature) rather than the collapsible-section layout the other trackers use.
 
 ## Critical difference from every other tracker: images are inline base64, not asset-store blobs
@@ -32,10 +32,11 @@ Practical consequences for editing this one:
 
 Per [roadmap.md](roadmap.md)'s "Character Forge now supports more than one piece of art per
 character" note, an item can carry an optional `expressions` array of `{label, image}` objects
-alongside its main portrait — rendered as a row of small labeled thumbnails. Sophie (the companion
-dog from the unbuilt Natasha & Sophie NPC pair) is the first and so far only entry using this, with
-a Friendly/Neutral pair. The pattern exists for future combat-pose or dialogue-frame variants once
-those get generated — not wired into any live game code yet since Talkable NPCs itself isn't built.
+alongside its main portrait — rendered as a row of small labeled thumbnails. Sophie is the first and
+so far only entry using this, with a Friendly/Neutral pair. Only the main portrait (the same image
+as her "Friendly" expression) is wired into the live game (`assets/npcs/sophie.png`) — the second
+("Neutral") expression and the `expressions` field itself still aren't used by any live code; the
+pattern remains there for future combat-pose or dialogue-frame variants.
 
 ## What's in here
 
@@ -51,11 +52,13 @@ those get generated — not wired into any live game code yet since Talkable NPC
   bigger "Talkable NPCs" idea — intentionally left unchecked for "Asset implemented in game" since
   none of it is wired into anything yet; start here first if that idea ever gets scoped for real
   rather than commissioning fresh art.
-- Natasha & Sophie (princess + mythical companion dog), meant to appear together once Talkable NPCs
-  exists — both have portrait art now.
+- Natasha & Sophie (princess + mythical companion dog) — now wired into the live game (see
+  roadmap.md), reachable via a new Palace action at Natasha's home Capital.
 
 ## Status (drifts — check the live artifact for ground truth)
 
-This tracker holds a mix of fully-wired portraits (Notable Figures, the 3 named Companions) and a
-growing unwired backlog (generic human/dwarf roster, Natasha & Sophie) — check each item's
-`implemented` flag individually rather than assuming category-wide status.
+This tracker holds a mix of fully-wired portraits (Notable Figures, the 3 named Companions, and now
+Natasha & Sophie) and a still-unwired backlog (the generic human/dwarf roster) — check each item's
+`implemented` flag individually rather than assuming category-wide status. Natasha's and Sophie's own
+`implemented` checkboxes in the live artifact still need to be ticked by hand (this repo can't write
+to that separate Artifact) — see roadmap.md's note on this.

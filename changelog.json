@@ -1404,5 +1404,13 @@
     "changes": [
       "Princess Natasha, and her companion Sophie, can now be found and spoken with at her home kingdom's Capital Palace — a real, branching conversation that reacts to whether her kingdom is at war."
     ]
+  },
+  {
+    "id": 184,
+    "date": "2026-10-06",
+    "changes": [
+      "The Palace, Guard House, Army Camp, and a human settlement's Village Square now show a real painted scene behind their action list — a throne room, a weapon rack and map table, a working war camp, or a bustling town/city square — instead of the plain settlement icon.",
+      "Natasha's audience now takes place in front of that same real Palace scene."
+    ]
   }
 ]

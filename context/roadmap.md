@@ -215,7 +215,21 @@ multiple rounds, including one extra "pinned to the parapet" reinforcement added
 (ork-defending) prompts after the defect seemed to only happen there — later found to happen rarely on the
 Bad-alliance side too, so that framing was softened rather than treated as an absolute. Full prompt text, the
 naming convention (the `good`/`bad` in each id names the *attacker*, not the defender — easy to get backwards),
-and the complete defect history are in [scene-backdrops.md](scene-backdrops.md), not repeated here.
+and the complete defect history are in [scene-backdrops.md](scene-backdrops.md), not repeated here. **Forest is
+regenerated too, done** — `BIOME_ART.forest` holds two pixel-art candidates (`forest-1.jpg`/`forest-2.jpg`), a
+mossy, arching tree-tunnel path replacing the three painted-style images pulled when the art direction pivoted;
+of three generated candidates one was discarded for a real defect (a flat black letterbox bar baked across the
+top ~33px of the canvas, confirmed pixel-by-pixel rather than mistaken for a dark-canopy silhouette). **The
+settlement-interior location photos (see [locations-and-camp.md](locations-and-camp.md)) are getting their own
+pixel-art regens too, one category at a time.** Palace (`PALACE_ART`, 5 candidates — also the backdrop behind
+Princess Natasha's audience), Guard House (`GUARDHOUSE_ART`, 3 candidates), and Army Camp (`ARMY_CAMP_ART`, 4
+candidates — deliberately populated with soldiers/dwarves, the one location-category exception to the usual
+"no characters" rule, see [scene-backdrops.md](scene-backdrops.md)'s `loc-army-camp` entry) are all wired and
+live now. Village Square got a bigger change than a reskin: per the project owner, one shared plate couldn't
+read as both a modest human hamlet and an awe-inspiring dwarven capital, so it's split four ways by controller
+race and settlement scale (`VILLAGE_SQUARE_ART.human.town`/`.city` and `.dwarf.town`/`.city`) — human has real
+art for both now (2 Town candidates, 3 City), dwarf is still pending. Tavern/Marketplace/Blacksmith/Temple still
+show the plain `TIER_ART` icon pending their own regens.
 
 Every other `BIOME_ART` category is still an empty array — `getBiomeBackdrop`/`pickBackdrop` already handle empty
 gracefully (falls back to Forest, which is itself empty right now, so most ordinary road/camp fights still show

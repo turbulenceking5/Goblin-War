@@ -6025,7 +6025,10 @@ const COMBAT_INTRO_LINES = [
 // go back to plain flat backgrounds (setCombatBackdrop(null), same as before any of this existed)
 // until their own pixel-art regens land.
 const BIOME_ART = {
-  forest: [], plains: [
+  forest: [
+    "assets/biomes/forest-1.jpg",
+    "assets/biomes/forest-2.jpg",
+  ], plains: [
     "assets/biomes/plains-road.jpg",
     "assets/biomes/plains-crossing.jpg",
   ], desert: [], hills: [], mountains: [], swamp: [], snow: [], coast: [],
@@ -10033,8 +10036,9 @@ const TIER_ART = {
 // here (#loc-banner-art.photo, picked deterministically per burg via hashSeed so a given
 // settlement always showed the same one) — pulled along with every other painted-style Scene
 // Backdrop image, since the tracker's art direction pivoted to pixel art (see
-// context/roadmap.md's "Combat environment backgrounds"). All five fall back to the generic
-// TIER_ART icon for now, same as Palace/Army Camp/Refugee Camp already do.
+// context/roadmap.md's "Combat environment backgrounds"). Temple/Tavern/Marketplace/Blacksmith
+// still fall back to the generic TIER_ART icon for now; Guard House got its own real pixel-art
+// pool back below, next to Palace's and Army Camp's.
 //
 // Village Square is the one exception — split four ways by controller race (human/dwarf) and
 // settlement scale (town/city) per the Scene Backdrops tracker's loc-square-human-town/
@@ -10043,13 +10047,23 @@ const TIER_ART = {
 // "Town"/"city" here aren't a literal remap of the game's own four tiers — village+town count as
 // the modest "town" pool, city+capital count as the grander "city" pool, matching how much
 // busier the commissioned art actually gets rather than adding a 5th/6th pool for a difference
-// that wouldn't read any differently on screen. No real art is committed yet for any of the four
-// pools (hence all empty below) — only human/dwarf have pools at all, since that's all the
-// project owner asked for; an ork/goblin-controlled settlement (or any pool that's still empty)
-// falls back to the generic TIER_ART icon, same as every other not-yet-populated category.
+// that wouldn't read any differently on screen. Only human has real art committed so far — dwarf
+// stays empty pending its own commission; only human/dwarf have pools at all, since that's all
+// the project owner asked for. An ork/goblin-controlled settlement (or any pool that's still
+// empty) falls back to the generic TIER_ART icon, same as every other not-yet-populated category.
 const VILLAGE_SQUARE_ART = {
-  human: { town: [], city: [] },
-  dwarf: { town: [], city: [] },
+  human: {
+    town: [
+      "assets/locations/village-square-human-town-1.jpg",
+      "assets/locations/village-square-human-town-2.jpg",
+    ],
+    city: [
+      "assets/locations/village-square-human-city-1.jpg",
+      "assets/locations/village-square-human-city-2.jpg",
+      "assets/locations/village-square-human-city-3.jpg",
+    ],
+  },
+  dwarf: { town: [], city: [] }, // still pending — no dwarf Village Square art commissioned yet
 };
 function getVillageSquareBackdrop(burgId){
   const pool = VILLAGE_SQUARE_ART[getController(burgId)];
@@ -10078,6 +10092,64 @@ function applyVillageSquareBackdrop(burgId){
     el.innerHTML = TIER_ART[b.tier] || TIER_ART.village;
   }
 }
+// Shared deterministic-pick primitive for the three flat pools below (Palace/Guard House/Army
+// Camp) — same "this is a place, not a fight" logic applyVillageSquareBackdrop's own pick uses,
+// just factored out since none of these three need Village Square's race/tier branching on top.
+function pickDeterministicBackdrop(list, seedKey){
+  return (list && list.length) ? list[Math.floor(seededRandom(hashSeed(seedKey)) * list.length)] : null;
+}
+// The Palace's own real pixel-art pool — Capital-only, so no town/city split is needed the way
+// Village Square's needed one. Also the backdrop behind Princess Natasha and Sophie's audience
+// (showNatashaConversation) — see the Scene Backdrops tracker's loc-palace entry for why that
+// reuses this exact pool rather than its own.
+const PALACE_ART = [
+  "assets/locations/palace-1.jpg",
+  "assets/locations/palace-2.jpg",
+  "assets/locations/palace-3.jpg",
+  "assets/locations/palace-4.jpg",
+  "assets/locations/palace-5.jpg",
+];
+function applyPalaceBackdrop(burgId){
+  const art = pickDeterministicBackdrop(PALACE_ART, `palace_${burgId}`);
+  const el = document.getElementById('loc-banner-art');
+  if(art){
+    el.classList.add('photo');
+    el.innerHTML = `<img src="${art}" alt="">`;
+  } else {
+    const b = graph.burgs[burgId];
+    el.classList.remove('photo');
+    el.innerHTML = TIER_ART[b.tier] || TIER_ART.village;
+  }
+}
+// Guard House's own real pixel-art pool — City/Capital-only, same flat-pool shape as Palace above
+// (no race/tier split — the project owner only asked for that on Village Square).
+const GUARDHOUSE_ART = [
+  "assets/locations/guardhouse-1.jpg",
+  "assets/locations/guardhouse-2.jpg",
+  "assets/locations/guardhouse-3.jpg",
+];
+function applyGuardhouseBackdrop(burgId){
+  const art = pickDeterministicBackdrop(GUARDHOUSE_ART, `guardhouse_${burgId}`);
+  const el = document.getElementById('loc-banner-art');
+  if(art){
+    el.classList.add('photo');
+    el.innerHTML = `<img src="${art}" alt="">`;
+  } else {
+    const b = graph.burgs[burgId];
+    el.classList.remove('photo');
+    el.innerHTML = TIER_ART[b.tier] || TIER_ART.village;
+  }
+}
+// The Army Camp's own real pixel-art pool — keyed by battleId rather than a burgId, since a camp
+// isn't a settlement at all (see showFieldBattlePanel below). Deliberately populated with
+// soldiers/dwarves going about camp business — see the Scene Backdrops tracker's loc-army-camp
+// entry for why this one pool breaks the location category's usual "no characters" rule.
+const ARMY_CAMP_ART = [
+  "assets/locations/army-camp-1.jpg",
+  "assets/locations/army-camp-2.jpg",
+  "assets/locations/army-camp-3.jpg",
+  "assets/locations/army-camp-4.jpg",
+];
 
 const RUMOURS = [
   "A caravan guard swears he saw goblin banners moving along the eastern road.",
@@ -11548,6 +11620,7 @@ function buildNatashaTree(burgId){
 function showNatashaConversation(burgId){
   const burg = graph.burgs[burgId];
   if(!isNatashaHome(burgId) || !burg){ showLocationView(burgId); return; }
+  applyPalaceBackdrop(burgId); // same real pool the Palace panel itself uses — see PALACE_ART
   const tree = buildNatashaTree(burgId);
   let nodeId = tree.start;
   const list = document.getElementById('loc-action-list');
@@ -11892,9 +11965,11 @@ function showLocationView(burgId){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildTempleAbsolutionHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
       }
       else if(btn.dataset.action === 'guardhouse'){
+        applyGuardhouseBackdrop(burgId);
         showFlavorDialoguePanel(burgId, 'Guard House', 'guardhouse', buildGuardHouseStats(burgId) + buildGuardHouseActionsHTML(burgId), GUARDHOUSE_LINES, ()=>{ wireMercenaryButtons(burgId); showMercenaryLineupPortraits(); wireCaravanEscortButton(burgId); wireFortifyButton(burgId); wireDebtRepayButton(burgId); wireFundGarrisonButton(burgId); });
       }
       else if(btn.dataset.action === 'palace'){
+        applyPalaceBackdrop(burgId);
         showFlavorDialoguePanel(burgId, 'The Palace', 'palace', buildPalacePetitionHTML(burgId) + buildNegotiatePeaceHTML(burgId) + buildInciteWarHTML(burgId) + buildLoanHTML(burgId) + buildVaultHTML(burgId) + buildFealtyHTML(burgId) + buildWarRoomHTML(burgId), PALACE_LINES, ()=> wirePalaceButtons(burgId));
       }
       else if(btn.dataset.action === 'envoy') showFlavorDialoguePanel(burgId, 'The Envoy', 'envoy');
@@ -14522,8 +14597,15 @@ function showFieldBattlePanel(battleId){
   const list = document.getElementById('loc-action-list');
   document.getElementById('loc-banner-portrait').classList.remove('show', 'solo', 'lineup', 'closeup');
   document.getElementById('loc-banner-portrait').innerHTML = '';
-  document.getElementById('loc-banner-art').classList.remove('photo');
-  document.getElementById('loc-banner-art').innerHTML = CAMP_ART;
+  const campArt = pickDeterministicBackdrop(ARMY_CAMP_ART, `army_camp_${battleId}`);
+  const bannerArtEl = document.getElementById('loc-banner-art');
+  if(campArt){
+    bannerArtEl.classList.add('photo');
+    bannerArtEl.innerHTML = `<img src="${campArt}" alt="">`;
+  } else {
+    bannerArtEl.classList.remove('photo');
+    bannerArtEl.innerHTML = CAMP_ART;
+  }
 
   if(!battle){
     // Defensive re-check, same pattern showNotableFigurePanel already uses — a battle can resolve

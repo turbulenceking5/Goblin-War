@@ -10034,7 +10034,50 @@ const TIER_ART = {
 // settlement always showed the same one) — pulled along with every other painted-style Scene
 // Backdrop image, since the tracker's art direction pivoted to pixel art (see
 // context/roadmap.md's "Combat environment backgrounds"). All five fall back to the generic
-// TIER_ART icon for now, same as Palace/Village Square/Army Camp/Refugee Camp already do.
+// TIER_ART icon for now, same as Palace/Army Camp/Refugee Camp already do.
+//
+// Village Square is the one exception — split four ways by controller race (human/dwarf) and
+// settlement scale (town/city) per the Scene Backdrops tracker's loc-square-human-town/
+// loc-square-human-city/loc-square-dwarf-town/loc-square-dwarf-city entries, since a single
+// shared plate couldn't read as both a modest human hamlet and an awe-inspiring dwarven capital.
+// "Town"/"city" here aren't a literal remap of the game's own four tiers — village+town count as
+// the modest "town" pool, city+capital count as the grander "city" pool, matching how much
+// busier the commissioned art actually gets rather than adding a 5th/6th pool for a difference
+// that wouldn't read any differently on screen. No real art is committed yet for any of the four
+// pools (hence all empty below) — only human/dwarf have pools at all, since that's all the
+// project owner asked for; an ork/goblin-controlled settlement (or any pool that's still empty)
+// falls back to the generic TIER_ART icon, same as every other not-yet-populated category.
+const VILLAGE_SQUARE_ART = {
+  human: { town: [], city: [] },
+  dwarf: { town: [], city: [] },
+};
+function getVillageSquareBackdrop(burgId){
+  const pool = VILLAGE_SQUARE_ART[getController(burgId)];
+  if(!pool) return null;
+  const b = graph.burgs[burgId];
+  const scale = (b && (b.tier === 'city' || b.tier === 'capital')) ? 'city' : 'town';
+  const list = pool[scale];
+  if(!list || !list.length) return null;
+  // Deterministic per-settlement, not random per-visit — same hashSeed(burgId) convention the
+  // old Tavern/Marketplace/etc. interior photos used (see comment above), so a given square
+  // doesn't flicker between pool entries every time the player reopens it.
+  return list[Math.floor(seededRandom(hashSeed(`village_square_${burgId}`)) * list.length)];
+}
+// Called from the 'talk'/'questboard' action handlers below — showLocationView's own banner
+// reset (TIER_ART, .photo removed) already covers leaving either panel via their shared Back
+// button, so this only ever needs to run on the way in.
+function applyVillageSquareBackdrop(burgId){
+  const art = getVillageSquareBackdrop(burgId);
+  const el = document.getElementById('loc-banner-art');
+  if(art){
+    el.classList.add('photo');
+    el.innerHTML = `<img src="${art}" alt="">`;
+  } else {
+    const b = graph.burgs[burgId];
+    el.classList.remove('photo');
+    el.innerHTML = TIER_ART[b.tier] || TIER_ART.village;
+  }
+}
 
 const RUMOURS = [
   "A caravan guard swears he saw goblin banners moving along the eastern road.",
@@ -11844,7 +11887,7 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'blacksmith') showBlacksmithPanel(burgId);
       else if(btn.dataset.action === 'work') doWork(burgId);
       else if(btn.dataset.action === 'settlement_investment') acceptSettlementInvestment(burgId);
-      else if(btn.dataset.action === 'questboard') showQuestBoardPanel(burgId);
+      else if(btn.dataset.action === 'questboard'){ applyVillageSquareBackdrop(burgId); showQuestBoardPanel(burgId); }
       else if(btn.dataset.action === 'temple'){
         showFlavorDialoguePanel(burgId, 'Temple', 'temple', buildTempleBlessingHTML(burgId) + buildTempleAbsolutionHTML(burgId) + buildRespecHTML(), TEMPLE_LINES, ()=> wireTempleButtons(burgId));
       }
@@ -11858,7 +11901,7 @@ function showLocationView(burgId){
       else if(btn.dataset.action === 'natasha') showNatashaConversation(burgId);
       else if(btn.dataset.action === 'notable_figure') showNotableFigurePanel(burgId);
       else if(btn.dataset.action === 'companion') showCompanionPanel(burgId);
-      else if(btn.dataset.action === 'talk') showFlavorDialoguePanel(burgId, 'Talk to Townsfolk', 'townsfolk', null, getTownsfolkLines(burgId));
+      else if(btn.dataset.action === 'talk'){ applyVillageSquareBackdrop(burgId); showFlavorDialoguePanel(burgId, 'Talk to Townsfolk', 'townsfolk', null, getTownsfolkLines(burgId)); }
       else if(btn.dataset.action === 'defend_walls') triggerSiegeDefenseFight(burgId, (result)=> resolveSiegeDefense(burgId, result));
       else if(btn.dataset.action.startsWith('siege_talk_')) showSiegeGarrisonConversation(burgId, btn.dataset.action.slice('siege_talk_'.length));
       else if(btn.dataset.action === 'scorch_earth'){

@@ -903,7 +903,7 @@ function freshCharacterData(name, burgId, difficulty, mapSeed, isNewCharacter){
   return {
     name,
     mapSeed: mapSeed || 1,
-    burgId: burgId || "0", day: 0, hour: 8, heading: 0,
+    burgId: burgId || "0", homeBurgId: burgId || "0", day: 0, hour: 8, heading: 0,
     health: 100, maxHealth: 100,
     stamina: 100, maxStamina: 100,
     hunger: 100, thirst: 100,
@@ -943,6 +943,8 @@ function applyCharacterData(data){
   localStorage.setItem("goblinwar_characterName", merged.name);
   localStorage.setItem(MAPSEED_KEY, String(merged.mapSeed));
   localStorage.setItem("goblinwar_currentBurg", merged.burgId);
+  // A save predating this field has no real homeBurgId of its own — best guess is wherever it's currently sitting.
+  localStorage.setItem("goblinwar_homeBurgId", data.homeBurgId != null ? data.homeBurgId : merged.burgId);
   localStorage.setItem("goblinwar_gameDay", String(merged.day));
   localStorage.setItem("goblinwar_gameHour", String(merged.hour));
   localStorage.setItem("goblinwar_heading", String(merged.heading));

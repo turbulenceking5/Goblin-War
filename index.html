@@ -7279,6 +7279,7 @@ function getAmbushToughnessBias(burgId){
 // road/trail/sea route is a node, so junctions are handled naturally instead
 // of only counting direct burg-to-burg route matches.
 const LOC_KEY = "goblinwar_currentBurg";
+const HOMEBURG_KEY = "goblinwar_homeBurgId"; // the settlement chosen at character creation — fixed, unlike LOC_KEY which moves with the player
 const MAPSEED_KEY = "goblinwar_mapSeed";
 // Per the project owner: trips were eating too much of the calendar — a typical cross-map
 // journey landed around a full in-game day (sampled against the real travel-graph data), enough
@@ -7311,6 +7312,8 @@ let graph = null;      // { burgs, states, burgByCell, edges:[{a,b,mi,kind,pts}]
 let world = null;       // same object as graph, kept under its own name too for the extra fields (_raw/startBurgId) only index.html itself reads
 let adjacency = {};     // cellId -> [{to, mi, edge, forward}]
 let currentBurg = localStorage.getItem(LOC_KEY) || "0"; // the guaranteed-Human starting capital every generated world assigns burg id "0"
+// Self-heals for a character saved before homeBurgId existed: best guess is wherever they currently stand.
+if(localStorage.getItem(HOMEBURG_KEY) === null) localStorage.setItem(HOMEBURG_KEY, currentBurg);
 let selectedBurg = null;
 let selectedBattleId = null; // the info-card's other selection target — see onBattleMarkerTap
 let selectedLandmarkId = null; // the info-card's third selection target — see onLandmarkMarkerTap
@@ -15568,6 +15571,7 @@ function collectCharacterSnapshot(){
     name: localStorage.getItem(NAME_KEY) || "Unnamed Hero",
     mapSeed: parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10),
     burgId: localStorage.getItem(LOC_KEY) || "0",
+    homeBurgId: localStorage.getItem(HOMEBURG_KEY) || localStorage.getItem(LOC_KEY) || "0",
     day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
     hour: parseFloat(localStorage.getItem(HOUR_KEY) || "8"),
     heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),

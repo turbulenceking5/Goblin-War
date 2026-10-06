@@ -1412,5 +1412,12 @@
       "The Palace, Guard House, Army Camp, and a human settlement's Village Square now show a real painted scene behind their action list — a throne room, a weapon rack and map table, a working war camp, or a bustling town/city square — instead of the plain settlement icon.",
       "Natasha's audience now takes place in front of that same real Palace scene."
     ]
+  },
+  {
+    "id": 185,
+    "date": "2026-10-06",
+    "changes": [
+      "Your Hero sheet's \"Origin\" now shows the actual kingdom you started in, based on the Starting City you picked at character creation — it no longer always says \"Kingdom of Bary\" regardless of where you began."
+    ]
   }
 ]

@@ -175,7 +175,7 @@
 
     <div class="card">
       <div class="info-line"><span>Age</span><span id="age-value">24</span></div>
-      <div class="info-line"><span>Origin</span><span>Kingdom of Bary</span></div>
+      <div class="info-line"><span>Origin</span><span id="origin-value">—</span></div>
       <div class="info-line"><span>Current location</span><span id="current-loc">—</span></div>
       <div class="info-line"><span>Day</span><span id="current-date">—</span></div>
       <div class="info-line"><span>Food carried</span><span id="food-value">0</span></div>
@@ -888,6 +888,7 @@ const STR_DAMAGE_PER_POINT = 0.5;
 const BERSERKER_TOTEM_MAX_BONUS = 6; // mirrors index.html's own constant — see "Build-defining accessory variants"
 function getStats(){ try{ return Object.assign({str:0,agi:0,int:0}, JSON.parse(localStorage.getItem(STATS_KEY))); }catch(e){ return {str:0,agi:0,int:0}; } }
 const LOC_KEY = "goblinwar_currentBurg";
+const HOMEBURG_KEY = "goblinwar_homeBurgId"; // the settlement chosen at character creation — fixed, unlike LOC_KEY which moves with the player
 const MAPSEED_KEY = "goblinwar_mapSeed";
 const CAL_KEY = "goblinwar_gameDay";
 const HOUR_KEY = "goblinwar_gameHour";
@@ -1078,6 +1079,7 @@ const maxStamina = parseInt(localStorage.getItem(MAXSTAMINA_KEY) || "100", 10);
 const age = localStorage.getItem(AGE_KEY) || "24";
 const gold = parseInt(localStorage.getItem(GOLD_KEY) || "50", 10);
 const burgId = localStorage.getItem(LOC_KEY) || "5";
+const homeBurgId = localStorage.getItem(HOMEBURG_KEY) || burgId;
 const day = parseInt(localStorage.getItem(CAL_KEY) || "0", 10);
 const hour = parseFloat(localStorage.getItem(HOUR_KEY) || "8");
 
@@ -1107,9 +1109,12 @@ try{
   const data = generateWorld(seed);
   const b = data.burgs[burgId];
   document.getElementById('current-loc').textContent = b ? b.name : `Location #${burgId}`;
+  const home = data.burgs[homeBurgId];
+  document.getElementById('origin-value').textContent = home ? home.state : 'Unknown';
 }catch(e){
   console.error(e);
   document.getElementById('current-loc').textContent = `Location #${burgId}`;
+  document.getElementById('origin-value').textContent = 'Unknown';
 }
 </script>
 <script>

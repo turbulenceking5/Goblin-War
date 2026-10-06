@@ -873,6 +873,7 @@ function generateWorld(seed){
 
 const NAME_KEY = "goblinwar_characterName";
 const LOC_KEY = "goblinwar_currentBurg";
+const HOMEBURG_KEY = "goblinwar_homeBurgId"; // the settlement chosen at character creation — fixed, unlike LOC_KEY which moves with the player
 const MAPSEED_KEY = "goblinwar_mapSeed";
 const CAL_KEY = "goblinwar_gameDay";
 const HOUR_KEY = "goblinwar_gameHour";
@@ -1050,6 +1051,7 @@ function collectCharacterSnapshot(){
     name: localStorage.getItem(NAME_KEY) || "Unnamed Hero",
     mapSeed: parseInt(localStorage.getItem(MAPSEED_KEY) || "1", 10),
     burgId: localStorage.getItem(LOC_KEY) || "0",
+    homeBurgId: localStorage.getItem(HOMEBURG_KEY) || localStorage.getItem(LOC_KEY) || "0",
     day: parseInt(localStorage.getItem(CAL_KEY) || "0", 10),
     hour: parseFloat(localStorage.getItem(HOUR_KEY) || "8"),
     heading: parseFloat(localStorage.getItem(HEADING_KEY) || "0"),

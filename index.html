@@ -672,8 +672,11 @@
      needed; object-fit:cover already clips to the img's own box. 56%/1.65 is tuned by eye against
      the real Natasha/Sophie portraits (assets/npcs/) to land right at "head down to the shoulders,
      just above where the torso broadens" — if a future character's art has different proportions
-     (a taller crown, floppier ears, etc.) this may need retuning the same way. */
-  #loc-banner-portrait.lineup.closeup{ align-items:center; }
+     (a taller crown, floppier ears, etc.) this may need retuning the same way. align-items stays
+     the base .lineup rule's flex-end (bottom-anchored, same as the full-body mercenary roster)
+     rather than centering — their cropped torso sits flush on the banner's own bottom edge/ledge
+     art so the frame genuinely reads as cutting them off there, not floating mid-banner. */
+  #loc-banner-portrait.lineup.closeup{ align-items:flex-end; }
   #loc-banner-portrait.lineup.closeup img{
     height:56%; width:auto; aspect-ratio:1.65; object-fit:cover; object-position:center top;
   }

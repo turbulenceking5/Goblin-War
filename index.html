@@ -919,16 +919,6 @@
     <div id="map-stage">
       <img id="map-img" alt="World map" draggable="false">
       <svg id="overlay" viewBox="-120 -120 2800 1517" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <!-- Fog of War reveal gradient — black center (fully hides the fog rect, i.e. "seen")
-               fading to white at the edge (fog rect fully shown, i.e. "unseen"). See
-               buildFogOverlay() and context/travel-and-map.md's "Fog of War" section. -->
-          <radialGradient id="fog-reveal-gradient">
-            <stop offset="0%" stop-color="black"/>
-            <stop offset="55%" stop-color="black"/>
-            <stop offset="100%" stop-color="white"/>
-          </radialGradient>
-        </defs>
         <g id="roads" style="pointer-events:none"></g>
         <g id="border-markers" style="pointer-events:none"></g>
         <path id="route-preview"/>
@@ -943,13 +933,6 @@
         <g id="battle-markers"></g>
         <g id="landmark-markers"></g>
         <g id="quest-markers" style="pointer-events:none"></g>
-        <mask id="fog-mask">
-          <rect x="-120" y="-120" width="2800" height="1517" fill="white"/>
-          <g id="fog-holes"></g>
-          <circle id="fog-mask-live" cx="-9999" cy="-9999" r="60" fill="url(#fog-reveal-gradient)"/>
-        </mask>
-        <rect id="fog-rect" x="-120" y="-120" width="2800" height="1517"
-              style="fill:var(--ink); opacity:.88; pointer-events:none" mask="url(#fog-mask)"/>
         <g id="player-layer"></g>
         <g id="highlight-ring"><circle r="22" fill="none" stroke-width="3"/></g>
       </svg>
@@ -5232,8 +5215,8 @@ function getVisitedBurgs(){ try{ return JSON.parse(localStorage.getItem(VISITED_
 // Exploration XP — the Expansion Research idea of the same name: a settlement's first-ever visit
 // is otherwise the one real milestone in this game that pays out nothing at all, unlike combat
 // (XP per victory) or a landmark (its own reward table, plus claimLandmark's own small bonus
-// below) — ties leveling to the fog-of-war/landmark systems too, not just combat, while staying
-// small enough that pure exploration can't out-level fighting on its own.
+// below) — ties leveling to exploration too, not just combat, while staying small enough that
+// pure exploration can't out-level fighting on its own.
 const EXPLORATION_XP_BURG = 5;
 function recordVisitedBurg(burgId){
   const visited = getVisitedBurgs();
@@ -5241,7 +5224,6 @@ function recordVisitedBurg(burgId){
   visited.push(burgId);
   localStorage.setItem(VISITED_BURGS_KEY, JSON.stringify(visited));
   checkAchievementUnlocks();
-  buildFogOverlay(); // a never-visited settlement just got a real, permanent hole punched in the fog
   const leveledUp = addXp(EXPLORATION_XP_BURG);
   if(leveledUp) showToast(`Level up! You are now level ${playerLevel}.`);
 }
@@ -8034,8 +8016,8 @@ function animateTravel(fromPos, toId, edgeSteps, destName, durationMs, onDone, o
 
   // A Reduced Motion toggle — the Expansion Research idea of the same name: skip the frame-by-
   // frame marker animation in favor of one instant jump to the destination, still calling
-  // onProgress once at frac:1 so live displays (Hunger/Thirst, the clock, Fog of War's live
-  // reveal) land in their correct final state instead of never updating at all.
+  // onProgress once at frac:1 so live displays (Hunger/Thirst, the clock) land in their correct
+  // final state instead of never updating at all.
   if(isReducedMotion()){
     const last = points.length - 1;
     const fx = points[last].x, fy = points[last].y, fCell = cellIds[last];
@@ -9429,8 +9411,6 @@ function beginTravel(destId, viaShortcut){
     activeTravel.lastSnap = info;
     updateLiveHungerThirstDisplay(startHunger, t.hungerGain, startThirst, t.thirstGain, info.frac);
     updateLiveClockDisplay(startHour, t.hours, info.frac);
-    const fogLive = document.getElementById('fog-mask-live');
-    if(fogLive){ fogLive.setAttribute('cx', info.x); fogLive.setAttribute('cy', info.y); }
   });
 
   activeTravel = { controller, destId, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
@@ -9485,8 +9465,6 @@ function beginTravelToBattle(battleId){
     activeTravel.lastSnap = info;
     updateLiveHungerThirstDisplay(startHunger, t.hungerGain, startThirst, t.thirstGain, info.frac);
     updateLiveClockDisplay(startHour, t.hours, info.frac);
-    const fogLive = document.getElementById('fog-mask-live');
-    if(fogLive){ fogLive.setAttribute('cx', info.x); fogLive.setAttribute('cy', info.y); }
   }, toXY);
 
   activeTravel = { controller, destId: null, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
@@ -9582,7 +9560,6 @@ function claimLandmark(id){
   if(claimed.includes(id)) return false;
   claimed.push(id);
   localStorage.setItem(LANDMARK_CLAIMED_KEY, JSON.stringify(claimed));
-  buildFogOverlay(); // a claimed landmark punches its own (smaller) hole in the fog too
   return addXp(EXPLORATION_XP_LANDMARK);
 }
 const LANDMARK_REWARDS = {
@@ -9591,9 +9568,9 @@ const LANDMARK_REWARDS = {
   // Pure gold, no XP — weighted toward a bigger payout than Ruins since finding one carries no
   // ongoing risk beyond the arrival roll every landmark already shares (no digging, no fight).
   cache: { gold:[30,60] },
-  // Pure XP, no gold/item — a Watchtower's own "climb up, take in the view" flavor is now covered
-  // for free by claimLandmark()'s buildFogOverlay() call (see Fog of War), so no separate reward
-  // field was added here; kept reward-only like every other landmark type otherwise.
+  // Pure XP, no gold/item — a Watchtower's own "climb up, take in the view" flavor doesn't need a
+  // separate mechanical reward on top of the flat landmark XP; kept reward-only like every other
+  // landmark type otherwise.
   watchtower: { xp:[20,35] },
   // Pure gold plus a chance at salvaged cargo — the coastal counterpart to Ruins, same no-risk-
   // beyond-arrival shape every landmark type already shares.
@@ -9732,8 +9709,6 @@ function beginTravelToLandmark(landmarkId){
     activeTravel.lastSnap = info;
     updateLiveHungerThirstDisplay(startHunger, t.hungerGain, startThirst, t.thirstGain, info.frac);
     updateLiveClockDisplay(startHour, t.hours, info.frac);
-    const fogLive = document.getElementById('fog-mask-live');
-    if(fogLive){ fogLive.setAttribute('cx', info.x); fogLive.setAttribute('cy', info.y); }
   }, toXY);
 
   activeTravel = { controller, destId: null, destName, totalHours: t.hours, startHunger, startThirst, hungerGain: t.hungerGain, thirstGain: t.thirstGain, lastSnap:{frac:0, x:fromPos.x, y:fromPos.y, cell:fromPos.cell, name: getCurrentDisplayName()} };
@@ -9800,47 +9775,6 @@ function buildLandmarkMarkers(){
     mark.style.pointerEvents = "none";
     g.appendChild(mark);
   });
-}
-
-// ===================== FOG OF WAR =====================
-// Unvisited regions of the map render darkened until the player has actually been near them — see
-// context/travel-and-map.md's "Fog of War" section for the full writeup. Deliberately no new
-// persisted state: the revealed set is derived fresh, every rebuild, from goblinwar_visitedBurgs
-// (getVisitedBurgs — already tracked for achievements) and goblinwar_landmarksClaimed
-// (getClaimedLandmarks — already tracked for the landmark reward system), plus wherever the
-// player currently stands, so a brand-new character always starts with their own position
-// visible even before showLocationView's own recordVisitedBurg call ever fires. Technique: an SVG
-// <mask> (#fog-mask, declared alongside #fog-rect/#fog-reveal-gradient in the #overlay markup) —
-// white mask content shows the dark #fog-rect, black hides it, so each hole below is a soft
-// black-to-white radial gradient circle "burning through" the mask's white base.
-const FOG_REVEAL_RADIUS = 110;         // logical units revealed around every visited burg, and around wherever the player currently stands
-const FOG_LANDMARK_REVEAL_RADIUS = 80; // a claimed landmark reveals a slightly smaller patch than a settlement does
-function buildFogOverlay(){
-  const holes = document.getElementById('fog-holes');
-  if(!holes) return;
-  holes.innerHTML = '';
-  const ns = "http://www.w3.org/2000/svg";
-  const addHole = (x, y, r) => {
-    const c = document.createElementNS(ns, "circle");
-    c.setAttribute("cx", x);
-    c.setAttribute("cy", y);
-    c.setAttribute("r", r);
-    c.setAttribute("fill", "url(#fog-reveal-gradient)");
-    holes.appendChild(c);
-  };
-  getVisitedBurgs().forEach(id => {
-    const b = graph.burgs[id];
-    if(b) addHole(b.x, b.y, FOG_REVEAL_RADIUS);
-  });
-  getClaimedLandmarks().forEach(id => {
-    const lm = landmarks.find(l => l.id === id);
-    if(lm) addHole(lm.x, lm.y, FOG_LANDMARK_REVEAL_RADIUS);
-  });
-  // Wherever the player is standing right now is always revealed, independent of the visited-burg
-  // list above — covers a brand-new character who hasn't opened their own starting settlement's
-  // panel yet, and anyone currently camped away from any burg at all.
-  const pos = getCurrentXY();
-  if(pos) addHole(pos.x, pos.y, FOG_REVEAL_RADIUS);
 }
 
 // ===================== MAP LEGEND =====================
@@ -15500,7 +15434,6 @@ Promise.all([
   buildBattleMarkers();
   buildLandmarkMarkers();
   buildQuestMarkers();
-  buildFogOverlay();
   drawPlayerMarker();
   refreshCalendarUI();
   refreshPlayerStatUI();

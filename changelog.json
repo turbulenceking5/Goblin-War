@@ -1419,5 +1419,12 @@
     "changes": [
       "Your Hero sheet's \"Origin\" now shows the actual kingdom you started in, based on the Starting City you picked at character creation — it no longer always says \"Kingdom of Bary\" regardless of where you began."
     ]
+  },
+  {
+    "id": 186,
+    "date": "2026-10-07",
+    "changes": [
+      "Removed the fog of war darkening unexplored parts of the map — the whole map is visible again from the start."
+    ]
   }
 ]

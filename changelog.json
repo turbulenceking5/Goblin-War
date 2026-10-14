@@ -1426,12 +1426,5 @@
     "changes": [
       "Removed the fog of war darkening unexplored parts of the map — the whole map is visible again from the start."
     ]
-  },
-  {
-    "id": 187,
-    "date": "2026-10-14",
-    "changes": [
-      "Widened the default map view — recentering (on load, after travel, from search) now shows more of the surrounding area instead of zooming in as tight as before."
-    ]
   }
 ]

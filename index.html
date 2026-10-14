@@ -2264,7 +2264,7 @@ const RASTER_W = STAGE_W / 2, RASTER_H = STAGE_H / 2; // 5120 x 2554
 // "write it down, recompute by hand if either changes" precedent LABEL_OFFSET_Y already set).
 const MAP_EDGE_PAD = 120;
 const START_X = 705, START_Y = 448;         // placeholder pre-recenter position — immediately overridden once this character's own generated world/currentBurg resolves, see the LOAD init block
-const REGION_W = 380;                        // default zoom shows this many logical units wide — bumped up from 260 so the default/recenter view shows a wider stretch of the surrounding map
+const REGION_W = 260;                        // default zoom shows this many logical units wide
 
 let view = { scale: 1, tx: 0, ty: 0 };
 let svgEl = document.getElementById('overlay'); // the interaction overlay (tap zones, marker, etc.)
